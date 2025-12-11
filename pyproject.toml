@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "vt-voice-translation-poc"
+version = "0.1.0"
+description = "Proof of concept for Azure Speech translation using the Live Interpreter preview with Personal Voice."
+authors = ["vt Voice Translation POC Team <devnull@example.com>"]
+readme = "README.md"
+packages = [{include = "vt_voice_translation_poc", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+azure-cognitiveservices-speech = "^1.44.0"
+typer = {extras = ["all"], version = "^0.12.3"}
+python-dotenv = "^1.0.1"
+rich = "^13.9.2"
+websockets = "^11.0.3"
+click = ">=8.1.0,<8.2.0"
+numpy = "^2.1.2"
+sounddevice = "^0.5.3"
+pyaudio = {version = "^0.2.14", optional = true}
+pyyaml = "^6.0.1"
+reportlab = "^4.0.0"
+openai = "^1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.2"
+pytest-asyncio = "^0.23.7"
+
+[tool.poetry.group.evaluations]
+optional = true
+
+[tool.poetry.group.evaluations.dependencies]
+pyyaml = "^6.0.1"
+reportlab = "^4.0.0"
+openai = "^1.0.0"
+pymongo = "^4.10.1"
+motor = "^3.6.0"
+gitpython = "^3.1.43"
+
+[tool.poetry.scripts]
+speech-poc = "vt_voice_translation_poc.cli:app"
+run-evaluations = "evaluations.run_evaluations:main"
+run-metrics = "evaluations.run_metrics:main"
+echo-test = "evaluations.echo_test:main"
+websocket-echo = "evaluations.websocket_echo:main"
+convert-to-acs = "evaluations.convert_to_acs_format:main"
+prod = "production.cli:app"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+

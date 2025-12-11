@@ -1,0 +1,100 @@
+id: fatigue_exam
+description: Doctor conducting detailed fatigue examination with patient
+tags:
+- medical
+- consultation
+- detailed
+participants:
+  doctor:
+    source_language: es-ES
+    target_language: en-US
+    audio_files:
+      d1: ../audios/fatigue_exam_001.wav
+      d2: ../audios/fatigue_exam_003.wav
+      d3: ../audios/fatigue_exam_005.wav
+  patient:
+    source_language: en-US
+    target_language: es-ES
+    audio_files:
+      p1: ../audios/fatigue_exam_002.wav
+      p2: ../audios/fatigue_exam_004.wav
+events:
+- id: doctor_turn_1
+  type: play_audio
+  participant: doctor
+  audio_file: d1
+  start_at_ms: 0
+  barge_in: false
+- id: patient_turn_1
+  type: play_audio
+  participant: patient
+  audio_file: p1
+  start_at_ms: 24257
+  barge_in: false
+- id: doctor_turn_2
+  type: play_audio
+  participant: doctor
+  audio_file: d2
+  start_at_ms: 51779
+  barge_in: false
+- id: patient_turn_2
+  type: play_audio
+  participant: patient
+  audio_file: p2
+  start_at_ms: 83411
+  barge_in: false
+- id: doctor_turn_3
+  type: play_audio
+  participant: doctor
+  audio_file: d3
+  start_at_ms: 106371
+  barge_in: false
+expectations:
+  transcripts:
+  - id: doctor_turn_1_translation
+    event_id: doctor_turn_1
+    source_language: es-ES
+    target_language: en-US
+    expected_text: Buenas tardes. Antes de empezar, quiero que se tome su tiempo y
+      me explique con sus propias palabras qué le ha estado molestando en estos últimos
+      días. Cuantos más detalles me dé, más fácil será para mí entender su situación
+      y decidir qué pasos debemos seguir.
+  - id: patient_turn_1_translation
+    event_id: patient_turn_1
+    source_language: en-US
+    target_language: es-ES
+    expected_text: Thank you, doctor. For about five days now I've been feeling a
+      tiredness that isn't normal for me. Even when I sleep well, I wake up without
+      energy. I've also had some muscle aches that come and go, especially in my legs
+      and back.
+  - id: doctor_turn_2_translation
+    event_id: doctor_turn_2
+    source_language: es-ES
+    target_language: en-US
+    expected_text: 'Gracias por ser tan detallado, eso ayuda mucho. El cansancio y
+      las molestias musculares pueden deberse a muchas causas diferentes: estrés,
+      infecciones, problemas nutricionales o incluso falta de hidratación adecuada.
+      Me gustaría hacerle algunas preguntas más para acotar las posibilidades: ¿ha
+      notado fiebre, cambios en el apetito o un aumento reciente del estrés?'
+  - id: patient_turn_2_translation
+    event_id: patient_turn_2
+    source_language: en-US
+    target_language: es-ES
+    expected_text: I haven't had a fever, that's for sure. My appetite is a little
+      lower, but I think it's because I feel so tired. As for stress, I've had some
+      pressure at work, but nothing out of the ordinary.
+  - id: doctor_turn_3_translation
+    event_id: doctor_turn_3
+    source_language: es-ES
+    target_language: en-US
+    expected_text: Entiendo. Gracias por aclararlo. Haremos un par de revisiones básicas,
+      pero por ahora siga describiendo cualquier otra cosa que considere relevante,
+      aunque le parezca menor. A veces los pequeños detalles nos orientan en la dirección
+      correcta.
+  sequence:
+  - doctor_turn_1
+  - patient_turn_1
+  - doctor_turn_2
+  - patient_turn_2
+  - doctor_turn_3
+  max_latency_ms: 6000

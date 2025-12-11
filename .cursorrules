@@ -1,0 +1,23 @@
+## Project Rules
+- Primary implementation language: Python (3.10+ preferred).
+- Target service: Azure AI Speech Translation (Live Interpreter preview with Personal Voice) as described in Microsoft docs.
+- Never hardcode secrets or subscription keys; load from environment variables or secure stores.
+- Practice incremental development with clear planning, testing, and documentation.
+- Record significant architectural or process decisions in this file as they emerge.
+
+## Decisions
+- 2025-11-10: Manage dependencies with Poetry (`pyproject.toml`); expose CLI via `speech-poc` entry point.
+- 2025-11-10: Support WAV natively and MP3 via Azure SDK compressed streams (no external codec dependency).
+- 2025-11-10: Use Typer for CLI ergonomics and Rich for console output in the POC tooling.
+- 2025-11-10: Architect translation provider abstraction to switch between Live Interpreter and Voice Live via environment selection.
+- 2025-11-10: Implemented Voice Live WebSocket integration (WAV-only input) using the `websockets` client library.
+- 2025-11-12: Voice Live provider enforces translation-only prompt, validates supported voices, and captures streaming transcripts/audio at the model sample rate.
+- 2025-11-14: Live Interpreter provider now honors `SPEECH__ENDPOINT` and prefers `SpeechTranslationConfig.from_endpoint`, aligning with the Azure microphone translation quickstart flow.
+
+## Good Practices
+- Capture `response.audio_transcript.*` events to build translation text when JSON output is absent.
+- Handle both `response.audio.delta` and `response.output_audio.delta` to avoid truncated WAVs; write output using the model’s sample rate (24 kHz by default).
+- When adding configuration knobs, surface them through `.env` variables and document in `README.md`.
+- Keep Voice Live instructions concise and translation-focused to prevent conversational drift (avoid chaining unrelated prompts in the same session).
+
+

@@ -1,0 +1,81 @@
+test_cases:
+  - id: tc001
+    name: "Basic Conversation 1"
+    audio_file: "./ground_truth/conversation1.wav"
+    expected_text: "./ground_truth/conversation1.txt"
+    enabled: true
+    metadata:
+      description: "Basic conversation using medical terms of two different people"
+  - id: tc002
+    name: "Basic Conversation 2"
+    audio_file: "./ground_truth/conversation2.wav"
+    expected_text: "./ground_truth/conversation2.txt"
+    enabled: false
+    metadata:
+      description: "Basic conversation using medical terms of two different people"
+  - id: tc003
+    name: "Basic Conversation 3"
+    audio_file: "./ground_truth/conversation3.wav"
+    expected_text: "./ground_truth/conversation3.txt"
+    enabled: false
+    metadata:
+      description: "Basic conversation using medical terms of two different people"
+  - id: tc004
+    name: "Basic Conversation 4"
+    audio_file: "./ground_truth/conversation4.wav"
+    expected_text: "./ground_truth/conversation4.txt"
+    enabled: false
+    metadata:
+      description: "Basic conversation using medical terms of two different people"
+  - id: tc005
+    name: "Basic Conversation with White Noise overlay"
+    audio_file: "./ground_truth/noise.wav"
+    expected_text: "./ground_truth/noise.txt"
+    enabled: false
+    metadata:
+      description: "Basic conversation with white noise overlay"
+  - id: tc006
+    name: "Full Text with Technical Terms in English"
+    audio_file: "./ground_truth/technical_en.wav"
+    expected_text: "./ground_truth/technical_en.txt"
+    enabled: false
+    metadata:
+      description: "full text with technical terms in english"
+  - id: tc007
+    name: "Basic Conversation with Technical Terms"
+    audio_file: "./ground_truth/technical_es.wav"
+    expected_text: "./ground_truth/technical_es.txt"
+    enabled: false
+    metadata:
+      description: "Basic conversation with technical terms in spanish"
+
+  - id: tc008
+    name: "Doctor - patient conversation"
+    audio_file: "./ground_truth/conversation5.wav"
+    expected_text: "./ground_truth/conversation5.txt"
+    enabled: false
+    metadata:
+      description: "Doctor - patient conversation"
+
+  - id: local001
+    name: "Developer created test sample"
+    audio_file: "./ground_truth/local001.wav"
+    expected_text: "./ground_truth/local001.txt"
+    enabled: false
+    metadata:
+      description: "Local development sample"
+
+# Configuration defaults (can be overridden per test case)
+defaults:
+  chunk_duration_ms: 100
+  delay_between_chunks_ms: 0
+  wait_for_ack: true  # Wait for server ACK after each chunk (needed for voice_live)
+  participant_id: "4:+13343543433"
+  max_wait_time_sec: 15  # Maximum time to wait for responses after audio completes
+  idle_timeout_sec: 3    # Stop waiting if no responses received for this duration
+
+# Server configuration
+server:
+  host: "localhost"
+  port: 8765
+

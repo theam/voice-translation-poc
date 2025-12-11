@@ -1,0 +1,62 @@
+id: headache_appt
+description: Patient requesting stronger medication for headache, doctor recommends
+  in-person appointment
+tags:
+- medical
+- headache
+- telehealth
+participants:
+  doctor:
+    source_language: es-ES
+    target_language: en-US
+    audio_files:
+      d1: ../audios/headache_appt_001.wav
+      d2: ../audios/headache_appt_003.wav
+  patient:
+    source_language: en-US
+    target_language: es-ES
+    audio_files:
+      p1: ../audios/headache_appt_002.wav
+events:
+- id: doctor_turn_1
+  type: play_audio
+  participant: doctor
+  audio_file: d1
+  start_at_ms: 0
+  barge_in: false
+- id: patient_turn_1
+  type: play_audio
+  participant: patient
+  audio_file: p1
+  start_at_ms: 9821
+  barge_in: false
+- id: doctor_turn_2
+  type: play_audio
+  participant: doctor
+  audio_file: d2
+  start_at_ms: 25730
+  barge_in: false
+expectations:
+  transcripts:
+  - id: doctor_turn_1_translation
+    event_id: doctor_turn_1
+    source_language: es-ES
+    target_language: en-US
+    expected_text: Hola, ¿cómo puedo ayudarte hoy?
+  - id: patient_turn_1_translation
+    event_id: patient_turn_1
+    source_language: en-US
+    target_language: es-ES
+    expected_text: Hello, I have a really bad headache, I have been taking paracetamol
+      for three days, but it does not go away. Could you give me something stronger?
+  - id: doctor_turn_2_translation
+    event_id: doctor_turn_2
+    source_language: es-ES
+    target_language: en-US
+    expected_text: Lo siento, no creo que pueda mandarte algo mas fuerte sin verte
+      en persona. Pide una cita y vemos lo que podemos hacer.
+  sequence:
+  - doctor_turn_1
+  - patient_turn_1
+  - doctor_turn_2
+  max_latency_ms: 6000

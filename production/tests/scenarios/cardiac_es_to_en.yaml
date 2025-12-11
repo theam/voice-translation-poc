@@ -1,0 +1,36 @@
+id: cardiac_es_to_en
+description: Doctor reading cardiac case report in English with technical medical
+  terminology (translating to Spanish)
+tags:
+- medical
+- cardiology
+- technical
+- english
+participants:
+  doctor:
+    source_language: en-US
+    target_language: es-ES
+    audio_files:
+      d1: ../audios/cardiac_es_to_en_001.wav
+events:
+- id: doctor_turn_1
+  type: play_audio
+  participant: doctor
+  audio_file: d1
+  start_at_ms: 0
+  barge_in: false
+expectations:
+  transcripts:
+  - id: doctor_turn_1_translation
+    event_id: doctor_turn_1
+    source_language: en-US
+    target_language: es-ES
+    expected_text: The patient presents with acute decompensated heart failure. Severe
+      pulmonary congestion, supraventricular tachyarrhythmia, and edema. Progressive
+      ultrasensitive troponin. The echocardiogram reveals left ventricular systolic
+      dysfunction. Reduced ejection fraction and signs of pulmonary hypertension.
+      Continuous hemodynamic monitoring, inotropic adjustment. Optimization of diuretics
+      and immediate evaluation for percutaneous coronary intervention.
+  sequence:
+  - doctor_turn_1
+  max_latency_ms: 6000

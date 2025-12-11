@@ -1,0 +1,37 @@
+id: cardiac_en_to_es
+description: Doctor reading cardiac case report in Spanish with technical medical
+  terminology (translating to English)
+tags:
+- medical
+- cardiology
+- technical
+- spanish
+participants:
+  doctor:
+    source_language: es-ES
+    target_language: en-US
+    audio_files:
+      d1: ../audios/cardiac_en_to_es_001.wav
+events:
+- id: doctor_turn_1
+  type: play_audio
+  participant: doctor
+  audio_file: d1
+  start_at_ms: 0
+  barge_in: false
+expectations:
+  transcripts:
+  - id: doctor_turn_1_translation
+    event_id: doctor_turn_1
+    source_language: es-ES
+    target_language: en-US
+    expected_text: El paciente se presenta con insuficiencia cardíaca aguda descompensada,
+      caracterizada por congestión pulmonar, taquiarritmia supraventricular y elevación
+      progresiva de troponina de alta sensibilidad. La ecocardiografía muestra disfunción
+      sistólica del ventrículo izquierdo con reducción fracción de eyección y signos
+      de hipertensión pulmonar. se indica el monitoreo hemodinámico continuo, junto
+      con la titulación de medicamentos optimización de diuréticos y evaluación inmediata
+      para intervención percutánea intervención coronaria.
+  sequence:
+  - doctor_turn_1
+  max_latency_ms: 6000

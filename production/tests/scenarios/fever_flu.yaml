@@ -1,0 +1,60 @@
+id: fever_flu
+description: Patient with fever and flu symptoms consulting with nurse
+tags:
+- medical
+- infectious
+participants:
+  patient:
+    source_language: en-US
+    target_language: es-ES
+    audio_files:
+      p1: ../audios/fever_flu_001.wav
+      p2: ../audios/fever_flu_003.wav
+  nurse:
+    source_language: es-ES
+    target_language: en-US
+    audio_files:
+      n1: ../audios/fever_flu_002.wav
+events:
+- id: patient_turn_1
+  type: play_audio
+  participant: patient
+  audio_file: p1
+  start_at_ms: 0
+  barge_in: false
+- id: nurse_turn_1
+  type: play_audio
+  participant: nurse
+  audio_file: n1
+  start_at_ms: 14516
+  barge_in: false
+- id: patient_turn_2
+  type: play_audio
+  participant: patient
+  audio_file: p2
+  start_at_ms: 24398
+  barge_in: false
+expectations:
+  transcripts:
+  - id: patient_turn_1_translation
+    event_id: patient_turn_1
+    source_language: en-US
+    target_language: es-ES
+    expected_text: I have a fever, body aches, and chills. I took 500 miligrams of
+      acetaminophen four hours ago, but it hasn't gone down.
+  - id: nurse_turn_1_translation
+    event_id: nurse_turn_1
+    source_language: es-ES
+    target_language: en-US
+    expected_text: Está bien. ¿Has estado cerca de alguien que haya estado enfermo
+      recientemente?
+  - id: patient_turn_2_translation
+    event_id: patient_turn_2
+    source_language: en-US
+    target_language: es-ES
+    expected_text: Yes. My son had the flu last week.
+  sequence:
+  - patient_turn_1
+  - nurse_turn_1
+  - patient_turn_2
+  max_latency_ms: 6000

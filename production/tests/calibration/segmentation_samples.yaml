@@ -1,0 +1,164 @@
+# Calibration samples for Segmentation Metric
+# Tests sentence boundaries and turn segmentation on 1-5 scale
+
+id: segmentation_calibration_baseline
+version: "1.0"
+description: Baseline calibration for segmentation metric - tests punctuation and sentence boundaries
+metric: segmentation
+created_at: "2025-12-10"
+tags: [calibration, segmentation, baseline, punctuation]
+
+calibration_cases:
+  # Score 5: Perfect segmentation
+  - id: perfect_segmentation_multi
+    description: "Perfect segmentation - multiple sentences with proper punctuation"
+    text: "I have a fever and body aches. I took acetaminophen four hours ago. It hasn't helped yet."
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 1000
+    expected_scores:
+      segmentation_1_5: 5
+      segmentation_normalized: 1.0
+    expected_reasoning: "Perfect sentence boundaries with proper punctuation - natural breaks between ideas"
+
+  # Score 5: Perfect single sentence
+  - id: perfect_segmentation_single
+    description: "Perfect segmentation - single well-formed sentence"
+    text: "Hello, how are you feeling today?"
+    metadata:
+      source_language: es-ES
+      target_language: en-US
+      participant_id: nurse
+      timestamp_ms: 2000
+    expected_scores:
+      segmentation_1_5: 5
+      segmentation_normalized: 1.0
+    expected_reasoning: "Well-formed single sentence with appropriate comma placement"
+
+  # Score 4: Good with minor issue
+  - id: minor_comma_issue
+    description: "Good segmentation - missing one comma but otherwise fine"
+    text: "I have a fever body aches and chills."
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 3000
+    expected_scores:
+      segmentation_1_5: 4
+      segmentation_normalized: 0.75
+    expected_reasoning: "Good overall but missing comma after 'fever' in list - minor punctuation issue"
+
+  # Score 4: Slight over-segmentation
+  - id: slight_over_segmentation
+    description: "Slightly over-segmented but acceptable"
+    text: "I have a fever. And body aches. And chills."
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 4000
+    expected_scores:
+      segmentation_1_5: 4
+      segmentation_normalized: 0.75
+    expected_reasoning: "Slightly over-segmented - starting sentences with 'And' is acceptable but not ideal"
+
+  # Score 3: Acceptable but multiple issues
+  - id: missing_punctuation
+    description: "Acceptable - missing several punctuation marks"
+    text: "I have a fever and body aches I took medicine but it didn't help"
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 5000
+    expected_scores:
+      segmentation_1_5: 3
+      segmentation_normalized: 0.50
+    expected_reasoning: "Understandable but missing period between clauses - run-on structure"
+
+  # Score 3: Over-segmentation
+  - id: over_segmented
+    description: "Over-segmented - too many breaks"
+    text: "I. Have. A. Fever. And. Body. Aches."
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 6000
+    expected_scores:
+      segmentation_1_5: 3
+      segmentation_normalized: 0.50
+    expected_reasoning: "Severely over-segmented - breaks between every word are unnatural"
+
+  # Score 2: Poor segmentation
+  - id: no_punctuation
+    description: "Poor - completely missing punctuation"
+    text: "I have a fever and body aches and chills and I took medicine four hours ago but it hasn't helped and now I'm worried"
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 7000
+    expected_scores:
+      segmentation_1_5: 2
+      segmentation_normalized: 0.25
+    expected_reasoning: "Poor segmentation - long run-on sentence with no punctuation or natural breaks"
+
+  # Score 2: Wrong punctuation
+  - id: wrong_punctuation
+    description: "Poor - incorrect punctuation usage"
+    text: "I have a fever, and body aches, and chills, I took medicine, but it didn't help,"
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 8000
+    expected_scores:
+      segmentation_1_5: 2
+      segmentation_normalized: 0.25
+    expected_reasoning: "Poor - comma splice and excessive comma usage, unclear sentence boundaries"
+
+  # Score 1: Severely fragmented
+  - id: severe_fragmentation
+    description: "Severely fragmented - random breaks mid-word"
+    text: "I ha ve a fe ver and bo dy ac hes"
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 9000
+    expected_scores:
+      segmentation_1_5: 1
+      segmentation_normalized: 0.0
+    expected_reasoning: "Severely fragmented - spaces inserted mid-word make text incomprehensible"
+
+  # Score 1: No boundaries
+  - id: no_word_boundaries
+    description: "No segmentation - all words concatenated"
+    text: "Ihaveafeverandbodyachesandchills"
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 10000
+    expected_scores:
+      segmentation_1_5: 1
+      segmentation_normalized: 0.0
+    expected_reasoning: "No segmentation at all - all words run together without spaces"
+
+  # Edge case: Single word
+  - id: single_word
+    description: "Single word - technically perfect segmentation"
+    text: "Yes."
+    metadata:
+      source_language: en-US
+      target_language: es-ES
+      participant_id: patient
+      timestamp_ms: 11000
+    expected_scores:
+      segmentation_1_5: 5
+      segmentation_normalized: 1.0
+    expected_reasoning: "Single word with proper punctuation - perfect for this context"
