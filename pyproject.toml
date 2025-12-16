@@ -7,14 +7,14 @@ readme = "README.md"
 packages = [{include = "vt_voice_translation_poc", from = "src"}]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.9.6,<3.10"
 azure-cognitiveservices-speech = "^1.44.0"
 typer = {extras = ["all"], version = "^0.12.3"}
 python-dotenv = "^1.0.1"
 rich = "^13.9.2"
 websockets = "^11.0.3"
 click = ">=8.1.0,<8.2.0"
-numpy = "^2.1.2"
+numpy = "^1.26.4"
 sounddevice = "^0.5.3"
 pyaudio = {version = "^0.2.14", optional = true}
 pyyaml = "^6.0.1"
