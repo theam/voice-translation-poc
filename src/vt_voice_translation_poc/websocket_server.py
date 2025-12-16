@@ -9,7 +9,7 @@ import logging
 import threading
 from collections import deque
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 import azure.cognitiveservices.speech as speechsdk
 import numpy as np
@@ -42,7 +42,7 @@ class WebSocketServer:
         host: str = "localhost",
         port: int = 8765,
         from_language: str = "en-US",
-        to_languages: list[str] | None = None,
+        to_languages: Optional[list[str]] = None,
         voice: Optional[str] = None,
         play_input_audio: bool = False,
         play_azure_audio: bool = False,
@@ -131,7 +131,7 @@ class WebSocketServer:
     async def _process_message(
         self, 
         websocket: WebSocketServerProtocol, 
-        message: bytes | str,
+        message: Union[bytes, str],
         session: dict,
     ) -> None:
         """Process an incoming message from the client."""
@@ -339,7 +339,7 @@ class WebSocketServer:
         self,
         websocket: WebSocketServerProtocol,
         base64_audio: str,
-    ) -> bytes | None:
+    ) -> Optional[bytes]:
         """Decode base64 audio. Returns None if error occurred."""
         try:
             audio_bytes = base64.b64decode(base64_audio)
@@ -355,7 +355,7 @@ class WebSocketServer:
             }))
             return None
 
-    def _resample_audio(self, audio_bytes: bytes, session: dict) -> bytes | None:
+    def _resample_audio(self, audio_bytes: bytes, session: dict) -> Optional[bytes]:
         """Resample and convert audio to mono 16kHz for translation service.
         
         Ensures output is:

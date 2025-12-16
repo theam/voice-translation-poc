@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Union
 
 import yaml
 
@@ -27,7 +27,7 @@ class CalibrationLoader:
         >>> configs = loader.load_directory("production/tests/calibration")
     """
 
-    def load_file(self, file_path: Path | str) -> CalibrationConfig:
+    def load_file(self, file_path: Union[Path, str]) -> CalibrationConfig:
         """Load single calibration file.
 
         Args:
@@ -60,7 +60,7 @@ class CalibrationLoader:
 
         return config
 
-    def load_directory(self, dir_path: Path | str) -> List[CalibrationConfig]:
+    def load_directory(self, dir_path: Union[Path, str]) -> List[CalibrationConfig]:
         """Load all calibration files from directory.
 
         Args:

@@ -103,6 +103,16 @@ class MetricsCollector:
                 "Test run scores with sequence numbers (1=oldest, max=newest).",
                 labels=["series", "environment", "target_system", "test_id", "run_seq"],
             ),
+            "calibration_run_sequence_status": GaugeMetricFamily(
+                "calibration_run_sequence_status",
+                "Calibration run pass/fail status with sequence numbers (100=passed, 50=failed).",
+                labels=["series", "environment", "run_seq"],
+            ),
+            "calibration_run_count": GaugeMetricFamily(
+                "calibration_run_count",
+                "Total number of calibration runs per environment.",
+                labels=["environment"],
+            ),
         }
         return families
 
@@ -139,10 +149,12 @@ class MetricsCollector:
 
         families = self._metric_families()
 
-        # Count evaluation runs by environment/target (only those with scores)
+        # Count evaluation runs by environment/target (only those with scores, exclude calibrations)
         eval_run_counts: Dict = {}
         for run in evaluation_runs:
             if run.get("score") is None:
+                continue
+            if run.get("target_system") == "calibration":
                 continue
             env = run.get("environment", "unknown")
             target = run.get("target_system", "unknown")
@@ -152,13 +164,15 @@ class MetricsCollector:
         for (env, target), count in eval_run_counts.items():
             families["evaluation_run_count"].add_metric([env, target], float(count))
 
-        # Count test runs by environment/target/test_id (only those with scores)
+        # Count test runs by environment/target/test_id (only those with scores, exclude calibrations)
         test_run_counts: Dict = {}
         for test_doc in test_runs:
             eval_id = test_doc.get("evaluation_run_id")
             environment = all_env_by_eval_id.get(eval_id)
             target_system = all_target_system_by_eval_id.get(eval_id)
             if environment is None or target_system is None:
+                continue
+            if target_system == "calibration":
                 continue
             if test_doc.get("score") is None:
                 continue
@@ -169,10 +183,12 @@ class MetricsCollector:
         for (env, target, test_id), count in test_run_counts.items():
             families["test_run_count"].add_metric([env, target, test_id], float(count))
 
-        # Add discrete scores for ALL evaluation runs (not just latest)
+        # Add discrete scores for ALL evaluation runs (not just latest, exclude calibrations)
         for eval_doc in evaluation_runs:
             environment = eval_doc.get("environment", "unknown")
             target_system = eval_doc.get("target_system", "unknown")
+            if target_system == "calibration":
+                continue
             # Use MongoDB _id as the unique identifier
             evaluation_run_id = str(eval_doc.get("_id", "unknown"))
             score = eval_doc.get("score")
@@ -181,12 +197,14 @@ class MetricsCollector:
                     [environment, target_system, evaluation_run_id], float(score)
                 )
 
-        # Add discrete scores for ALL test runs
+        # Add discrete scores for ALL test runs (exclude calibrations)
         for test_doc in test_runs:
             eval_id = test_doc.get("evaluation_run_id")
             environment = all_env_by_eval_id.get(eval_id)
             target_system = all_target_system_by_eval_id.get(eval_id)
             if environment is None or target_system is None:
+                continue
+            if target_system == "calibration":
                 continue
 
             test_id = str(test_doc.get("test_id"))
@@ -209,9 +227,11 @@ class MetricsCollector:
             if eval_id:
                 eval_finished_at[eval_id] = eval_doc.get("finished_at") or eval_doc.get("started_at")
 
-        # Add sequence-based scores for ALL evaluation runs
+        # Add sequence-based scores for ALL evaluation runs (exclude calibrations)
         runs_by_env_target_seq = {}
         for eval_doc in evaluation_runs:
+            if eval_doc.get("target_system") == "calibration":
+                continue
             environment = eval_doc.get("environment", "unknown")
             target_system = eval_doc.get("target_system", "unknown")
             key = (environment, target_system)
@@ -246,13 +266,63 @@ class MetricsCollector:
                     [series_label, environment, target_system, str(run_seq)], float(run.get("score"))
                 )
 
-        # Add sequence-based scores for ALL test runs
+        # Add sequence-based status for calibration runs
+        calibration_runs = [
+            run for run in evaluation_runs
+            if run.get("target_system") == "calibration"
+        ]
+
+        # Group calibration runs by environment
+        calibration_by_env = {}
+        for run in calibration_runs:
+            environment = run.get("environment", "unknown")
+            if environment not in calibration_by_env:
+                calibration_by_env[environment] = []
+            calibration_by_env[environment].append(run)
+
+        # Calculate max sequence for calibrations
+        max_cal_seq = 0
+        calibration_series_runs = {}
+        for environment, runs in calibration_by_env.items():
+            # Sort by finished_at (oldest first)
+            sorted_runs = sorted(
+                runs,
+                key=lambda x: x.get("finished_at") or x.get("started_at") or datetime.min,
+                reverse=False
+            )
+            # Filter runs with calibration_status
+            runs_with_status = [run for run in sorted_runs if run.get("calibration_status") is not None]
+            calibration_series_runs[environment] = runs_with_status
+            max_cal_seq = max(max_cal_seq, len(runs_with_status))
+
+        # Emit calibration sequence metrics (right-aligned)
+        for environment, runs_with_status in calibration_series_runs.items():
+            n = len(runs_with_status)
+            series_label = environment
+            start_seq = max_cal_seq - n + 1
+            for i, run in enumerate(runs_with_status):
+                run_seq = start_seq + i
+                # Map status to value: 100 for passed, 50 for failed
+                status = run.get("calibration_status", "failed")
+                status_value = 100.0 if status == "passed" else 50.0
+                families["calibration_run_sequence_status"].add_metric(
+                    [series_label, environment, str(run_seq)], status_value
+                )
+
+        # Emit calibration run counts per environment
+        for environment, runs in calibration_by_env.items():
+            count = len(runs)
+            families["calibration_run_count"].add_metric([environment], float(count))
+
+        # Add sequence-based scores for ALL test runs (exclude calibrations)
         test_runs_by_key_seq = {}
         for test_doc in test_runs:
             eval_id = test_doc.get("evaluation_run_id")
             environment = all_env_by_eval_id.get(eval_id)
             target_system = all_target_system_by_eval_id.get(eval_id)
             if environment is None or target_system is None:
+                continue
+            if target_system == "calibration":
                 continue
 
             test_id = str(test_doc.get("test_id"))
@@ -296,6 +366,10 @@ class MetricsCollector:
             environment = eval_doc.get("environment", "unknown")
             target_system = eval_doc.get("target_system", "unknown")
 
+            # Skip calibration runs
+            if target_system == "calibration":
+                continue
+
             score = eval_doc.get("score")
             if score is not None:
                 families["evaluation_score"].add_metric([environment, target_system], score)
@@ -329,6 +403,8 @@ class MetricsCollector:
             eval_doc = evaluation_by_id.get(eval_id)
             if environment is None or target_system is None or eval_doc is None:
                 logger.debug("Skipping test run with unknown evaluation id: %s", eval_id)
+                continue
+            if target_system == "calibration":
                 continue
 
             test_id = str(test_doc.get("test_id"))

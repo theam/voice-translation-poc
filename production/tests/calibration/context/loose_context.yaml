@@ -1,0 +1,43 @@
+id: context_loose_context
+description: Context calibration - loosely related but topic maintained
+websocket_client: loopback
+metrics:
+  - context
+expected_score: 50.0
+tolerance: 20
+tags:
+  - calibration
+  - context
+  - moderate
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+  nurse:
+    source_language: en
+    target_language: en
+
+turns:
+  # Build context: patient states symptoms
+  - id: history_tired
+    type: loopback_text
+    participant: patient
+    text: "I have a fever and feel very tired."
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have a fever and feel very tired."
+    expected_text: "I have a fever and feel very tired."
+
+  # Test: nurse asks loosely related question
+  - id: loose_context
+    type: loopback_text
+    participant: nurse
+    text: "Do you exercise regularly?"
+    start_at_ms: 1000
+    source_language: en
+    expected_language: en
+    source_text: "Do you exercise regularly?"
+    expected_text: "Do you exercise regularly?"
+    # Note: context is a conversation-level metric, validated against scenario expected_score

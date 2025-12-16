@@ -4,7 +4,7 @@ import importlib
 import pkgutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Any
+from typing import Callable, Any, Optional
 
 
 @dataclass
@@ -13,7 +13,7 @@ class MetricResult:
     metric_name: str
     value: float
     passed: bool
-    details: dict[str, Any] | None = None
+    details: Optional[dict[str, Any]] = None
 
 
 # Type alias for metric functions
@@ -90,7 +90,7 @@ def get_all_metrics() -> dict[str, MetricFunction]:
     return _METRICS_REGISTRY.copy()
 
 
-def get_metric(name: str) -> MetricFunction | None:
+def get_metric(name: str) -> Optional[MetricFunction]:
     """Get a specific metric by name.
 
     Automatically discovers and imports all metric modules on first call.

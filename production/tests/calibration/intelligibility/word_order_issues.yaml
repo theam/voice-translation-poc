@@ -1,0 +1,28 @@
+id: intelligibility_word_order_issues
+description: Intelligibility calibration - severe word order problems
+websocket_client: loopback
+metrics:
+  - intelligibility
+expected_score: 25.0
+tags:
+  - calibration
+  - intelligibility
+  - severe
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+
+turns:
+  - id: word_order_issues
+    type: loopback_text
+    participant: patient
+    text: "I have pain chest and breath short of"
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have chest pain and shortness of breath"
+    expected_text: "I have chest pain and shortness of breath"
+    metric_expectations:
+      intelligibility: 25.0

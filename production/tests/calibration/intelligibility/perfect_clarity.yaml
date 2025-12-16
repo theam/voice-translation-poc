@@ -1,0 +1,28 @@
+id: intelligibility_perfect_clarity
+description: Intelligibility calibration - perfect clarity baseline
+websocket_client: loopback
+metrics:
+  - intelligibility
+expected_score: 100.0
+tags:
+  - calibration
+  - intelligibility
+  - baseline
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+
+turns:
+  - id: perfect_clarity_medical
+    type: loopback_text
+    participant: patient
+    text: "I have a fever and body aches. I took acetaminophen four hours ago, but it hasn't gone down."
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have a fever and body aches. I took acetaminophen four hours ago, but it hasn't gone down."
+    expected_text: "I have a fever and body aches. I took acetaminophen four hours ago, but it hasn't gone down."
+    metric_expectations:
+      intelligibility: 100.0

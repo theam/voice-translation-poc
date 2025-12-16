@@ -128,10 +128,10 @@ class TranslationTextDelta:
     """Represents incremental transcript delta messages from the SUT."""
 
     delta: str
-    participant_id: str | None = None
-    source_language: str | None = None
-    target_language: str | None = None
-    timestamp_ms: int | None = None
+    participant_id: Optional[str] = None
+    source_language: Optional[str] = None
+    target_language: Optional[str] = None
+    timestamp_ms: Optional[int] = None
     raw: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod

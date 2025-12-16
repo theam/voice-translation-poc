@@ -2,440 +2,425 @@
 
 ## Overview
 
-The calibration system validates metric behavior against known expected outcomes. It helps:
+The calibration system validates that metrics produce expected scores on known test cases. This is critical for LLM-based metrics where model updates or prompt changes could cause drift.
+
+**Key Features:**
 - **Validate metric consistency** - Ensure metrics score as expected
 - **Detect metric drift** - Track scoring changes over time
-- **Tune LLM prompts** - Test prompt modifications quickly
-- **Compare LLM models** - Benchmark different models (GPT-4o-mini vs GPT-4o)
-- **Set thresholds** - Find optimal pass/fail thresholds
+- **Deterministic testing** - Uses loopback client for repeatable results
+- **Standard scenario format** - Uses regular scenario YAML with `metric_expectations`
 
 ## Architecture
 
+Calibration scenarios are **standard scenario tests** with two key differences:
+
+1. **Loopback client** - Uses `websocket_client: loopback` to avoid real service dependencies
+2. **Metric expectations** - Each turn includes `metric_expectations` field with expected scores
+
 ```
-Calibration YAML → CalibrationLoader → CalibrationRunner → Metrics → CalibrationReporter
-                                                ↓
-                                          MongoDB (optional)
+Scenario YAML (with metric_expectations)
+    ↓
+ScenarioLoader
+    ↓
+ScenarioEngine (with loopback client)
+    ↓
+MetricsRunner (compares actual vs expected scores)
+    ↓
+Results (pass/fail per turn)
+```
+
+## Running Calibration
+
+### Command Line
+
+```bash
+# Run all calibrations
+make calibrate
+
+# Run specific metric (matches scenario tags or folder names)
+make calibrate ARGS="--metric intelligibility"
+
+# Run a single calibration scenario
+poetry run python -m production.cli calibrate \
+    --file tests/calibration/segmentation/segmentation_baseline.yaml
+
+# Custom glob pattern (defaults to **/*.yaml)
+poetry run python -m production.cli calibrate \
+    --pattern "context/*.yaml"
+
+# Store results to MongoDB (requires MONGODB_* env vars)
+make calibrate ARGS="--store"
+```
+
+### Python API
+
+```python
+from production.cli.calibrate import calibrate_async
+from pathlib import Path
+
+# Run calibration programmatically
+await calibrate_async(
+    file=None,
+    directory=Path("tests/calibration"),
+    pattern="**/*.yaml",
+    metric="intelligibility",
+    log_level="INFO",
+    store=True
+)
 ```
 
 ## YAML Schema
 
-### Basic Structure
+Calibration scenarios use the **standard scenario format** with additional `metric_expectations` field on turns.
+
+### Basic Example
 
 ```yaml
-id: unique_calibration_id
-version: "1.0"
-description: "What this calibration tests"
-metric: intelligibility  # Target metric name
-created_at: "2025-12-10"
-tags: [calibration, baseline, medical]
+id: intelligibility_calibration_baseline
+description: Baseline calibration for intelligibility metric
+websocket_client: loopback  # Use loopback client for deterministic results
+tags: [calibration, intelligibility, baseline]
 
-# Optional: Override LLM configuration
-llm_config:
-  model: gpt-4o-mini
-  temperature: 0.1
+participants:
+  patient:
+    source_language: en
+    target_language: es
 
-calibration_cases:
-  - id: case_id
-    description: "What this case tests"
-    text: "The text to evaluate"
-    metadata:
-      source_language: en-US
-      target_language: es-ES
-      participant_id: patient
-      timestamp_ms: 1000
-    expected_scores:
-      intelligibility_1_5: 5           # Score on 1-5 scale
-      intelligibility_normalized: 1.0  # Score on 0-1 scale
-    expected_reasoning: "Why we expect this score"
+turns:
+  - id: perfect_clarity
+    type: loopback_text
+    participant: patient
+    text: "I have a fever and body aches."
+    start_at_ms: 0
+    source_language: en
+    expected_language: es
+    source_text: "I have a fever and body aches."
+    expected_text: "I have a fever and body aches."
+    metric_expectations:
+      intelligibility: 100.0  # Expected score (0-100 scale)
 ```
 
-### For Context Metric (with conversation history)
+### Required Fields
 
-```yaml
-calibration_cases:
-  - id: context_case
-    text: "Have you been near anyone sick?"
-    conversation_history:  # Prior turns
-      - participant_id: patient
-        text: "I have a fever and body aches."
-        timestamp_ms: 1000
-        source_language: en-US
-        target_language: es-ES
-    metadata:
-      source_language: es-ES
-      target_language: en-US
-      participant_id: nurse
-      timestamp_ms: 2000
-    expected_scores:
-      context_1_5: 5
-      context_normalized: 1.0
-    expected_reasoning: "Relevant follow-up question"
-```
+**Scenario-level:**
+- `id` - Unique scenario identifier
+- `description` - What this calibration tests
+- `websocket_client: loopback` - Use loopback client
+- `tags` - Must include "calibration" tag
 
-### For WER/Completeness (with ground truth)
+**Turn-level:**
+- `id` - Unique turn identifier
+- `type: loopback_text` - Loopback text turn processor
+- `text` - The text to evaluate
+- `expected_text` - Ground truth (what should have been said)
+- `metric_expectations` - Dictionary of expected scores by metric name
 
-```yaml
-calibration_cases:
-  - id: wer_case
-    text: "I have chest pain"           # Recognized text
-    expected_text: "I have chest pain"  # Ground truth
-    metadata:
-      source_language: en-US
-      target_language: es-ES
-      participant_id: patient
-      timestamp_ms: 1000
-    expected_scores:
-      wer: 0.0  # Perfect match
-```
+### Score Scale
 
-## Score Scales
-
-### 1-5 Scale (Conversational Quality Metrics)
-- **5** - Perfect (100%)
-- **4** - Good (75%)
-- **3** - Acceptable (50%)
-- **2** - Poor (25%) ← Garbled threshold
-- **1** - Very Poor (0%)
-
-**Conversion to 0-1 scale:** `(score - 1) / 4`
-
-### 0-1 Scale (Other Metrics)
-- **1.0** - Perfect (100%)
-- **0.9** - Excellent (90%)
-- **0.85** - Good (85%)
-- **0.5** - Acceptable (50%)
+**All scores use 0-100 scale:**
+- **100.0** - Perfect (100%)
+- **75.0** - Good (75%)
+- **50.0** - Acceptable (50%)
+- **25.0** - Poor (25%)
 - **0.0** - Complete failure (0%)
 
-## Metrics Supported
+Use this scale for all metric expectations and tolerances.
 
-### LLM-Based Metrics (Primary Targets)
-1. **intelligibility** - Text clarity and readability (1-5)
-2. **segmentation** - Sentence boundaries and punctuation (1-5)
-3. **context** - Conversational relevance (1-5)
-4. **technical_terms** - Technical terminology preservation (0-1)
-5. **completeness** - Information completeness (0-1)
-6. **intent_preservation** - Communicative intent (0-1)
-7. **language_correctness** - Language boundary preservation (0-1)
+**Tolerance** is also on 0-100 scale:
+- Default: `10.0` (±10 points)
+- Set globally via `CALIBRATION_TOLERANCE` env var or `FrameworkConfig.calibration_tolerance`
+- Override per-scenario via `Scenario.tolerance` field in YAML
 
-### Deterministic Metrics
-8. **wer** - Word Error Rate (0-1)
-9. **sequence** - Event ordering validation
+## Supported Metrics
+
+### Per-Turn Metrics
+These metrics evaluate **each turn individually**. Use `metric_expectations` on turns:
+
+1. **intelligibility** - Text clarity and readability (0-100)
+2. **segmentation** - Sentence boundaries and punctuation (0-100)
+3. **technical_terms** - Technical terminology preservation (0-100)
+4. **completeness** - Information completeness (0-100)
+5. **intent_preservation** - Communicative intent (0-100)
+6. **target_language** - Language boundary preservation (0-100)
+7. **wer** - Word Error Rate (0-100, inverted from error rate)
+
+**Example:**
+```yaml
+turns:
+  - id: turn_1
+    metric_expectations:
+      intelligibility: 100.0  # Per-turn expectation
+      segmentation: 95.0
+```
+
+### Conversation-Level Metrics
+These metrics evaluate the **entire conversation context**. Use scenario `expected_score` only:
+
+1. **context** - Conversational relevance (0-100)
+
+**Example:**
+```yaml
+id: my_test
+expected_score: 90.0  # Conversation metric expectation
+turns:
+  - id: turn_1
+    # NO metric_expectations for conversation metrics!
+```
+
+**Important:** Do NOT add conversation metrics to turn `metric_expectations`!
 
 ## File Organization
 
 ```
 production/tests/calibration/
 ├── README.md                          # This file
-├── intelligibility_samples.yaml       # Clarity tests (10 cases)
-├── segmentation_samples.yaml          # Punctuation tests (11 cases)
-├── context_samples.yaml               # Context awareness tests (10 cases)
-├── technical_terms_samples.yaml       # Technical term tests (TODO)
-├── completeness_samples.yaml          # Information completeness tests (TODO)
-├── intent_preservation_samples.yaml   # Intent tests (TODO)
-└── wer_samples.yaml                   # WER tests (TODO)
+├── intelligibility/
+│   ├── perfect_clarity.yaml           # Perfect intelligibility (1.0)
+│   ├── awkward_structure.yaml         # Moderate issues (0.50)
+│   └── word_order_issues.yaml         # Severe issues (0.25)
+├── segmentation/
+│   ├── perfect_segmentation.yaml      # Perfect punctuation (1.0)
+│   ├── missing_punctuation.yaml       # Moderate issues (0.50)
+│   └── no_punctuation.yaml            # Severe issues (0.25)
+└── context/
+    ├── perfect_context.yaml           # Perfect relevance (1.0)
+    ├── loose_context.yaml             # Moderate drift (0.50)
+    └── context_loss.yaml              # Complete loss (0.0)
 ```
 
-## Usage
+## Loopback Client
 
-### Loading Calibration Files
+The loopback client echoes messages back with configurable delay, providing deterministic results for calibration.
 
-```python
-from production.calibration import CalibrationLoader
+**Benefits:**
+- No external service dependencies
+- Repeatable results
+- Fast execution
+- Ideal for CI/CD pipelines
 
-loader = CalibrationLoader()
+**How it works:**
+1. Turn processor sends expected text as `translation.text_delta` message
+2. Loopback client echoes it back after configured delay
+3. Metrics evaluate the text
+4. Actual scores are compared against `metric_expectations`
 
-# Load single file
-config = loader.load_file("production/tests/calibration/intelligibility_samples.yaml")
-print(f"Loaded {len(config.calibration_cases)} cases for {config.metric}")
+## Results & Storage
 
-# Load entire directory
-configs = loader.load_directory("production/tests/calibration")
-print(f"Loaded {len(configs)} calibration configs")
-```
+### Console Output
 
-### Running Calibration (CLI - Coming in Phase 2)
+Calibration runs surface pass/fail in the CLI with detailed per-turn results.
+
+### MongoDB Storage (Optional)
+
+Use the `--store` flag to persist calibration results to MongoDB:
 
 ```bash
-# Run all calibrations
-poetry run python -m production.cli calibrate
-
-# Run specific file
-poetry run python -m production.cli calibrate \
-    --file production/tests/calibration/intelligibility_samples.yaml
-
-# Run only intelligibility calibrations
-poetry run python -m production.cli calibrate --metric intelligibility
-
-# Custom tolerance (default: 0.5 on 1-5 scale)
-poetry run python -m production.cli calibrate --tolerance 0.3
-
-# Generate report
-poetry run python -m production.cli calibrate \
-    --output reports/calibration_2025-12-10.md
-
-# Store results in MongoDB
 poetry run python -m production.cli calibrate --store
 ```
 
-## Tolerance Levels
+**Requirements:**
+- `MONGODB_ENABLED=true` or `--store` flag
+- `MONGODB_CONNECTION_STRING` environment variable
+- `MONGODB_DATABASE` environment variable
 
-**Tolerance** = Maximum acceptable difference between expected and actual scores.
+**What's stored:**
+- Evaluation run metadata (git commit, timestamp, environment)
+- Test results per scenario
+- Metric scores (actual vs expected)
+- `target_system: "calibration"` for easy filtering
 
-### Recommended Tolerances
+### Artifacts
 
-**1-5 Scale Metrics:**
-- **Strict:** 0.3 (±0.3 points)
-- **Standard:** 0.5 (±0.5 points) ← Default
-- **Lenient:** 0.75 (±0.75 points)
+Calibration runs produce the same artifacts as regular scenario tests:
+- Transcripts
+- Metrics reports
+- Raw WebSocket logs
+- PDF reports (if enabled)
 
-**0-1 Scale Metrics:**
-- **Strict:** 0.05 (±5%)
-- **Standard:** 0.10 (±10%) ← Default
-- **Lenient:** 0.15 (±15%)
+## Creating New Calibration Scenarios
 
-### Example
-
-```yaml
-expected_scores:
-  intelligibility_1_5: 4
-```
-
-With tolerance 0.5:
-- ✅ **Pass:** Actual score 3.5 - 4.5 (within ±0.5)
-- ❌ **Fail:** Actual score < 3.5 or > 4.5 (outside tolerance)
-
-## Creating New Calibration Files
-
-### 1. Define Purpose
+### 1. Choose Target Metric
 
 What are you testing?
 - Specific metric behavior
 - Edge cases
 - Known failure modes
-- Model comparison
+- Boundary conditions
 
 ### 2. Create Test Cases
 
-Include variety:
-- **Perfect cases** (score 5) - Baseline expectations
-- **Good cases** (score 4) - Minor issues
-- **Acceptable cases** (score 3) - Noticeable problems
-- **Poor cases** (score 2) - Should flag as garbled
-- **Very poor cases** (score 1) - Complete failure
+Include variety across the score spectrum:
+- **Perfect cases (1.0)** - Ideal translations
+- **Good cases (0.75)** - Minor issues
+- **Acceptable cases (0.50)** - Noticeable problems
+- **Poor cases (0.25)** - Significant issues
+- **Complete failure (0.0)** - Unintelligible output
 - **Edge cases** - Single words, empty, special characters
 
-### 3. Document Expected Reasoning
+### 3. Use Real Examples
 
-Always include `expected_reasoning` to explain:
-- Why you expect this score
-- What specific issues exist
-- What the metric should detect
+Base calibration cases on actual translation failures observed in production or testing.
 
-### 4. Test Across Domains
+### 4. Test Thoroughly
 
-- Medical terminology
-- Casual conversation
-- Formal language
-- Technical jargon
-- Multiple languages
+Run your calibration to ensure:
+- Expected scores are reasonable
+- Edge cases are handled
+- Metrics behave consistently
 
-## Calibration Results Interpretation
+## Example: Creating Intelligibility Calibration
 
-### High Accuracy (≥90%)
-✅ **Good** - Metric is well-calibrated and consistent
+```yaml
+id: intelligibility_new_cases
+description: Additional intelligibility test cases
+websocket_client: loopback
+tags: [calibration, intelligibility]
 
-**Actions:**
-- Use metric with confidence
-- Consider tightening tolerance
-- Document as baseline
+participants:
+  patient:
+    source_language: en
+    target_language: es
 
-### Medium Accuracy (70-89%)
-⚠️ **Fair** - Metric needs tuning
+turns:
+  # Perfect case
+  - id: perfect
+    type: loopback_text
+    participant: patient
+    text: "I have a headache."
+    start_at_ms: 0
+    source_language: en
+    expected_language: es
+    source_text: "I have a headache."
+    expected_text: "I have a headache."
+    metric_expectations:
+      intelligibility: 1.0
 
-**Actions:**
-- Review failed cases
-- Adjust LLM prompt
-- Consider different model
-- Refine scoring rubric
-
-### Low Accuracy (<70%)
-❌ **Poor** - Metric needs significant work
-
-**Actions:**
-- Redesign LLM prompt
-- Test different model (GPT-4o vs GPT-4o-mini)
-- Adjust scoring scale
-- Review metric logic
-
-## Common Patterns
-
-### Pattern 1: Metric Too Lenient
-
-**Symptom:** Actual scores consistently higher than expected
-
+  # Poor case (word order issues)
+  - id: poor
+    type: loopback_text
+    participant: patient
+    text: "Headache have I."
+    start_at_ms: 1000
+    source_language: en
+    expected_language: es
+    source_text: "Headache have I."
+    expected_text: "I have a headache."
+    metric_expectations:
+      intelligibility: 0.25
 ```
-Expected: 2 (poor)    | Actual: 3 (acceptable)
-Expected: 2 (poor)    | Actual: 4 (good)
-```
-
-**Solution:**
-- Strengthen prompt language
-- Add specific failure criteria
-- Provide clearer examples in prompt
-
-### Pattern 2: Metric Too Strict
-
-**Symptom:** Actual scores consistently lower than expected
-
-```
-Expected: 4 (good)    | Actual: 3 (acceptable)
-Expected: 5 (perfect) | Actual: 4 (good)
-```
-
-**Solution:**
-- Soften prompt language
-- Reduce failure criteria
-- Adjust expectations in calibration
-
-### Pattern 3: Inconsistent Scoring
-
-**Symptom:** High variance in score differences
-
-```
-Case A: Expected 3, Actual 3 (diff: 0.0) ✓
-Case B: Expected 3, Actual 5 (diff: 2.0) ✗
-Case C: Expected 3, Actual 2 (diff: 1.0) ✗
-```
-
-**Solution:**
-- Increase temperature for more randomness awareness
-- Add more detailed scoring criteria
-- Test with GPT-4o for better consistency
-
-### Pattern 4: Model Drift Over Time
-
-**Symptom:** Calibration accuracy decreases in later runs
-
-**Solution:**
-- Re-run calibrations regularly
-- Store results in MongoDB for tracking
-- Alert on significant drift
-- Update prompts as needed
 
 ## Best Practices
 
-### 1. Start Small
-Begin with 5-10 cases per metric, then expand
+### 1. Use Descriptive IDs
+Turn IDs should indicate what's being tested:
+- `perfect_clarity_medical`
+- `minor_awkwardness`
+- `completely_garbled`
 
 ### 2. Cover Edge Cases
-- Very short text ("Yes")
+- Very short text ("Yes", "No")
 - Very long text (run-on sentences)
 - Missing punctuation
 - Garbled text
 - Perfect examples
 
-### 3. Use Real Examples
-Base calibration cases on actual translation failures
+### 3. Group Related Tests
+Organize calibration files by metric:
+```
+intelligibility/
+├── intelligibility_baseline.yaml
+├── intelligibility_medical.yaml
+└── intelligibility_casual.yaml
+```
 
-### 4. Document Reasoning
-Always explain why you expect a certain score
+### 4. Tag Appropriately
+Use tags for filtering:
+- `calibration` (required)
+- Metric name (`intelligibility`, `context`, etc.)
+- Domain (`medical`, `casual`, `technical`)
+- Category (`baseline`, `edge_cases`, `regression`)
 
 ### 5. Test Regularly
-Run calibrations after:
-- Prompt changes
-- Model updates
-- Threshold adjustments
-- Major code changes
+Run calibrations:
+- After metric prompt changes
+- After LLM model updates
+- Before major releases
+- In CI/CD pipelines
 
 ### 6. Track Over Time
-Store results in MongoDB to detect drift
+Use `--store` flag to track calibration results in MongoDB and detect drift.
 
-### 7. Compare Models
-Test GPT-4o-mini vs GPT-4o to find best cost/quality balance
+## Troubleshooting
 
-## Future Enhancements
+### "Scenario contains no loopback_text turns"
 
-### Phase 2 (In Progress)
-- [ ] CalibrationRunner implementation
-- [ ] CalibrationReporter (console output)
-- [ ] CLI command integration
+**Cause:** Using wrong turn type
 
-### Phase 3 (Planned)
-- [ ] MongoDB storage
-- [ ] Drift detection (compare runs over time)
-- [ ] Report generation (markdown/JSON)
-- [ ] Automated alerts on failures
+**Solution:** Use `type: loopback_text` for calibration turns
 
-### Phase 4 (Future)
-- [ ] Web dashboard for results
-- [ ] Continuous calibration in CI/CD
-- [ ] A/B testing for prompt variations
-- [ ] Cost tracking per model/run
+### "No calibration scenarios found"
+
+**Cause:** Files don't match pattern or missing tags
+
+**Solution:**
+- Ensure files have `.yaml` extension
+- Add `calibration` tag to scenarios
+- Check file path matches pattern
+
+### "Metric expectations not met"
+
+**Cause:** LLM scoring differently than expected
+
+**Solution:**
+1. Review actual scores in output
+2. Adjust expected scores if LLM reasoning is valid
+3. Refine metric prompt if LLM is wrong
+4. Check LLM configuration (temperature, model version)
+
+### MongoDB Connection Errors
+
+**Cause:** Storage not configured
+
+**Solution:**
+```bash
+export MONGODB_CONNECTION_STRING="mongodb://localhost:27017"
+export MONGODB_DATABASE="metrics"
+export MONGODB_ENABLED=true
+```
 
 ## Contributing
 
 ### Adding New Calibration Cases
 
-1. Choose target metric
-2. Create test case with clear expected score
-3. Document expected reasoning
-4. Run calibration to validate
-5. Adjust if needed
+1. Choose existing or create new calibration file
+2. Add turn with clear expected score
+3. Include diverse test cases (perfect → failure)
+4. Run calibration to validate: `poetry run python -m production.cli calibrate --file <your-file>`
+5. Adjust expected scores if needed
 
-### Adding New Calibration Files
+### Adding New Metrics
 
-1. Copy existing template
-2. Update id, description, metric
-3. Create 5-10 diverse cases
-4. Test with CLI (once available)
-5. Document any special considerations
-
-## Troubleshooting
-
-### "Missing required fields" Error
-
-**Cause:** YAML file missing required fields
-
-**Solution:** Ensure your YAML has:
-```yaml
-id: ...
-version: ...
-description: ...
-metric: ...
-created_at: ...
-```
-
-### "No YAML files found" Warning
-
-**Cause:** Directory is empty or files have wrong extension
-
-**Solution:**
-- Use `.yaml` or `.yml` extension
-- Place files in `production/tests/calibration/`
-
-### Calibration Failing Unexpectedly
-
-**Cause:** LLM scoring differently than expected
-
-**Solution:**
-1. Review actual_reasoning in results
-2. Adjust expected_score if LLM reasoning is valid
-3. Refine prompt if LLM is wrong
-4. Check LLM model (temperature, model version)
-
----
+1. Implement metric in `production/metrics/`
+2. Create calibration file in `tests/calibration/<metric-name>/`
+3. Add 5-10 test cases covering the score spectrum
+4. Document expected behavior in turn descriptions
+5. Run calibration to establish baseline
 
 ## Summary
 
-The calibration system provides a systematic way to validate and improve metrics by:
-- Testing against known expected outcomes
-- Detecting metric drift over time
-- Enabling rapid prompt iteration
-- Comparing different LLM models
+The calibration system validates metrics using **standard scenario tests** with the loopback client for deterministic results. Key points:
 
-**Current Status:** Phase 1 Complete ✅
-- Data models ✅
-- YAML loader ✅
-- Sample files (3 metrics) ✅
+- ✅ Uses regular scenario YAML format
+- ✅ Loopback client for repeatability
+- ✅ Metric expectations per turn
+- ✅ MongoDB storage for historical tracking
+- ✅ Standard artifacts (transcripts, reports, logs)
+- ✅ CI/CD friendly
 
-**Next:** Phase 2 - Runner, Reporter, CLI integration
+**Current Status:**
+- 9 calibration scenarios (3 per metric)
+- 3 metrics covered (intelligibility, segmentation, context)
+- Each scenario tests one specific score level (perfect, moderate, severe)
+- Loopback client integration
+- MongoDB storage support
+- CLI integration complete

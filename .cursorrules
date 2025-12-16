@@ -1,5 +1,5 @@
 ## Project Rules
-- Primary implementation language: Python (3.10+ preferred).
+- Primary implementation language: Python (3.9.6+ preferred, but less than 3.10).
 - Target service: Azure AI Speech Translation (Live Interpreter preview with Personal Voice) as described in Microsoft docs.
 - Never hardcode secrets or subscription keys; load from environment variables or secure stores.
 - Practice incremental development with clear planning, testing, and documentation.

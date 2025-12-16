@@ -14,7 +14,7 @@ class CollectedEvent:
     target_language: Optional[str] = None
     text: Optional[str] = None
     audio_payload: Optional[bytes] = None
-    raw: Dict | None = None
+    raw: Optional[Dict] = None
 
 
 @dataclass

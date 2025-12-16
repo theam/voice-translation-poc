@@ -24,7 +24,7 @@ up:
 	@echo "Services available at:"
 	@echo "  - Metrics Exporter: http://localhost:9100/metrics"
 	@echo "  - Prometheus:       http://localhost:9090"
-	@echo "  - Grafana:          http://localhost:3000 (admin/admin)"
+	@echo "  - Grafana:          http://localhost:3000"
 	@echo ""
 	@docker compose ps
 

@@ -1,0 +1,42 @@
+id: context_perfect_follow_up
+description: Context calibration - perfect contextually relevant follow-up question
+websocket_client: loopback
+metrics:
+  - context
+expected_score: 100.0
+tags:
+  - calibration
+  - context
+  - baseline
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+  nurse:
+    source_language: en
+    target_language: en
+
+turns:
+  # Build context: patient states symptoms
+  - id: history_symptoms
+    type: loopback_text
+    participant: patient
+    text: "I have a fever and body aches."
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have a fever and body aches."
+    expected_text: "I have a fever and body aches."
+
+  # Test: nurse asks perfectly relevant follow-up
+  - id: perfect_context_follow_up
+    type: loopback_text
+    participant: nurse
+    text: "Have you been near anyone sick recently?"
+    start_at_ms: 1000
+    source_language: en
+    expected_language: en
+    source_text: "Have you been near anyone sick recently?"
+    expected_text: "Have you been near anyone sick recently?"
+    # Note: context is a conversation-level metric, validated against scenario expected_score

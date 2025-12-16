@@ -9,7 +9,7 @@ import logging
 from typing import Sequence
 
 from production.capture.conversation_manager import ConversationManager
-from production.scenario_engine.models import Expectations, TranscriptExpectation
+from production.scenario_engine.models import Scenario
 from production.services.llm_service import get_llm_service
 
 from .base import Metric, MetricResult
@@ -40,18 +40,18 @@ class CompletenessMetric(Metric):
 
     def __init__(
         self,
-        expectations: Expectations,
+        scenario: Scenario,
         conversation_manager: ConversationManager,
-        threshold: float = 0.85
+        threshold: float = 85.0
     ) -> None:
         """Initialize completeness metric.
 
         Args:
             expectations: Scenario expectations with reference texts
             events: Collected events from scenario execution
-            threshold: Minimum score to pass (default: 0.85 = 85%)
+            threshold: Minimum score to pass (default: 85)
         """
-        self.expectations = expectations
+        self.scenario = scenario
         self.conversation_manager = conversation_manager
         self.threshold = threshold
 
@@ -61,11 +61,12 @@ class CompletenessMetric(Metric):
         Returns:
             MetricResult with overall completeness score
         """
-        if not self.expectations.transcripts:
+        turns_with_expectations = self.scenario.turns_to_evaluate()
+
+        if not turns_with_expectations:
             return MetricResult(
                 metric_name=self.name,
-                passed=True,
-                value=1.0,
+                score=100.0,
                 reason="No transcript expectations to evaluate",
                 details={"results": []}
             )
@@ -76,8 +77,7 @@ class CompletenessMetric(Metric):
         except Exception as e:
             return MetricResult(
                 metric_name=self.name,
-                passed=False,
-                value=0.0,
+                score=0.0,
                 reason=f"Failed to initialize LLM service: {e}",
                 details={"error": str(e)}
             )
@@ -86,56 +86,52 @@ class CompletenessMetric(Metric):
         total_score = 0.0
         evaluations = 0
 
-        for expectation in self.expectations.transcripts:
-            result = self._evaluate_expectation(expectation, llm)
+        for turn in turns_with_expectations:
+            result = self._evaluate_expectation(turn, llm)
             results.append(result)
 
             if result["status"] == "evaluated":
                 total_score += result["score"]
                 evaluations += 1
 
-        # Calculate overall score
+        # Calculate overall score (0-100)
         overall_score = total_score / evaluations if evaluations > 0 else 0.0
-        passed = overall_score >= self.threshold
-
         return MetricResult(
             metric_name=self.name,
-            passed=passed,
-            value=overall_score,
-            reason=None if passed else f"Completeness score {overall_score:.2%} below threshold {self.threshold:.0%}",
+            score=overall_score,
+            reason=None,
             details={
-                "overall_score": f"{overall_score * 100:.2f}%",
                 "threshold": self.threshold,
                 "evaluations": evaluations,
-                "results": results
+                "turns": results
             }
         )
 
-    def _evaluate_expectation(self, expectation: TranscriptExpectation, llm) -> dict:
+    def _evaluate_expectation(self, turn: ScenarioTurn, llm) -> dict:
         """Evaluate completeness for a single transcript expectation.
 
         Args:
-            expectation: Transcript expectation with reference text
+            turn: Scenario turn with expected text
             llm: LLM service instance
 
         Returns:
             Dictionary with evaluation results
         """
         # Get reference text
-        reference_text = expectation.expected_text
+        reference_text = turn.expected_text
         if not reference_text:
             return {
-                "id": expectation.id,
+                "turn_id": turn.id,
                 "status": "skipped",
                 "reason": "No reference text provided"
             }
 
         # Find matching event
-        turn = self.conversation_manager.get_turn_summary(expectation.event_id)
-        hypothesis_text = turn.translation_text() if turn else None
+        turn_summary = self.conversation_manager.get_turn_summary(turn.id)
+        hypothesis_text = turn_summary.translation_text() if turn_summary else None
         if not hypothesis_text:
             return {
-                "id": expectation.id,
+                "turn_id": turn.id,
                 "status": "failed",
                 "reason": "No translated text found",
                 "score": 0.0
@@ -146,17 +142,18 @@ class CompletenessMetric(Metric):
 
         if not llm_result["success"]:
             return {
-                "id": expectation.id,
+                "turn_id": turn.id,
                 "status": "error",
                 "reason": llm_result["error"],
                 "score": 0.0
             }
 
+        turn_score = llm_result["score"]
+
         return {
-            "id": expectation.id,
+            "turn_id": turn.id,
             "status": "evaluated",
-            "score": llm_result["score"],
-            "passed": llm_result["score"] >= self.threshold,
+            "score": turn_score,
             "reasoning": llm_result["reasoning"],
             "omissions": llm_result["omissions"],
             "additions": llm_result["additions"],
@@ -191,19 +188,19 @@ IMPORTANT: All responses must be in English, including the reasoning field.
 
 Respond ONLY with valid JSON:
 {
-    "score": <float 0.0 to 1.0>,
+    "score": <float 0 to 100>,
     "reasoning": "<detailed explanation in English of what's complete, missing, or added>",
     "omissions": ["<missing element 1>", "<missing element 2>"],
     "additions": ["<extra element 1>", "<extra element 2>"]
 }
 
 Scoring guide:
-- 1.0: Perfect - all information preserved, nothing missing or added
-- 0.9-0.95: Excellent - minor detail missing or slight rephrasing
-- 0.8-0.85: Good - one small element missing or added
-- 0.7-0.75: Acceptable - some information missing but core preserved
-- 0.5-0.65: Poor - significant omissions or additions
-- <0.5: Very poor - major information loss or distortion"""
+- 100: Perfect - all information preserved, nothing missing or added
+- 90-95: Excellent - minor detail missing or slight rephrasing
+- 80-85: Good - one small element missing or added
+- 70-75: Acceptable - some information missing but core preserved
+- 50-65: Poor - significant omissions or additions
+- <50: Very poor - major information loss or distortion"""
 
         user_prompt = f"""Expected text:
 "{reference}"

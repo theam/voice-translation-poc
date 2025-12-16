@@ -8,6 +8,13 @@ from typing import Iterable
 from production.capture.collector import CollectedEvent
 
 
+# Event types that contain text content for transcription
+TEXT_EVENT_TYPES = [
+    "translated_delta",
+    "translated_text",
+]
+
+
 class TranscriptSink:
     def __init__(self, base_dir: Path) -> None:
         self.path = base_dir / "transcripts.json"
@@ -30,4 +37,4 @@ class TranscriptSink:
         self.path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")
 
 
-__all__ = ["TranscriptSink"]
+__all__ = ["TranscriptSink", "TEXT_EVENT_TYPES"]

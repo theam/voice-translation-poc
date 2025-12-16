@@ -6,55 +6,46 @@ tags:
 - medication
 participants:
   patient:
-    source_language: en-US
-    target_language: es-ES
+    source_language: es
+    target_language: en
     audio_files:
       p1: ../audios/allergy_ceph_001.wav
       p2: ../audios/allergy_ceph_003.wav
   nurse:
-    source_language: es-ES
-    target_language: en-US
+    source_language: en
+    target_language: es
     audio_files:
       n1: ../audios/allergy_ceph_002.wav
-events:
+turns:
 - id: patient_turn_1
   type: play_audio
   participant: patient
   audio_file: p1
   start_at_ms: 0
   barge_in: false
+  source_language: es
+  expected_language: en
+  source_text: Soy alérgico a la penicilina y a la amoxicilina. Ayer me dieron un
+    antibiótico, pero no sé si lo puedo tomar.
+  expected_text: I am allergic to penicillin and amoxicillin. Yesterday they gave
+    me an antibiotic, but I don't know if I can take it.
 - id: nurse_turn_1
   type: play_audio
   participant: nurse
   audio_file: n1
   start_at_ms: 13225
   barge_in: false
+  source_language: en
+  expected_language: es
+  source_text: What is the name of the antibiotic?
+  expected_text: ¿Cuál es el nombre del antibiótico?
 - id: patient_turn_2
   type: play_audio
   participant: patient
   audio_file: p2
   start_at_ms: 21870
   barge_in: false
-expectations:
-  transcripts:
-  - id: patient_turn_1_translation
-    event_id: patient_turn_1
-    source_language: en-US
-    target_language: es-ES
-    expected_text: I am allergic to penicillin and amoxicillin. Yesterday they gave
-      me an antibiotic, but I don't know if I can take it.
-  - id: nurse_turn_1_translation
-    event_id: nurse_turn_1
-    source_language: es-ES
-    target_language: en-US
-    expected_text: ¿Cuál es el nombre del antibiótico?
-  - id: patient_turn_2_translation
-    event_id: patient_turn_2
-    source_language: en-US
-    target_language: es-ES
-    expected_text: It's name is cephalexin, 500 milligrams.
-  sequence:
-  - patient_turn_1
-  - nurse_turn_1
-  - patient_turn_2
-  max_latency_ms: 6000
+  source_language: es
+  expected_language: en
+  source_text: Se llama Sefalecina 500 miligramos.
+  expected_text: It's name is cephalexin, 500 milligrams.

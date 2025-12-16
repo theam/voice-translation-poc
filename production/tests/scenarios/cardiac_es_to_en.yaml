@@ -8,29 +8,29 @@ tags:
 - english
 participants:
   doctor:
-    source_language: en-US
-    target_language: es-ES
+    source_language: es
+    target_language: en
     audio_files:
       d1: ../audios/cardiac_es_to_en_001.wav
-events:
+turns:
 - id: doctor_turn_1
   type: play_audio
   participant: doctor
   audio_file: d1
   start_at_ms: 0
   barge_in: false
-expectations:
-  transcripts:
-  - id: doctor_turn_1_translation
-    event_id: doctor_turn_1
-    source_language: en-US
-    target_language: es-ES
-    expected_text: The patient presents with acute decompensated heart failure. Severe
-      pulmonary congestion, supraventricular tachyarrhythmia, and edema. Progressive
-      ultrasensitive troponin. The echocardiogram reveals left ventricular systolic
-      dysfunction. Reduced ejection fraction and signs of pulmonary hypertension.
-      Continuous hemodynamic monitoring, inotropic adjustment. Optimization of diuretics
-      and immediate evaluation for percutaneous coronary intervention.
-  sequence:
-  - doctor_turn_1
-  max_latency_ms: 6000
+  source_language: es
+  expected_language: en
+  source_text: El paciente presenta un cuadro de insuficiencia cardíaca aguda descompensada
+    con congestión pulmonar severa tachiarritmia supra ventricular y elevación progresiva
+    de troponina ultrasensible. El ecocardiograma revela disfunción sistólica del
+    ventrículo izquierdo con fracción de eección reducida y signos de hipertensión
+    pulmonar. Se indica monitorización hemodinámica continua, ajuste de inotrópicos,
+    optimización de diureticos y evaluación inmediata para intervención coronaria
+    percutánea.
+  expected_text: The patient presents with acute decompensated heart failure. Severe
+    pulmonary congestion, supraventricular tachyarrhythmia, and edema. Progressive
+    ultrasensitive troponin. The echocardiogram reveals left ventricular systolic
+    dysfunction. Reduced ejection fraction and signs of pulmonary hypertension. Continuous
+    hemodynamic monitoring, inotropic adjustment. Optimization of diuretics and immediate
+    evaluation for percutaneous coronary intervention.

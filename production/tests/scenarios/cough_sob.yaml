@@ -1,61 +1,48 @@
 id: cough_sob
 description: Patient with cough and shortness of breath consulting with nurse
-tags: [medical, respiratory]
-
+tags:
+- medical
+- respiratory
 participants:
   patient:
-    source_language: es-ES
-    target_language: en-US
+    source_language: es
+    target_language: en
     audio_files:
       p1: ../audios/cough_sob_001.wav
       p2: ../audios/cough_sob_003.wav
   nurse:
-    source_language: en-US
-    target_language: es-ES
+    source_language: en
+    target_language: es
     audio_files:
       n1: ../audios/cough_sob_002.wav
-
-events:
-  - id: patient_turn_1
-    type: play_audio
-    participant: patient
-    audio_file: p1
-    start_at_ms: 0
-    barge_in: false
-
-  - id: nurse_turn_1
-    type: play_audio
-    participant: nurse
-    audio_file: n1
-    start_at_ms: 15000
-    barge_in: false
-
-  - id: patient_turn_2
-    type: play_audio
-    participant: patient
-    audio_file: p2
-    start_at_ms: 29000
-    barge_in: false
-
-expectations:
-  transcripts:
-    - id: patient_turn_1_translation
-      event_id: patient_turn_1
-      source_language: es-ES
-      target_language: en-US
-      expected_text: "I have had a cough since last week, and when I go up stairs I notice that I get short of breath."
-    - id: nurse_turn_1_translation
-      event_id: nurse_turn_1
-      source_language: en-US
-      target_language: es-ES
-      expected_text: "¿Has notado sibilancias o algún cambio de color en la flema?"
-    - id: patient_turn_2_translation
-      event_id: patient_turn_2
-      source_language: es-ES
-      target_language: en-US
-      expected_text: "Yes, this morning the phlegm was more yellowish"
-  sequence:
-    - patient_turn_1
-    - nurse_turn_1
-    - patient_turn_2
-  max_latency_ms: 6000
+turns:
+- id: patient_turn_1
+  type: play_audio
+  participant: patient
+  audio_file: p1
+  start_at_ms: 0
+  barge_in: false
+  source_language: es
+  expected_language: en
+  source_text: Estoy con tós desde la semana pasada y cuando subo escaleras, noto que me falta el aire.
+  expected_text: I have had a cough since last week, and when I go up stairs I notice that I get short of breath.
+- id: nurse_turn_1
+  type: play_audio
+  participant: nurse
+  audio_file: n1
+  start_at_ms: 15000
+  barge_in: false
+  source_language: en
+  expected_language: es
+  source_text: Have you noticed weezing or any colour change in your phlegm?
+  expected_text: ¿Has notado sibilancias o algún cambio de color en la flema?
+- id: patient_turn_2
+  type: play_audio
+  participant: patient
+  audio_file: p2
+  start_at_ms: 29000
+  barge_in: false
+  source_language: es
+  expected_language: en
+  source_text: Sí, esta mañana la flema estaba más amarillenta.
+  expected_text: Yes, this morning the phlegm was more yellowish

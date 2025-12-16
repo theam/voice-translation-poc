@@ -1,0 +1,28 @@
+id: segmentation_no_punctuation
+description: Segmentation calibration - complete lack of punctuation in long text
+websocket_client: loopback
+metrics:
+  - segmentation
+expected_score: 25.0
+tags:
+  - calibration
+  - segmentation
+  - severe
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+
+turns:
+  - id: no_punctuation
+    type: loopback_text
+    participant: patient
+    text: "I have a fever and body aches and chills and I took medicine four hours ago but it hasn't helped and now I'm worried"
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have a fever and body aches and chills. I took medicine four hours ago but it hasn't helped. Now I'm worried."
+    expected_text: "I have a fever and body aches and chills. I took medicine four hours ago but it hasn't helped. Now I'm worried."
+    metric_expectations:
+      segmentation: 25.0

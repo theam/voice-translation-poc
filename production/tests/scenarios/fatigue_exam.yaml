@@ -6,95 +6,94 @@ tags:
 - detailed
 participants:
   doctor:
-    source_language: es-ES
-    target_language: en-US
+    source_language: en
+    target_language: es
     audio_files:
       d1: ../audios/fatigue_exam_001.wav
       d2: ../audios/fatigue_exam_003.wav
       d3: ../audios/fatigue_exam_005.wav
   patient:
-    source_language: en-US
-    target_language: es-ES
+    source_language: es
+    target_language: en
     audio_files:
       p1: ../audios/fatigue_exam_002.wav
       p2: ../audios/fatigue_exam_004.wav
-events:
+turns:
 - id: doctor_turn_1
   type: play_audio
   participant: doctor
   audio_file: d1
   start_at_ms: 0
   barge_in: false
+  source_language: en
+  expected_language: es
+  source_text: Good afternoon. Before we begin, I want you to take your time and explain
+    in your own words what has been bothering you these past. Few days. The more detail
+    you give me, the easier it will be for me to understand your situation and decide
+    what steps we should take.
+  expected_text: Buenas tardes. Antes de empezar, quiero que se tome su tiempo y me
+    explique con sus propias palabras qué le ha estado molestando en estos últimos
+    días. Cuantos más detalles me dé, más fácil será para mí entender su situación
+    y decidir qué pasos debemos seguir.
 - id: patient_turn_1
   type: play_audio
   participant: patient
   audio_file: p1
   start_at_ms: 24257
   barge_in: false
+  source_language: es
+  expected_language: en
+  source_text: Gracias. Doctor, desde hace unos 5 días siento un cansancio que no
+    es normal para mí. Incluso cuando duermo bien, me despierto sin energía. Además,
+    he tenido algunos dolores musculares que van y vienen. Especialmente en las piernas
+    y la espalda.
+  expected_text: Thank you, doctor. For about five days now I've been feeling a tiredness
+    that isn't normal for me. Even when I sleep well, I wake up without energy. I've
+    also had some muscle aches that come and go, especially in my legs and back.
 - id: doctor_turn_2
   type: play_audio
   participant: doctor
   audio_file: d2
   start_at_ms: 51779
   barge_in: false
+  source_language: en
+  expected_language: es
+  source_text: Thank you for being so detailed. That helps a lot. Fatigue and muscle
+    discomfort can come from many different causes. Stress, infections, nutritional
+    issues, or even lack of proper hydration. I'd like to ask a few more questions
+    to narrow things down. Have you noticed any fever? Changes in appetite? Or increased
+    stress lately?
+  expected_text: 'Gracias por ser tan detallado, eso ayuda mucho. El cansancio y las
+    molestias musculares pueden deberse a muchas causas diferentes: estrés, infecciones,
+    problemas nutricionales o incluso falta de hidratación adecuada. Me gustaría hacerle
+    algunas preguntas más para acotar las posibilidades: ¿ha notado fiebre, cambios
+    en el apetito o un aumento reciente del estrés?'
 - id: patient_turn_2
   type: play_audio
   participant: patient
   audio_file: p2
   start_at_ms: 83411
   barge_in: false
+  source_language: es
+  expected_language: en
+  source_text: No he tenido fiebre, eso seguro, mi apetito está un poco más bajo.
+    Pero creo que es porque me siento tan cansado. En cuanto al estrés, he tenido
+    algo de presión en el trabajo. Pero nada fuera del normal.
+  expected_text: I haven't had a fever, that's for sure. My appetite is a little lower,
+    but I think it's because I feel so tired. As for stress, I've had some pressure
+    at work, but nothing out of the ordinary.
 - id: doctor_turn_3
   type: play_audio
   participant: doctor
   audio_file: d3
   start_at_ms: 106371
   barge_in: false
-expectations:
-  transcripts:
-  - id: doctor_turn_1_translation
-    event_id: doctor_turn_1
-    source_language: es-ES
-    target_language: en-US
-    expected_text: Buenas tardes. Antes de empezar, quiero que se tome su tiempo y
-      me explique con sus propias palabras qué le ha estado molestando en estos últimos
-      días. Cuantos más detalles me dé, más fácil será para mí entender su situación
-      y decidir qué pasos debemos seguir.
-  - id: patient_turn_1_translation
-    event_id: patient_turn_1
-    source_language: en-US
-    target_language: es-ES
-    expected_text: Thank you, doctor. For about five days now I've been feeling a
-      tiredness that isn't normal for me. Even when I sleep well, I wake up without
-      energy. I've also had some muscle aches that come and go, especially in my legs
-      and back.
-  - id: doctor_turn_2_translation
-    event_id: doctor_turn_2
-    source_language: es-ES
-    target_language: en-US
-    expected_text: 'Gracias por ser tan detallado, eso ayuda mucho. El cansancio y
-      las molestias musculares pueden deberse a muchas causas diferentes: estrés,
-      infecciones, problemas nutricionales o incluso falta de hidratación adecuada.
-      Me gustaría hacerle algunas preguntas más para acotar las posibilidades: ¿ha
-      notado fiebre, cambios en el apetito o un aumento reciente del estrés?'
-  - id: patient_turn_2_translation
-    event_id: patient_turn_2
-    source_language: en-US
-    target_language: es-ES
-    expected_text: I haven't had a fever, that's for sure. My appetite is a little
-      lower, but I think it's because I feel so tired. As for stress, I've had some
-      pressure at work, but nothing out of the ordinary.
-  - id: doctor_turn_3_translation
-    event_id: doctor_turn_3
-    source_language: es-ES
-    target_language: en-US
-    expected_text: Entiendo. Gracias por aclararlo. Haremos un par de revisiones básicas,
-      pero por ahora siga describiendo cualquier otra cosa que considere relevante,
-      aunque le parezca menor. A veces los pequeños detalles nos orientan en la dirección
-      correcta.
-  sequence:
-  - doctor_turn_1
-  - patient_turn_1
-  - doctor_turn_2
-  - patient_turn_2
-  - doctor_turn_3
-  max_latency_ms: 6000
+  source_language: en
+  expected_language: es
+  source_text: Understood. Thanks for clarifying. We'll run a couple of basic checks.
+    But for now, keep describing anything else you feel is relevant. Even if it seems
+    minor. Sometimes small details point us in the right direction.
+  expected_text: Entiendo. Gracias por aclararlo. Haremos un par de revisiones básicas,
+    pero por ahora siga describiendo cualquier otra cosa que considere relevante,
+    aunque le parezca menor. A veces los pequeños detalles nos orientan en la dirección
+    correcta.

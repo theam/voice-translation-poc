@@ -1,0 +1,28 @@
+id: segmentation_perfect_segmentation
+description: Segmentation calibration - perfect punctuation and sentence boundaries
+websocket_client: loopback
+metrics:
+  - segmentation
+expected_score: 100.0
+tags:
+  - calibration
+  - segmentation
+  - baseline
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+
+turns:
+  - id: perfect_segmentation_multi
+    type: loopback_text
+    participant: patient
+    text: "I have a fever and body aches. I took acetaminophen four hours ago. It hasn't helped yet."
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have a fever and body aches. I took acetaminophen four hours ago. It hasn't helped yet."
+    expected_text: "I have a fever and body aches. I took acetaminophen four hours ago. It hasn't helped yet."
+    metric_expectations:
+      segmentation: 100.0

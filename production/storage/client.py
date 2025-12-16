@@ -49,7 +49,6 @@ class MongoDBClient:
         self.db: AsyncIOMotorDatabase = self.client[database]
         self.evaluation_runs: AsyncIOMotorCollection = self.db["evaluation_runs"]
         self.test_runs: AsyncIOMotorCollection = self.db["test_runs"]
-        self.calibration_runs: AsyncIOMotorCollection = self.db["calibration_runs"]
 
         logger.info(f"MongoDB client initialized for database: {database}")
 
@@ -68,15 +67,7 @@ class MongoDBClient:
             - test_run_id: Unique identifier lookup
             - (test_id, finished_at): Compound index for test evolution
             - evaluation_run_id: Fetch all tests for an evaluation run
-            - score_status: Filter by calculator status (success/garbled/failed)
             - score: For score-based queries and graphing
-
-        - calibration_runs:
-            - calibration_run_id: Unique identifier lookup
-            - started_at: Time-series queries
-            - (metric, started_at): Compound index for metric history
-            - config_id: Group by calibration config
-            - accuracy: Filter by accuracy threshold
         """
         logger.info("Creating MongoDB indexes...")
 
@@ -91,15 +82,7 @@ class MongoDBClient:
         await self.test_runs.create_index("test_run_id", unique=True)
         await self.test_runs.create_index([("test_id", 1), ("finished_at", -1)])
         await self.test_runs.create_index("evaluation_run_id")
-        await self.test_runs.create_index("score_status")
         await self.test_runs.create_index("score")
-
-        # Calibration runs indexes
-        await self.calibration_runs.create_index("calibration_run_id", unique=True)
-        await self.calibration_runs.create_index("started_at")
-        await self.calibration_runs.create_index([("metric", 1), ("started_at", -1)])
-        await self.calibration_runs.create_index("config_id")
-        await self.calibration_runs.create_index("accuracy")
 
         logger.info("MongoDB indexes created successfully")
 
@@ -128,7 +111,7 @@ class MongoDBClient:
     async def reset_database(self) -> None:
         """Drop all collections in the database.
 
-        WARNING: This permanently deletes all evaluation runs, test results, and calibration runs.
+        WARNING: This permanently deletes all evaluation runs and test results.
         Use with caution, typically only in development/testing environments.
         """
         logger.warning(f"Resetting database: {self.database_name}")
@@ -136,7 +119,6 @@ class MongoDBClient:
         # Drop collections
         await self.evaluation_runs.drop()
         await self.test_runs.drop()
-        await self.calibration_runs.drop()
 
         logger.info(f"Database reset complete: {self.database_name}")
         logger.info("All collections dropped. Run create_indexes() to recreate schema.")

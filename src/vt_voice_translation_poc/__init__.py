@@ -8,6 +8,3 @@ except PackageNotFoundError:  # pragma: no cover - fallback during local executi
     __version__ = "0.0.0"
 
 __all__ = ["__version__"]
-
-
-

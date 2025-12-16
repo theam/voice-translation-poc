@@ -9,10 +9,11 @@ from typing import Optional
 import typer
 from bson import ObjectId
 
+from production.reporting import ReportingService
 from production.scenario_engine.engine import ScenarioEngine
 from production.scenarios.loader import ScenarioLoader
 from production.storage import MongoDBClient, MetricsStorageService
-from production.utils.config import FrameworkConfig, load_config
+from production.utils.config import load_config
 from production.utils.debug import setup_remote_debugging
 from production.utils.logging_setup import configure_logging
 
@@ -52,7 +53,10 @@ async def run_test_async(scenario_path: Path, log_level: str) -> None:
         engine = ScenarioEngine(config, storage_service, evaluation_run_id)
 
         test_started_at = datetime.utcnow()
-        summary, _ = await engine.run(scenario, started_at=test_started_at)
+        summary, conversation_manager = await engine.run(
+            scenario, started_at=test_started_at
+        )
+        test_finished_at = datetime.utcnow()
 
         # Finalize evaluation run
         if storage_service and evaluation_run_id:
@@ -62,8 +66,17 @@ async def run_test_async(scenario_path: Path, log_level: str) -> None:
                 [(scenario.id, summary)]
             )
 
-        if summary.status != "passed":
-            raise typer.Exit(code=1)
+            # Generate PDF report from database
+            try:
+                reporting_service = ReportingService(storage_service)
+                report_path = await reporting_service.generate_evaluation_report(
+                    evaluation_run_id
+                )
+                logger.info("Test report generated: %s", report_path)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to generate test report: %s", exc)
+
+    # No pass/fail gate; exit code always 0 on completion
 
     finally:
         if client:

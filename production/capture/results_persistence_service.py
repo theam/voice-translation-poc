@@ -7,11 +7,11 @@ from typing import List
 
 from bson import ObjectId
 
-from production.capture.audio_sink import AudioSink
+from production.capture.audio_sink import AudioSink, AUDIO_EVENT_TYPES
 from production.capture.collector import EventCollector
 from production.capture.conversation_tape import ConversationTape
 from production.capture.raw_log_sink import RawLogSink
-from production.capture.transcript_sink import TranscriptSink
+from production.capture.transcript_sink import TranscriptSink, TEXT_EVENT_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -81,18 +81,18 @@ class ResultsPersistenceService:
 
         # Persist audio events and call mix
         audio_sink = AudioSink(self.output_root, sample_rate=tape.sample_rate)
-        translated_audio_events = [e for e in collector.events if e.event_type == "translated_audio"]
-        logger.debug(f"Writing {len(translated_audio_events)} translated audio events")
-        audio_sink.write_audio_events(translated_audio_events)
+        audio_events = [e for e in collector.events if e.event_type in AUDIO_EVENT_TYPES]
+        logger.debug(f"Writing {len(audio_events)} audio events")
+        audio_sink.write_audio_events(audio_events)
 
         logger.debug("Writing call mix audio")
         audio_sink.write_call_mix(tape)
 
         # Persist transcripts
         transcript_sink = TranscriptSink(self.output_root)
-        translated_text_events = [e for e in collector.events if e.event_type == "translated_text"]
-        logger.debug(f"Writing {len(translated_text_events)} transcript events")
-        transcript_sink.write_transcripts(translated_text_events)
+        text_events = [e for e in collector.events if e.event_type in TEXT_EVENT_TYPES]
+        logger.debug(f"Writing {len(text_events)} transcript events")
+        transcript_sink.write_transcripts(text_events)
 
         # Persist raw WebSocket messages
         raw_sink = RawLogSink(self.output_root, filename="sut_messages.log")

@@ -6,67 +6,55 @@ tags:
 - sports
 participants:
   doctor:
-    source_language: es-ES
-    target_language: en-US
+    source_language: en
+    target_language: es
     audio_files:
       d1: ../audios/shoulder_pain_001.wav
       d2: ../audios/shoulder_pain_003.wav
   patient:
-    source_language: en-US
-    target_language: es-ES
+    source_language: es
+    target_language: en
     audio_files:
       p1: ../audios/shoulder_pain_002.wav
       p2: ../audios/shoulder_pain_004.wav
-events:
+turns:
 - id: doctor_turn_1
   type: play_audio
   participant: doctor
   audio_file: d1
   start_at_ms: 0
   barge_in: false
+  source_language: en
+  expected_language: es
+  source_text: Hi, how can I help you today?
+  expected_text: Hola, ¿cómo puedo ayudarte hoy?
 - id: patient_turn_1
   type: play_audio
   participant: patient
   audio_file: p1
   start_at_ms: 9487
   barge_in: false
+  source_language: es
+  expected_language: en
+  source_text: Tengo un dolor en el hombro desde hace par de días que no se me quita.
+  expected_text: I have had shoulder pain for a couple of days that won't go away.
 - id: doctor_turn_2
   type: play_audio
   participant: doctor
   audio_file: d2
   start_at_ms: 19577
   barge_in: false
+  source_language: en
+  expected_language: es
+  source_text: Do you remember if you did a strange movement or if you hit your shoulder?
+  expected_text: ¿Recuerdas si hiciste un movimiento extraño o te golpeaste el hombro?
 - id: patient_turn_2
   type: play_audio
   participant: patient
   audio_file: p2
   start_at_ms: 30739
   barge_in: false
-expectations:
-  transcripts:
-  - id: doctor_turn_1_translation
-    event_id: doctor_turn_1
-    source_language: es-ES
-    target_language: en-US
-    expected_text: Hola, ¿cómo puedo ayudarte hoy?
-  - id: patient_turn_1_translation
-    event_id: patient_turn_1
-    source_language: en-US
-    target_language: es-ES
-    expected_text: I have had shoulder pain for a couple of days that won't go away.
-  - id: doctor_turn_2_translation
-    event_id: doctor_turn_2
-    source_language: es-ES
-    target_language: en-US
-    expected_text: ¿Recuerdas si hiciste un movimiento extraño o te golpeaste el hombro?
-  - id: patient_turn_2_translation
-    event_id: patient_turn_2
-    source_language: en-US
-    target_language: es-ES
-    expected_text: The pain started last Saturday after playing paddle.
-  sequence:
-  - doctor_turn_1
-  - patient_turn_1
-  - doctor_turn_2
-  - patient_turn_2
-  max_latency_ms: 6000
+  source_language: es
+  expected_language: en
+  source_text: El dolor me empezó el pasado sábado después de terminar un partido de padel.
+  expected_text: The pain started last Saturday after playing padel.

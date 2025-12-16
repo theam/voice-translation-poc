@@ -35,6 +35,14 @@ class FrameworkConfig:
     tail_silence_ms: int = field(
         default_factory=lambda: int(os.getenv("TRANSLATION_TAIL_SILENCE_MS", "10000"))
     )
+    calibration_tolerance: float = field(
+        default_factory=lambda: float(os.getenv("CALIBRATION_TOLERANCE", "10"))
+    )
+
+    # Loopback config
+    loopback_latency_ms: int = field(
+        default_factory=lambda: int(os.getenv("LOOPBACK_LATENCY_MS", "100"))
+    )
 
     # Remote debugging configuration
     remote_debug: bool = field(

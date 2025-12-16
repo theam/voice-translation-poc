@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Protocol
+from typing import Any, Dict, Optional, Protocol
 
 
 @dataclass
@@ -11,9 +11,9 @@ class MetricResult:
 
     metric_name: str
     passed: bool
-    value: float | None = None
-    reason: str | None = None
-    details: Dict[str, Any] | None = None
+    value: Optional[float] = None
+    reason: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
 
 
 class Metric(Protocol):

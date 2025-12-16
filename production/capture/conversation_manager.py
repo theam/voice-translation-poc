@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Union
 
 from production.capture.collector import CollectedEvent
 from production.utils.time_utils import Clock
@@ -25,7 +25,7 @@ class TurnSummary:
     turn_end_ms: Optional[int] = None
 
     def record_outgoing(
-        self, message: dict, timestamp_ms: int, participant_id: str | None = None
+        self, message: dict, timestamp_ms: int, participant_id: Optional[str] = None
     ) -> None:
         """Record an outbound ACS message for this turn."""
         outbound_entry = {"message": message}
@@ -44,7 +44,7 @@ class TurnSummary:
     def translated_text_events(self) -> List[CollectedEvent]:
         return [event for event in self.inbound_events if event.event_type == "translated_delta"]
 
-    def translation_text(self) -> str | None:
+    def translation_text(self) -> Optional[str]:
         """Return the complete translated text for this turn.
 
         Translation services send incremental text deltas. This concatenates
@@ -169,7 +169,7 @@ class ConversationManager:
             events.extend(turn.inbound_events)
         return events
 
-    def get_turns_summary(self) -> List[Dict[str, str | None]]:
+    def get_turns_summary(self) -> List[Dict[str, Optional[str]]]:
         """Get summary of all turns with their IDs and translated text.
 
         Returns:

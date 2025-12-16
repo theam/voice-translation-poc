@@ -6,7 +6,7 @@ import contextlib
 import io
 import wave
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 def _samples_from_ms(start_ms: int, sample_rate: int) -> int:
@@ -43,7 +43,7 @@ class ConversationTape:
         self.write_wav(Path("/dev/stdout"), buffer_override=buffer)
         return buffer.getvalue()
 
-    def write_wav(self, path: Path, chunk_ms: int = 1000, buffer_override: io.BytesIO | None = None) -> None:
+    def write_wav(self, path: Path, chunk_ms: int = 1000, buffer_override: Optional[io.BytesIO] = None) -> None:
         """Stream a mixed WAV to ``path`` using bounded buffers.
 
         Args:

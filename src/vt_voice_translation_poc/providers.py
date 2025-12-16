@@ -36,7 +36,7 @@ def create_translator(
     *,
     from_language: str,
     to_languages: Iterable[str],
-    voice_name: str | None,
+    voice_name: Optional[str],
     output_audio_path: Optional[Path],
     terminate_on_completion: bool = False,
     local_audio_playback: bool = False,

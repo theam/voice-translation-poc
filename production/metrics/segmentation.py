@@ -1,7 +1,7 @@
 """Segmentation metric for conversational quality evaluation.
 
 Evaluates whether sentence boundaries and turn segmentation are correct.
-Uses LLM evaluation to score text segmentation on a 1-5 scale, converted to 0-100%.
+Uses LLM evaluation to score text segmentation on a 0-100 scale (0 = no boundaries, 100 = perfect segmentation).
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import logging
 from typing import Optional, Sequence
 
 from production.capture.conversation_manager import ConversationManager
-from production.scenario_engine.models import Expectations, TranscriptExpectation
+from production.scenario_engine.models import Scenario
 from production.services.llm_service import LLMService, get_llm_service
 
 from .base import Metric, MetricResult
@@ -22,40 +22,38 @@ class SegmentationMetric(Metric):
     """Evaluate sentence boundaries and turn segmentation.
 
     Uses LLM (OpenAI) to assess whether the text has proper sentence boundaries,
-    appropriate turn segmentation, and natural breaks. Scores on a 1-5 scale,
-    converted to 0-100%.
+    appropriate turn segmentation, and natural breaks. Scores on a 0-100 scale.
 
     The metric:
     1. Extracts translated text from collected events
-    2. Uses LLM to evaluate segmentation (sentence breaks, turn boundaries)
-    3. Converts 1-5 score to 0-100% scale: (score - 1) / 4 * 100
-    4. Returns pass/fail based on 80% threshold (score of 4.2/5)
+    2. Uses LLM to evaluate segmentation (sentence breaks, turn boundaries) on a 0-100 scale
+    3. Returns pass/fail based on 80 threshold
 
-    Scoring guide (1-5):
-        5: Perfect segmentation, natural sentence breaks and turn boundaries
-        4: Good segmentation, one minor split or merge issue
-        3: Acceptable segmentation, multiple minor issues but understandable
-        2: Poor segmentation, sentences incorrectly split or merged
-        1: Severely fragmented or run-on text with no clear boundaries
+    Scoring guide (0-100 scale):
+        100: Perfect segmentation, natural sentence breaks and turn boundaries
+        75-99: Good segmentation, one minor split or merge issue
+        50-74: Acceptable segmentation, multiple minor issues but understandable
+        25-49: Poor segmentation, sentences incorrectly split or merged
+        0-24: Severely fragmented or run-on text with no clear boundaries
 
     Example:
         Text: "Hello, how are you? I'm doing well today."
-        → Score: 5/5 (100%) - Perfect sentence boundaries
+        → Score: 1.0 - Perfect sentence boundaries
 
         Text: "Hello how are you I'm doing well today"
-        → Score: 2/5 (25%) - Missing punctuation, run-on sentence
+        → Score: 0.25 - Missing punctuation, run-on sentence
 
         Text: "Hello. How. Are. You. I'm. Doing. Well."
-        → Score: 2/5 (25%) - Over-segmented, unnatural breaks
+        → Score: 0.25 - Over-segmented, unnatural breaks
     """
 
     name = "segmentation"
 
     def __init__(
         self,
-        expectations: Expectations,
+        scenario: Scenario,
         conversation_manager: ConversationManager,
-        threshold: float = 0.80,
+        threshold: float = 80.0,
         model: Optional[str] = None
     ) -> None:
         """Initialize segmentation metric.
@@ -63,10 +61,10 @@ class SegmentationMetric(Metric):
         Args:
             expectations: Scenario expectations with reference texts
             conversation_manager: Conversation manager with per-turn summaries
-            threshold: Minimum score to pass (default: 0.80 = 80% = 4.2/5)
+            threshold: Minimum score to pass (default: 80 on 0-100 scale)
             model: Optional LLM model override (default: from config)
         """
-        self.expectations = expectations
+        self.scenario = scenario
         self.conversation_manager = conversation_manager
         self.threshold = threshold
         self.model = model
@@ -77,11 +75,12 @@ class SegmentationMetric(Metric):
         Returns:
             MetricResult with overall segmentation score
         """
-        if not self.expectations.transcripts:
+        turns_with_expectations = self.scenario.turns_to_evaluate()
+
+        if not turns_with_expectations:
             return MetricResult(
                 metric_name=self.name,
-                passed=True,
-                value=1.0,
+                score=100.0,
                 reason="No transcript expectations to evaluate",
                 details={"results": []}
             )
@@ -92,8 +91,7 @@ class SegmentationMetric(Metric):
         except Exception as e:
             return MetricResult(
                 metric_name=self.name,
-                passed=False,
-                value=0.0,
+                score=0.0,
                 reason=f"Failed to initialize LLM service: {e}",
                 details={"error": str(e)}
             )
@@ -102,59 +100,47 @@ class SegmentationMetric(Metric):
         total_score = 0.0
         evaluations = 0
 
-        for expectation in self.expectations.transcripts:
-            result = self._evaluate_expectation(expectation, llm)
+        for turn in turns_with_expectations:
+            result = self._evaluate_expectation(turn, llm)
             results.append(result)
 
             if result["status"] == "evaluated":
-                total_score += result["score_normalized"]
+                total_score += result["score"]
                 evaluations += 1
 
-        # Calculate overall score (0-1 scale)
+        # Calculate overall score (0-100 scale)
         overall_score = total_score / evaluations if evaluations > 0 else 0.0
-        passed = overall_score >= self.threshold
-
-        # Calculate average on 1-5 scale for reporting
-        avg_score_1_5 = self._calculate_avg_raw_score(results)
 
         return MetricResult(
             metric_name=self.name,
-            passed=passed,
-            value=overall_score,
-            reason=None if passed else f"Segmentation {overall_score:.2%} below threshold {self.threshold:.0%}",
+            score=overall_score,
             details={
-                "overall_score": f"{overall_score * 100:.2f}%",
                 "threshold": self.threshold,
                 "evaluations": evaluations,
-                "results": results,
-                # Session aggregates
-                "avg_segmentation_1_5": avg_score_1_5,
-                "avg_segmentation_0_100": overall_score * 100
+                "turns": results,
             }
         )
 
-    def _evaluate_expectation(self, expectation: TranscriptExpectation, llm) -> dict:
+    def _evaluate_expectation(self, turn: ScenarioTurn, llm) -> dict:
         """Evaluate segmentation for a single transcript expectation.
 
         Args:
-            expectation: Transcript expectation with event ID
+            turn: Scenario turn with expected text
             llm: LLM service instance
 
         Returns:
             Dictionary with evaluation results
         """
         # Get translated text from turn
-        turn = self.conversation_manager.get_turn_summary(expectation.event_id)
-        hypothesis_text = turn.translation_text() if turn else None
+        turn_summary = self.conversation_manager.get_turn_summary(turn.id)
+        hypothesis_text = turn_summary.translation_text() if turn_summary else None
 
         if not hypothesis_text:
             return {
-                "id": expectation.id,
-                "event_id": expectation.event_id,
+                "turn_id": turn.id,
                 "status": "failed",
                 "reason": "No translated text found",
-                "score_1_5": 1,
-                "score_normalized": 0.0
+                "score": 0.0
             }
 
         # Call LLM to evaluate segmentation
@@ -162,26 +148,19 @@ class SegmentationMetric(Metric):
 
         if not llm_result["success"]:
             return {
-                "id": expectation.id,
-                "event_id": expectation.event_id,
+                "turn_id": turn.id,
                 "status": "error",
                 "reason": llm_result["error"],
-                "score_1_5": 1,
-                "score_normalized": 0.0
+                "score": 0.0
             }
 
-        # Convert 1-5 to 0-1 scale: (score - 1) / 4
-        score_1_5 = llm_result["segmentation_score"]
-        score_normalized = (score_1_5 - 1) / 4
+        # LLM returns 0-100
+        score = llm_result["score"]
 
         return {
-            "id": expectation.id,
-            "event_id": expectation.event_id,
+            "turn_id": turn.id,
             "status": "evaluated",
-            "score_1_5": score_1_5,
-            "score_normalized": score_normalized,
-            "score_percentage": f"{score_normalized * 100:.2f}%",
-            "passed": score_normalized >= self.threshold,
+            "score": score,
             "reasoning": llm_result["reasoning"],
             "text": hypothesis_text,
             "tokens_used": llm_result["tokens_used"],
@@ -204,12 +183,12 @@ Evaluate the SEGMENTATION of the translated text.
 Segmentation measures whether sentence boundaries and turn segmentation are correct,
 with appropriate punctuation and natural breaks.
 
-Score from 1-5:
-- 5: Perfect segmentation, natural sentence breaks and turn boundaries
-- 4: Good segmentation, one minor split or merge issue
-- 3: Acceptable segmentation, multiple minor issues but understandable
-- 2: Poor segmentation, sentences incorrectly split or merged, missing punctuation
-- 1: Severely fragmented or run-on text with no clear sentence boundaries
+Score from 0 to 100:
+- 100: Perfect segmentation, natural sentence breaks and turn boundaries
+- 75-99: Good segmentation, one minor split or merge issue
+- 50-74: Acceptable segmentation, multiple minor issues but understandable
+- 25-49: Poor segmentation, sentences incorrectly split or merged, missing punctuation
+- 0-24: Severely fragmented or run-on text with no clear sentence boundaries
 
 Consider:
 - Are sentence boundaries properly marked with punctuation?
@@ -221,14 +200,14 @@ IMPORTANT: All responses must be in English, including the reasoning field.
 
 Respond ONLY with valid JSON:
 {
-    "segmentation_score": <integer 1-5>,
+    "score": <float 0-100>,
     "reasoning": "<brief explanation in English of the segmentation assessment>"
 }"""
 
         user_prompt = f"""Translated text:
 "{text}"
 
-Evaluate the segmentation (sentence boundaries and turn segmentation) on a scale of 1-5."""
+Evaluate the segmentation (sentence boundaries and turn segmentation) on a scale of 0 to 100."""
 
         # Make LLM call
         response = llm.call(
@@ -252,35 +231,13 @@ Evaluate the segmentation (sentence boundaries and turn segmentation) on a scale
                 "error": "Invalid JSON response from LLM"
             }
 
-        # Extract and validate score
-        score = result_data.get("segmentation_score", 1)
-        if not isinstance(score, int) or not (1 <= score <= 5):
-            logger.warning(f"Invalid segmentation score from LLM: {score}, defaulting to 1")
-            score = 1
-
         return {
             "success": True,
-            "segmentation_score": score,
+            "score": float(result_data.get("score", 0.0)),
             "reasoning": result_data.get("reasoning", ""),
             "tokens_used": response.tokens_used,
             "model": response.model
         }
-
-    def _calculate_avg_raw_score(self, results: list) -> float:
-        """Calculate average score on 1-5 scale.
-
-        Args:
-            results: List of evaluation results
-
-        Returns:
-            Average score (1-5 scale)
-        """
-        evaluated = [r for r in results if r["status"] == "evaluated"]
-        if not evaluated:
-            return 0.0
-
-        total = sum(r["score_1_5"] for r in evaluated)
-        return round(total / len(evaluated), 2)
 
 
 __all__ = ["SegmentationMetric"]

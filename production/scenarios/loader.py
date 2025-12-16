@@ -5,7 +5,7 @@ import json
 import importlib
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from production.scenario_engine.models import (
     Event,
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class ScenarioLoader:
     """Load scenario definitions into strongly typed dataclasses."""
 
-    def __init__(self, base_path: Path | None = None) -> None:
+    def __init__(self, base_path: Optional[Path] = None) -> None:
         self.base_path = base_path or Path.cwd()
 
     def load(self, path: Path) -> Scenario:

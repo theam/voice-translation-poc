@@ -18,13 +18,11 @@ class TestScore:
     Attributes:
         score: Overall test score (0-100)
         score_method: Name of calculator used (e.g., "average", "garbled_turn")
-        score_status: Status determined by calculator (e.g., "success", "garbled", "failed")
         details: Calculator-specific details (optional)
     """
 
     score: float  # 0-100
     score_method: str
-    score_status: str
     details: Optional[Dict[str, Any]] = None
 
 
@@ -37,7 +35,7 @@ class ScoreCalculator(Protocol):
     - Optional detailed breakdown
 
     Example implementations:
-    - AverageScoreCalculator: Average of passed metrics
+    - AverageScoreCalculator: Average of metric scores
     - GarbledTurnScoreCalculator: Based on conversational quality
     """
 

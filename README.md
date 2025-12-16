@@ -13,7 +13,7 @@ Proof-of-concept that exercises Azure AI Speech Translation (Live Interpreter pr
 - **WebSocket server mode** for receiving audio data from external applications (see [WEBSOCKET_API.md](WEBSOCKET_API.md) for client integration details).
 
 ## Requirements
-- Python 3.10 or higher.
+- Python 3.9.6 or higher (but less than 3.10).
 - Azure subscription with access to the Speech resource and Live Interpreter preview + Personal Voice.
 - Access to a compatible microphone for live capture (optional).
 - MP3 support relies on the Azure SDK's compressed audio streaming; no extra codecs required.

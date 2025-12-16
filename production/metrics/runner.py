@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, List, Optional
 from bson import ObjectId
 
 from production.capture.conversation_manager import ConversationManager
-from production.scenario_engine.models import Expectations
+from production.scenario_engine.models import Scenario
 
 from .base import Metric, MetricResult
 
@@ -25,6 +25,8 @@ class MetricsSummary:
 
     status: str
     results: List[MetricResult] = field(default_factory=list)
+    score: Optional[float] = None  # Overall test score (0-100)
+    score_method: Optional[str] = None  # Calculator used
 
 
 class MetricsRunner:
@@ -44,21 +46,22 @@ class MetricsRunner:
 
     def __init__(
         self,
-        expectations: Expectations,
+        scenario: Scenario,
         conversation_manager: ConversationManager,
-        metrics: List[Metric] | None = None,
+        metrics: Optional[List[Metric]] = None,
         storage_service: Optional[MetricsStorageService] = None,
         evaluation_run_id: Optional[ObjectId] = None,
         test_id: Optional[str] = None,
         test_name: Optional[str] = None,
         started_at: Optional[datetime] = None,
-        score_method: str = "average"
+        score_method: str = "average",
+        tolerance: Optional[float] = None,
     ) -> None:
         """Initialize metrics runner.
 
         Args:
-            expectations: Scenario expectations
-            events: Collected events from scenario execution
+            scenario: Scenario with turns and expectations
+            conversation_manager: Conversation manager with collected events
             metrics: List of metrics to run (if None, uses get_metrics())
             storage_service: Optional storage service for persistence
             evaluation_run_id: Optional evaluation run ID for test result linkage
@@ -67,7 +70,7 @@ class MetricsRunner:
             started_at: Optional test start timestamp
             score_method: Score calculator method ("average" or "garbled_turn")
         """
-        self.expectations = expectations
+        self.scenario = scenario
         self.conversation_manager = conversation_manager
         self._metrics = metrics
         self.storage_service = storage_service
@@ -76,6 +79,8 @@ class MetricsRunner:
         self.test_name = test_name
         self.started_at = started_at or datetime.utcnow()
         self.score_method = score_method
+        self.finished_at: Optional[datetime] = None
+        self.metric_tolerance = tolerance
 
     @property
     def metrics(self) -> List[Metric]:
@@ -83,7 +88,7 @@ class MetricsRunner:
         if self._metrics is None:
             # Import here to avoid circular dependency
             from . import get_metrics
-            self._metrics = get_metrics(self.expectations, self.conversation_manager)
+            self._metrics = get_metrics(self.scenario, self.conversation_manager)
         return self._metrics
 
     def run(self) -> MetricsSummary:
@@ -94,32 +99,48 @@ class MetricsRunner:
         """
         logger.info(f"Starting metrics execution ({len(self.metrics)} metrics)")
         # Log conversation summary
-        turns_summary = self.conversation_manager.get_turns_summary()
-        logger.info(f"Conversation turns to evaluate: {len(turns_summary)}")
-        for turn_info in turns_summary:
-            logger.info(f"  Turn '{turn_info['turn_id']}'({turn_info['start_ms']}): {turn_info['translation_text']}")
+        self.conversation_manager.log_turns_summary()
 
         results = []
-        all_passed = True
 
         for metric in self.metrics:
             result = self._run_single_metric(metric)
             results.append(result)
 
-            if not result.passed:
-                all_passed = False
-
         # Log overall summary
-        status = "passed" if all_passed else "failed"
-        passed_count = sum(1 for r in results if r.passed)
         total_count = len(results)
+        scored_count = sum(1 for r in results if r.score is not None)
 
+        if scored_count > 0:
+            avg_score = sum(r.score for r in results if r.score is not None) / scored_count
+            logger.info(
+                f"Metrics execution complete: {total_count} metrics, "
+                f"{scored_count} scored (average: {avg_score:.2f})"
+            )
+            status = "completed"
+        else:
+            logger.warning("Metrics execution complete: No metrics scored")
+            status = "no_scores"
+
+        # Calculate overall test score using configured calculator
+        from production.metrics.score_calculators import get_score_calculator
+
+        calculator = get_score_calculator(self.score_method)
+        test_score = calculator.calculate(results)
         logger.info(
-            f"Metrics execution complete: {status.upper()} "
-            f"({passed_count}/{total_count} passed)"
+            f"Test score calculated: {test_score.score:.2f} "
+            f"(method: {test_score.score_method})"
         )
 
-        return MetricsSummary(status=status, results=results)
+        self.finished_at = datetime.utcnow()
+        summary = MetricsSummary(
+            status=status,
+            results=results,
+            score=test_score.score,
+            score_method=test_score.score_method,
+        )
+
+        return summary
 
     async def run_and_persist(
         self,
@@ -183,11 +204,10 @@ class MetricsRunner:
             tags: Test tags for metadata
             participants: Participant names for metadata
         """
-        from production.metrics.score_calculators import get_score_calculator
-        from production.storage.models import MetricData, TestRun
+        from production.storage.models import MetricData, TestRun, Turn
         from production.storage.utils import generate_test_run_id
 
-        finished_at = datetime.utcnow()
+        finished_at = self.finished_at or datetime.utcnow()
         duration_ms = int((finished_at - self.started_at).total_seconds() * 1000)
 
         # Generate test_run_id
@@ -199,19 +219,42 @@ class MetricsRunner:
         )
 
         # Convert MetricResults to MetricData
-        metrics_dict = {
-            result.metric_name: MetricData.from_metric_result(result)
-            for result in summary.results
-        }
+        metrics_dict = {}
+        for result in summary.results:
+            # Map expected scores per turn for this metric from scenario expectations
+            expected_scores_by_turn = {
+                turn.id: turn.metric_expectations[result.metric_name]
+                for turn in self.scenario.turns
+                if result.metric_name in turn.metric_expectations
+            }
+            metrics_dict[result.metric_name] = MetricData.from_metric_result(
+                result,
+                expected_scores_by_turn=expected_scores_by_turn or None,
+            )
 
-        # Calculate overall test score using configured calculator
-        calculator = get_score_calculator(self.score_method)
-        test_score = calculator.calculate(summary.results)
+        # Convert conversation turns to storage format with scenario expectations
+        turns = []
+        # Create a lookup for scenario turns by ID
+        scenario_turns_by_id = {turn.id: turn for turn in self.scenario.turns}
 
-        logger.info(
-            f"Test score calculated: {test_score.score:.2f} "
-            f"(method: {test_score.score_method}, status: {test_score.score_status})"
-        )
+        for turn_summary in self.conversation_manager.iter_turns():
+            # Get corresponding scenario turn for expected values
+            scenario_turn = scenario_turns_by_id.get(turn_summary.turn_id)
+
+            turn = Turn(
+                turn_id=turn_summary.turn_id,
+                start_ms=turn_summary.turn_start_ms or 0,
+                end_ms=turn_summary.turn_end_ms,
+                source_text=scenario_turn.source_text if scenario_turn else None,
+                translated_text=turn_summary.translation_text(),
+                # Add expected values from scenario
+                expected_text=scenario_turn.expected_text if scenario_turn else None,
+                source_language=scenario_turn.source_language if scenario_turn else None,
+                expected_language=scenario_turn.expected_language if scenario_turn else None,
+                # Add metric expectations for calibration validation
+                metric_expectations=scenario_turn.metric_expectations if scenario_turn else {},
+            )
+            turns.append(turn)
 
         # Create TestRun
         test_run = TestRun(
@@ -223,11 +266,14 @@ class MetricsRunner:
             finished_at=finished_at,
             duration_ms=duration_ms,
             metrics=metrics_dict,
-            score=test_score.score,
-            score_method=test_score.score_method,
-            score_status=test_score.score_status,
+            turns=turns,
+            score=summary.score or 0.0,
+            score_method=summary.score_method or self.score_method,
             tags=tags,
-            participants=participants
+            participants=participants,
+            scenario_metrics=self.scenario.metrics,
+            expected_score=self.scenario.expected_score,
+            tolerance=self.metric_tolerance,
         )
 
         # Persist to MongoDB
@@ -262,39 +308,39 @@ class MetricsRunner:
 
             return MetricResult(
                 metric_name=metric_name,
-                passed=False,
-                value=0.0,
-                reason=f"Metric execution failed: {str(e)}",
+                score=0.0,
                 details={"error": str(e), "error_type": type(e).__name__}
             )
 
     def _calculate_test_score(self, summary: MetricsSummary) -> float:
         """Calculate overall test score from metrics.
 
-        Currently uses a simple percentage-based calculation:
-        - Counts the number of passed metrics
-        - Returns percentage as a score from 0-100
+        Uses average of metric scores (already on 0-100 scale):
+        - Averages all metric scores (0-100)
+        - Excludes metrics with None scores
 
         Args:
             summary: MetricsSummary containing all metric results
 
         Returns:
-            Score from 0-100 (0 = all failed, 100 = all passed)
+            Score from 0-100 (average of metric scores)
 
         Note:
-            This is a basic implementation. The scoring algorithm can be
-            enhanced to use weighted averages, metric values, or other
-            sophisticated calculations based on business requirements.
+            This is now handled by score calculators. This method is
+            deprecated but kept for compatibility.
         """
         if not summary.results:
             return 0.0
 
-        # Count passed metrics
-        passed_count = sum(1 for result in summary.results if result.passed)
-        total_count = len(summary.results)
+        # Collect metric scores (exclude None values)
+        scores = [result.score for result in summary.results if result.score is not None]
 
-        # Calculate percentage score
-        score = (passed_count / total_count) * 100.0
+        if not scores:
+            return 0.0
+
+        # Calculate average score (scores already 0-100)
+        average_score = sum(scores) / len(scores)
+        score = average_score
 
         return round(score, 2)
 
@@ -305,26 +351,17 @@ class MetricsRunner:
             metric_name: Name of the metric
             result: Metric result to log
         """
-        status = "PASSED" if result.passed else "FAILED"
-
         # Build result message
-        if result.value is not None:
-            # Metrics with numeric scores
-            score_str = f"{result.value:.2%}" if 0 <= result.value <= 1 else f"{result.value:.2f}"
-            message = f"Metric completed: {metric_name} - {status} (score: {score_str})"
+        if result.score is not None:
+            # Metrics with numeric scores (0-100)
+            score_str = f"{result.score:.2f}"
+            message = f"Metric completed: {metric_name} (score: {score_str})"
         else:
-            # Metrics without scores (e.g., sequence validation)
-            message = f"Metric completed: {metric_name} - {status}"
+            # Metrics without scores
+            message = f"Metric completed: {metric_name} (no score)"
 
-        # Add failure reason if present
-        if not result.passed and result.reason:
-            message += f" - {result.reason}"
-
-        # Log at appropriate level
-        if result.passed:
-            logger.info(message)
-        else:
-            logger.warning(message)
+        # Log the result
+        logger.info(message)
 
 
 __all__ = ["MetricsRunner", "MetricsSummary"]

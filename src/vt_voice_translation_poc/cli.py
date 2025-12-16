@@ -176,7 +176,7 @@ def _translate_folder(
     total = len(files)
     console.print(f"[bold green]Discovered {total} eligible audio file(s) under {folder}.[/bold green]")
 
-    failures: list[Tuple[Path, str | None]] = []
+    failures: list[Tuple[Path, Optional[str]]] = []
     preview_inputs = raw_testing_limit is not None
 
     for index, file_path in enumerate(files, start=1):

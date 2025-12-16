@@ -98,7 +98,8 @@ async def create_evaluation_run(
 async def finalize_evaluation_run(
     storage_service: MetricsStorageService,
     evaluation_run_id: ObjectId,
-    test_results: List[Tuple[str, MetricsSummary]]
+    test_results: List[Tuple[str, MetricsSummary]],
+    calibration_status: Optional[str] = None
 ) -> None:
     """Finalize evaluation run with aggregated metrics.
 
@@ -106,13 +107,12 @@ async def finalize_evaluation_run(
         storage_service: Storage service
         evaluation_run_id: Evaluation run ObjectId
         test_results: List of (test_id, MetricsSummary) tuples
+        calibration_status: "passed" or "failed" for calibration runs, None otherwise
     """
     finished_at = datetime.utcnow()
 
     # Aggregate metrics across all tests
     num_tests = len(test_results)
-    num_passed = sum(1 for _, summary in test_results if summary.status == "passed")
-    num_failed = num_tests - num_passed
 
     # Compute average metrics (WER, completeness, etc.)
     aggregated_metrics = compute_aggregated_metrics(test_results)
@@ -125,14 +125,13 @@ async def finalize_evaluation_run(
         finished_at=finished_at,
         aggregated_metrics=aggregated_metrics,
         num_tests=num_tests,
-        num_passed=num_passed,
-        num_failed=num_failed,
-        score=evaluation_score
+        score=evaluation_score,
+        calibration_status=calibration_status
     )
 
+    status_info = f" ({calibration_status})" if calibration_status else ""
     logger.info(
-        f"Evaluation run finalized: {num_passed}/{num_tests} passed "
-        f"(score: {evaluation_score:.2f}, average_wer: {aggregated_metrics.get('average_wer', 'N/A')})"
+        f"Evaluation run finalized: {num_tests} tests (score: {evaluation_score:.2f}){status_info}"
     )
 
 
@@ -147,21 +146,21 @@ def compute_aggregated_metrics(
         test_results: List of (test_id, MetricsSummary) tuples
 
     Returns:
-        Dictionary of aggregated metrics (e.g., average_wer, average_completeness)
+        Dictionary of aggregated metrics keyed by metric name (e.g., wer, completeness)
     """
     metric_values: Dict[str, List[float]] = defaultdict(list)
 
     # Collect all metric values
     for _, summary in test_results:
         for result in summary.results:
-            if result.value is not None:
-                metric_values[result.metric_name].append(result.value)
+            if result.score is not None:
+                metric_values[result.metric_name].append(result.score)
 
-    # Compute averages
+    # Compute averages using the original metric name
     aggregated = {}
     for metric_name, values in metric_values.items():
         if values:
-            aggregated[f"average_{metric_name}"] = sum(values) / len(values)
+            aggregated[metric_name] = sum(values) / len(values)
 
     return aggregated
 
@@ -172,28 +171,29 @@ def compute_evaluation_score(
     """Compute overall evaluation score from test results.
 
     Calculates the average score across all tests. Each test's score is
-    computed as the percentage of passed metrics (0-100).
+    computed from the score calculator output (0-100).
 
     Args:
         test_results: List of (test_id, MetricsSummary) tuples
 
     Returns:
-        Average score from 0-100 (0 = all tests failed all metrics, 100 = all tests passed all metrics)
+        Average score from 0-100
     """
     if not test_results:
         return 0.0
 
     test_scores = []
     for _, summary in test_results:
-        if not summary.results:
-            test_scores.append(0.0)
+        if summary.score is not None:
+            test_scores.append(summary.score)
             continue
 
-        # Calculate test score: percentage of passed metrics
-        passed_count = sum(1 for result in summary.results if result.passed)
-        total_count = len(summary.results)
-        test_score = (passed_count / total_count) * 100.0
-        test_scores.append(test_score)
+        # Fallback: average metric scores if calculator score missing
+        scores = [result.score for result in summary.results if result.score is not None]
+        if scores:
+            test_scores.append(round(sum(scores) / len(scores) * 100.0, 2))
+        else:
+            test_scores.append(0.0)
 
     # Return average of all test scores
     return round(sum(test_scores) / len(test_scores), 2)

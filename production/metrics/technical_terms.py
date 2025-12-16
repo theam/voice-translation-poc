@@ -9,7 +9,7 @@ import logging
 from typing import Sequence
 
 from production.capture.conversation_manager import ConversationManager
-from production.scenario_engine.models import Expectations, TranscriptExpectation
+from production.scenario_engine.models import Scenario
 from production.services.llm_service import get_llm_service
 
 from .base import Metric, MetricResult
@@ -40,18 +40,18 @@ class TechnicalTermsMetric(Metric):
 
     def __init__(
         self,
-        expectations: Expectations,
+        scenario: Scenario,
         conversation_manager: ConversationManager,
-        threshold: float = 0.90
+        threshold: float = 90.0
     ) -> None:
         """Initialize technical terms metric.
 
         Args:
             expectations: Scenario expectations with reference texts
             events: Collected events from scenario execution
-            threshold: Minimum score to pass (default: 0.90 = 90%)
+            threshold: Minimum score to pass (default: 90)
         """
-        self.expectations = expectations
+        self.scenario = scenario
         self.conversation_manager = conversation_manager
         self.threshold = threshold
 
@@ -61,11 +61,12 @@ class TechnicalTermsMetric(Metric):
         Returns:
             MetricResult with overall technical terms accuracy
         """
-        if not self.expectations.transcripts:
+        turns_with_expectations = self.scenario.turns_to_evaluate()
+
+        if not turns_with_expectations:
             return MetricResult(
                 metric_name=self.name,
-                passed=True,
-                value=1.0,
+                score=100.0,
                 reason="No transcript expectations to evaluate",
                 details={"results": []}
             )
@@ -76,8 +77,7 @@ class TechnicalTermsMetric(Metric):
         except Exception as e:
             return MetricResult(
                 metric_name=self.name,
-                passed=False,
-                value=0.0,
+                score=0.0,
                 reason=f"Failed to initialize LLM service: {e}",
                 details={"error": str(e)}
             )
@@ -86,56 +86,52 @@ class TechnicalTermsMetric(Metric):
         total_score = 0.0
         evaluations = 0
 
-        for expectation in self.expectations.transcripts:
-            result = self._evaluate_expectation(expectation, llm)
+        for turn in turns_with_expectations:
+            result = self._evaluate_expectation(turn, llm)
             results.append(result)
 
             if result["status"] == "evaluated":
                 total_score += result["score"]
                 evaluations += 1
 
-        # Calculate overall score
+        # Calculate overall score (0-100)
         overall_score = total_score / evaluations if evaluations > 0 else 0.0
-        passed = overall_score >= self.threshold
-
         return MetricResult(
             metric_name=self.name,
-            passed=passed,
-            value=overall_score,
-            reason=None if passed else f"Technical terms score {overall_score:.2%} below threshold {self.threshold:.0%}",
+            score=overall_score,
+            reason=None,
             details={
-                "overall_score": f"{overall_score * 100:.2f}%",
                 "threshold": self.threshold,
                 "evaluations": evaluations,
-                "results": results
+                "turns": results
             }
         )
 
-    def _evaluate_expectation(self, expectation: TranscriptExpectation, llm) -> dict:
+    def _evaluate_expectation(self, turn: ScenarioTurn, llm) -> dict:
         """Evaluate technical terms for a single transcript expectation.
 
         Args:
-            expectation: Transcript expectation with reference text
+            turn: Scenario turn with expected text
             llm: LLM service instance
 
         Returns:
             Dictionary with evaluation results
         """
         # Get reference text
-        reference_text = expectation.expected_text
+        reference_text = turn.expected_text
         if not reference_text:
             return {
-                "id": expectation.id,
+                "turn_id": turn.id,
                 "status": "skipped",
                 "reason": "No reference text provided"
             }
 
         # Find matching event
-        turn = self.conversation_manager.get_turn_summary(expectation.event_id)
-        hypothesis_text = turn.translation_text() if turn else None
+        turn_summary = self.conversation_manager.get_turn_summary(turn.id)
+        hypothesis_text = turn_summary.translation_text() if turn_summary else None
         if not hypothesis_text:
             return {
-                "id": expectation.id,
+                "turn_id": turn.id,
                 "status": "failed",
                 "reason": "No translated text found",
                 "score": 0.0
@@ -146,17 +142,16 @@ class TechnicalTermsMetric(Metric):
 
         if not llm_result["success"]:
             return {
-                "id": expectation.id,
+                "turn_id": turn.id,
                 "status": "error",
                 "reason": llm_result["error"],
                 "score": 0.0
             }
 
         return {
-            "id": expectation.id,
+            "turn_id": turn.id,
             "status": "evaluated",
             "score": llm_result["score"],
-            "passed": llm_result["score"] >= self.threshold,
             "reasoning": llm_result["reasoning"],
             "technical_terms_found": llm_result["technical_terms_found"],
             "correct_terms": llm_result["correct_terms"],
@@ -195,7 +190,7 @@ IMPORTANT: All responses must be in English, including the reasoning field.
 
 Respond ONLY with valid JSON:
 {
-    "score": <float 0.0 to 1.0>,
+    "score": <float 0 to 100>,
     "reasoning": "<detailed explanation in English of technical term handling>",
     "technical_terms_found": ["<term 1>", "<term 2>"],
     "correct_terms": ["<correctly handled term 1>", "<term 2>"],
@@ -206,14 +201,14 @@ Respond ONLY with valid JSON:
 }
 
 Scoring guide:
-- 1.0: All technical terms perfect
-- 0.9-0.95: Excellent - minor variation in non-critical term
-- 0.8-0.85: Good - one term slightly incorrect but understandable
-- 0.7-0.75: Acceptable - some terms wrong but meaning preserved
-- 0.5-0.65: Poor - multiple critical terms incorrect
-- <0.5: Very poor - major terminology errors
+- 100: All technical terms perfect
+- 90-95: Excellent - minor variation in non-critical term
+- 80-85: Good - one term slightly incorrect but understandable
+- 70-75: Acceptable - some terms wrong but meaning preserved
+- 50-65: Poor - multiple critical terms incorrect
+- <50: Very poor - major terminology errors
 
-Special case: If no technical terms exist, return score 1.0 with has_technical_content: false"""
+Special case: If no technical terms exist, return score 100 with has_technical_content: false"""
 
         user_prompt = f"""Expected text:
 "{reference}"

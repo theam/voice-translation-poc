@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 from pymongo import MongoClient
 from pymongo.read_preferences import ReadPreference
@@ -17,7 +17,7 @@ class MongoAccessor:
 
     def __init__(self, config: ExporterConfig):
         self._config = config
-        self._client: MongoClient | None = None
+        self._client: Optional[MongoClient] = None
 
     @property
     def client(self) -> MongoClient:

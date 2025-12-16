@@ -13,12 +13,13 @@ from bson import ObjectId
 from production.acs_emulator.media_engine import FRAME_DURATION_MS, async_stream_silence
 from production.acs_emulator.protocol_adapter import ProtocolAdapter
 from production.acs_emulator.websocket_client import WebSocketClient
+from production.acs_emulator.websocket_client_factory import create_websocket_client
 from production.metrics import MetricsRunner, MetricsSummary
 from production.capture.collector import CollectedEvent, EventCollector
 from production.capture.conversation_manager import ConversationManager
 from production.capture.conversation_tape import ConversationTape
 from production.capture.results_persistence_service import ResultsPersistenceService
-from production.scenario_engine.event_processors import create_event_processor
+from production.scenario_engine.turn_processors import create_turn_processor
 from production.scenario_engine.models import Participant, Scenario
 from production.utils.config import FrameworkConfig
 from production.utils.time_utils import Clock
@@ -72,13 +73,14 @@ class ScenarioEngine:
         effective_channels = channels or 1
         tape = ConversationTape(sample_rate=effective_sample_rate)
 
-        async with WebSocketClient(
-            url=self.config.websocket_url,
-            auth_key=self.config.auth_key,
-            connect_timeout=self.config.connect_timeout,
-            debug_wire=self.config.debug_wire,
+        # Create appropriate WebSocket client based on scenario configuration
+        ws_client = create_websocket_client(
+            scenario=scenario,
+            config=self.config,
             log_sink=persistence_service.get_websocket_sink(),
-        ) as ws:
+        )
+
+        async with ws_client as ws:
             listener = asyncio.create_task(
                 self._listen(
                     ws,
@@ -112,13 +114,15 @@ class ScenarioEngine:
         # Create MetricsRunner with storage integration
         test_started_at = started_at or datetime.utcnow()
         runner = MetricsRunner(
-            scenario.expectations,
+            scenario,
             conversation_manager,
             storage_service=self.storage_service,
             evaluation_run_id=self.evaluation_run_id,
             test_id=scenario.id,
             test_name=scenario.description,
-            started_at=test_started_at
+            started_at=test_started_at,
+            score_method=scenario.score_method,
+            tolerance=scenario.tolerance if scenario.tolerance is not None else self.config.calibration_tolerance,
         )
 
         # Run and persist metrics if storage is configured
@@ -142,14 +146,14 @@ class ScenarioEngine:
         channels: int,
         conversation_manager: ConversationManager,
     ) -> None:
-        """Play a scenario by processing events in timeline order.
+        """Play a scenario by processing turns in timeline order.
 
         The engine orchestrates timing by:
-        1. Streaming silence to reach each event's start time
-        2. Delegating event-specific logic to processors
+        1. Streaming silence to reach each turn's start time
+        2. Delegating turn-specific logic to processors
         3. Tracking current playback position
 
-        Processors focus purely on event execution, not timing orchestration.
+        Processors focus purely on turn execution, not timing orchestration.
 
         Args:
             ws: WebSocket client for sending messages
@@ -159,26 +163,26 @@ class ScenarioEngine:
             sample_rate: Audio sample rate in Hz
             channels: Number of audio channels
         """
-        timeline = sorted(scenario.events, key=lambda event: event.start_at_ms)
+        timeline = sorted(scenario.turns, key=lambda turn: turn.start_at_ms)
         current_time = 0
         participants = list(scenario.participants.values())
 
-        # Process each event with orchestrated timing
-        for event in timeline:
+        # Process each turn with orchestrated timing
+        for turn in timeline:
             logger.info(
-                f"Processing event '{event.id}': start_at={event.start_at_ms}ms, "
-                f"current_time={current_time}ms, silence_needed={event.start_at_ms - current_time}ms"
+                f"Processing turn '{turn.id}': start_at={turn.start_at_ms}ms, "
+                f"current_time={current_time}ms, silence_needed={turn.start_at_ms - current_time}ms"
             )
-            # Orchestration: Stream silence until event start time
+            # Orchestration: Stream silence until turn start time
             current_time = await self._stream_silence_until(
-                ws, adapter, participants, current_time, event.start_at_ms, sample_rate, channels, tape
+                ws, adapter, participants, current_time, turn.start_at_ms, sample_rate, channels, tape
             )
 
-            conversation_manager.start_turn(event.id, {"type": event.type, "start_at_ms": event.start_at_ms})
+            conversation_manager.start_turn(turn.id, {"type": turn.type, "start_at_ms": turn.start_at_ms})
 
-            # Execution: Process the event
-            processor = create_event_processor(
-                event_type=event.type,
+            # Execution: Process the turn
+            processor = create_turn_processor(
+                turn_type=turn.type,
                 ws=ws,
                 adapter=adapter,
                 clock=self.clock,
@@ -187,12 +191,16 @@ class ScenarioEngine:
                 channels=channels,
                 conversation_manager=conversation_manager,
             )
-            current_time = await processor.process(event, scenario, participants, current_time)
+            current_time = await processor.process(turn, scenario, participants, current_time)
 
-            logger.debug(f"After processing event '{event.id}', current_time={current_time}ms")
+            logger.debug(f"After processing turn '{turn.id}', current_time={current_time}ms")
 
         # Stream trailing silence to allow translations to arrive before teardown
         tail_target = current_time + self.config.tail_silence_ms
+        logger.info(
+            f"Turn completed '{turn.id}': start_at={turn.start_at_ms}ms, "
+            f"current_time={current_time}ms, tail_silence_needed={tail_target - current_time}ms"
+        )
         current_time = await self._stream_silence_until(
             ws, adapter, participants, current_time, tail_target, sample_rate, channels, tape
         )
@@ -301,18 +309,18 @@ class ScenarioEngine:
         """Construct the ACS AudioMetadata payload based on the first audio asset.
 
         ACS emits metadata before streaming audio frames. The emulator mirrors this
-        by inspecting the first ``play_audio`` event to determine sample rate,
+        by inspecting the first ``play_audio`` turn to determine sample rate,
         channel count, and expected frame size.
 
         Returns:
             Tuple of (metadata_payload, sample_rate, channels)
         """
 
-        for event in sorted(scenario.events, key=lambda evt: evt.start_at_ms):
-            if event.type != "play_audio":
+        for turn in sorted(scenario.turns, key=lambda evt: evt.start_at_ms):
+            if turn.type != "play_audio":
                 continue
-            participant = scenario.participants[event.participant]
-            audio_path = participant.audio_files[event.audio_file]  # type: ignore[index]
+            participant = scenario.participants[turn.participant]
+            audio_path = participant.audio_files[turn.audio_file]  # type: ignore[index]
             with wave.open(str(audio_path), "rb") as wav:
                 channels = wav.getnchannels()
                 sample_width = wav.getsampwidth()
@@ -330,5 +338,5 @@ class ScenarioEngine:
             payload = adapter.build_audio_metadata(sample_rate=sample_rate, channels=channels, frame_bytes=frame_bytes)
             return payload, sample_rate, channels
 
-        logger.warning("Scenario contains no play_audio events; skipping AudioMetadata emission")
+        logger.warning("Scenario contains no play_audio turns; skipping AudioMetadata emission")
         return None, None, None

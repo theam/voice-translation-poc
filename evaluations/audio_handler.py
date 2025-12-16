@@ -4,7 +4,7 @@ import base64
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Optional
 
 from models import DEFAULT_PARTICIPANT_ID
 
@@ -75,9 +75,9 @@ def create_audio_data_message(
     participant_id: str = DEFAULT_PARTICIPANT_ID,
     silent: bool = False,
     *,
-    sample_rate: int | None = None,
-    channels: int | None = None,
-    bits_per_sample: int | None = None,
+    sample_rate: Optional[int] = None,
+    channels: Optional[int] = None,
+    bits_per_sample: Optional[int] = None,
 ) -> dict:
     """
     Create AudioData message in Azure Communication Service format.

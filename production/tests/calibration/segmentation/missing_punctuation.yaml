@@ -1,0 +1,28 @@
+id: segmentation_missing_punctuation
+description: Segmentation calibration - missing sentence boundaries
+websocket_client: loopback
+metrics:
+  - segmentation
+expected_score: 50.0
+tags:
+  - calibration
+  - segmentation
+  - moderate
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+
+turns:
+  - id: missing_punctuation
+    type: loopback_text
+    participant: patient
+    text: "I have a fever and body aches I took medicine but it didn't help"
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have a fever and body aches. I took medicine but it didn't help."
+    expected_text: "I have a fever and body aches. I took medicine but it didn't help."
+    metric_expectations:
+      segmentation: 50.0

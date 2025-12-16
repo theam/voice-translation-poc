@@ -6,6 +6,7 @@ Automated evaluation framework for live speech translation services conforming t
 
 **Core capabilities:**
 - **Scenario-driven testing** – Define multi-turn conversations in YAML with participants, audio files, timing, and expectations
+- **Parallel execution** – Run tests concurrently to simulate multiple users or accelerate test runs
 - **ACS protocol emulation** – WebSocket client streaming 16-bit PCM audio with ACS-compatible JSON framing
 - **Quality metrics** – WER, completeness, technical term preservation, intent preservation, language correctness, sequence validation
 - **Capture & artifacts** – Stores translated audio, transcripts, raw WebSocket logs, and full call tape under `production_results/`
@@ -15,18 +16,29 @@ Automated evaluation framework for live speech translation services conforming t
 
 ```bash
 # Run single test
-poetry run python -m production.cli run-test production/tests/scenarios/allergy_ceph.yaml
+poetry run prod run-test production/tests/scenarios/allergy_ceph.yaml
 
 # Run test suite
-poetry run python -m production.cli run-suite production/tests/scenarios/
+poetry run prod run-suite production/tests/scenarios/
+
+# Run tests in parallel (4 concurrent workers)
+poetry run prod parallel tests production/tests/scenarios/ -j 4
+
+# Simulate 4 concurrent users running the full suite
+poetry run prod parallel suites production/tests/scenarios/ -n 4
 ```
 
 Configure via environment variables (see `.env.example`) or defaults in `production/utils/config.py`.
 
 ## Architecture
 
-- **cli.py** – Typer commands for single tests and suites with MongoDB orchestration
-- **scenario_engine/** – Timeline orchestration, event processors (audio, silence, hangup), timing control
+- **cli/** – Typer commands for single tests, suites, parallel execution, and MongoDB orchestration
+  - `run_test.py` – Single test execution
+  - `run_suite.py` – Test suite execution
+  - `run_parallel.py` – Parallel test runner for multi-user simulation
+  - `calibrate.py` – Metric calibration
+  - `generate_report.py` – PDF report generation
+- **scenario_engine/** – Timeline orchestration, turn processors (audio, silence, hangup), timing control
 - **acs_emulator/** – WebSocket client, protocol adapter (encode/decode), media engine (PCM streaming, silence generation)
 - **scenarios/** – YAML/JSON loader for test definitions
 - **capture/** – Audio sink, transcript sink, raw log sink, conversation tape (full call mix)
@@ -39,7 +51,7 @@ Configure via environment variables (see `.env.example`) or defaults in `product
 
 **Scenarios** define multi-participant conversations with:
 - Participants (source/target languages, audio assets)
-- Events (play_audio, silence, hangup) with precise timing
+- Turns (play_audio, silence, hangup) with precise timing
 - Expectations (transcript matching, event sequence, latency thresholds)
 
 **Metrics** validate translation quality:
@@ -58,9 +70,9 @@ Configure via environment variables (see `.env.example`) or defaults in `product
 **Calibration** validates metric behavior:
 - Tests metrics against known expected outcomes
 - Detects drift in LLM-based evaluation
-- YAML-based test cases with expected scores
-- Supports all metrics with configurable tolerance
-- Generates JSON/Markdown reports
+- YAML scenario tests with `metric_expectations` under `tests/calibration/`
+- Loopback client keeps runs deterministic and repeatable
+- Artifacts land beside standard scenario results for side-by-side comparison
 
 ## Calibration
 
@@ -72,150 +84,107 @@ The calibration system validates that metrics produce expected scores on known t
 # Run all calibrations
 make calibrate
 
-# Run specific metric
+# Filter by metric/tag (matches scenario tags or folder names)
 make calibrate ARGS="--metric intelligibility"
 
-# Custom tolerance (default: 0.5 on 1-5 scale)
-make calibrate ARGS="--tolerance 0.3"
+# Run a single calibration scenario
+poetry run python -m production.cli calibrate --file tests/calibration/segmentation/segmentation_baseline.yaml
 
-# Generate JSON report
-make calibrate ARGS="--output reports/calibration.json"
+# Custom glob (defaults to **/*.yaml)
+poetry run python -m production.cli calibrate --pattern "context/*.yaml"
 
-# Generate Markdown report
-make calibrate ARGS="--output reports/calibration.md"
-
-# Hide passed tests (only show failures)
-make calibrate ARGS="--hide-passed"
-
-# Store results to MongoDB
+# Store results to MongoDB (requires MONGODB_* env vars)
 make calibrate ARGS="--store"
-
-# Combine options: store and generate report
-make calibrate ARGS="--store --output reports/calibration.json"
 ```
 
 ### Calibration Files
 
-Calibration test cases are defined in `production/tests/calibration/*.yaml`:
+Calibration scenarios live under `tests/calibration/**` and use the standard scenario schema with `metric_expectations` on turns:
 
 ```yaml
 id: intelligibility_calibration_baseline
-version: "1.0"
-metric: intelligibility
-description: "Validates intelligibility scoring on varied text samples"
+description: Baseline calibration for intelligibility metric - tests clarity and readability
+websocket_client: loopback
+tags: [calibration, intelligibility]
 
-calibration_cases:
+turns:
   - id: perfect_clarity_medical
-    description: "Perfect clarity medical question"
-    text: "I have a fever and body aches."
-    expected_scores:
-      intelligibility_1_5: 5
-      intelligibility_normalized: 1.0
-    expected_reasoning: "Clear, natural, grammatically correct"
-
-  - id: garbled_unintelligible
-    description: "Completely unintelligible garbled text"
-    text: "hav fvr bdy ach"
-    expected_scores:
-      intelligibility_1_5: 1
-      intelligibility_normalized: 0.0
-    expected_reasoning: "No recognizable words, cannot be understood"
+    type: loopback_text
+    participant: patient
+    text: "I have a fever and body aches. I took acetaminophen four hours ago, but it hasn't gone down."
+    expected_language: es-ES
+    metric_expectations:
+      intelligibility: 1.0
 ```
 
-### Context Metric Calibration
+### Results & Storage
 
-The context metric requires conversation history for evaluation:
+Calibration runs produce the same artifacts as other scenario tests (transcripts, metrics, logs) and surface pass/fail in the CLI. Report generation is no longer part of the workflow.
 
-```yaml
-calibration_cases:
-  - id: context_loss_uti
-    description: "Complete context loss mid-conversation"
-    text: "Sure, soccer practice is at 5."
-    conversation_history:
-      - speaker: "user"
-        text: "What time is my appointment with Dr. Smith?"
-      - speaker: "bot"
-        text: "Your appointment is at 3 PM tomorrow."
-      - speaker: "user"
-        text: "And what about my daughter's paddle game?"
-    expected_scores:
-      context_1_5: 1
-      context_normalized: 0.0
-```
+Use the `--store` flag to persist calibration results to MongoDB for historical tracking (requires `MONGODB_ENABLED=true` or `--store` plus connection vars). Runs are stored as standard evaluation runs with git metadata, timing, and metric details.
 
-### Tolerance
+## Parallel Testing
 
-Calibration uses tolerance thresholds to account for LLM scoring variability:
-- **Default**: 0.5 on 1-5 scale (allows scores within ±0.5 of expected)
-- **Strict**: 0.3 for more precise validation
-- **Lenient**: 1.0 for early-stage calibration
+The framework supports parallel test execution to simulate multiple concurrent users and accelerate test runs. Tests execute in isolated environments with unique output directories, ensuring no conflicts.
 
-### Report Output
+### Running Tests in Parallel
 
-JSON reports include per-case details:
-```json
-{
-  "config_id": "intelligibility_calibration_baseline",
-  "accuracy": 0.90,
-  "passed_cases": 9,
-  "failed_cases": 1,
-  "results": [
-    {
-      "case_id": "perfect_clarity_medical",
-      "passed": true,
-      "actual_score": 5.0,
-      "expected_score": 5.0,
-      "difference": 0.0
-    }
-  ]
-}
-```
-
-Markdown reports provide summary tables for tracking across calibration runs.
-
-### MongoDB Storage
-
-Use the `--store` flag to persist calibration results to MongoDB for historical tracking:
+**Individual Tests** – Distribute test files across N parallel workers:
 
 ```bash
-make calibrate ARGS="--store"
+# Inside container
+poetry run prod parallel tests production/tests/scenarios/ -j 4
+
+# Via Make (from host)
+make test_parallel_tests TEST_PATH=production/tests/scenarios/ JOBS=4
+
+# Custom pattern with 8 workers
+poetry run prod parallel tests production/tests/scenarios/ -p "**/*.yaml" -j 8
 ```
 
-Stored calibration runs include:
-- Complete test case results with actual vs expected scores
-- Accuracy and pass/fail counts
-- Git commit and branch for provenance
-- Timestamp and duration
-- LLM model used (if applicable)
+**Suite Simulation** – Run entire test suite N times concurrently (simulates N users):
 
-**Benefits of storage:**
-- Track metric behavior over time
-- Detect drift after LLM model updates
-- Compare calibration runs across git commits
-- Generate historical trend reports
+```bash
+# Inside container
+poetry run prod parallel suites production/tests/scenarios/ -n 4
 
-**Querying stored calibration runs:**
+# Via Make (from host)
+make test_parallel_suites COUNT=4
 
-The storage service provides methods for querying historical data:
+# Custom suite path with 8 concurrent runs
+make test_parallel_suites SUITE_PATH=production/tests/scenarios/ COUNT=8
 
-```python
-from production.storage.client import MongoDBClient
-from production.storage.service import MetricsStorageService
-
-# Initialize storage
-client = MongoDBClient("mongodb://localhost:27017", "vt_metrics")
-service = MetricsStorageService(client)
-
-# Get recent calibrations for a specific metric
-history = await service.get_calibration_history(
-    metric="intelligibility",
-    days=30
-)
-
-# Get calibrations filtered by accuracy
-low_accuracy = await service.get_calibration_runs(
-    metric="context",
-    min_accuracy=0.7,
-    limit=10
-)
+# Filter tests within each suite run
+poetry run prod parallel suites production/tests/scenarios/ -n 4 -p "allergy*.yaml"
 ```
+
+### Parallel Execution Features
+
+- **Isolated output**: Each run creates unique directories under `production_results/<evaluation_run_id>/<scenario_id>/`
+- **Concurrent MongoDB writes**: Each test gets unique `ObjectId` for safe parallel storage
+- **Progress tracking**: Real-time status updates for running tests
+- **Summary reports**: Aggregated success/failure counts and timing statistics
+- **Pattern matching**: Filter tests with glob patterns (`*.yaml`, `**/*.yaml`, `allergy*.yaml`)
+- **Configurable concurrency**: Adjust parallel job count based on system resources
+
+### Output Example
+
+```
+================================================================================
+PARALLEL TEST RUN SUMMARY
+================================================================================
+Total tests:     12
+Successful:      11
+Failed:          1
+Parallel jobs:   4
+Total duration:  45.23s
+Avg per test:    3.77s
+================================================================================
+```
+
+### Resource Considerations
+
+- **WebSocket endpoint**: Verify your translation service handles concurrent connections
+- **System resources**: Monitor CPU/memory with `docker stats` when running parallel tests
+- **LLM API limits**: Check OpenAI/LLM provider rate limits if running many parallel jobs
+- **Recommended**: Start with 2-4 parallel jobs and scale based on observed resource usage

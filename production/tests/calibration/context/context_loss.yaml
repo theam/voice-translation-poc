@@ -1,0 +1,42 @@
+id: context_complete_loss
+description: Context calibration - complete context loss with unrelated question
+websocket_client: loopback
+metrics:
+  - context
+expected_score: 0.0
+tags:
+  - calibration
+  - context
+  - severe
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+  nurse:
+    source_language: en
+    target_language: en
+
+turns:
+  # Build context: patient states severe symptoms
+  - id: history_severe_pain
+    type: loopback_text
+    participant: patient
+    text: "I have severe chest pain."
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have severe chest pain."
+    expected_text: "I have severe chest pain."
+
+  # Test: nurse asks completely unrelated question
+  - id: complete_context_loss
+    type: loopback_text
+    participant: nurse
+    text: "What's your favorite color?"
+    start_at_ms: 1000
+    source_language: en
+    expected_language: en
+    source_text: "What's your favorite color?"
+    expected_text: "What's your favorite color?"
+    # Note: context is a conversation-level metric, validated against scenario expected_score

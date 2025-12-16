@@ -10,9 +10,11 @@ import yaml
 
 # Language code mapping: scenario format → (gTTS lang, gTTS TLD)
 LANGUAGE_MAPPING = {
+    "en": ("en", "us"),
     "en-US": ("en", "us"),
     "en-GB": ("en", "co.uk"),
     "en-IN": ("en", "co.in"),
+    "es": ("es", "es"),
     "es-ES": ("es", "es"),
     "es-MX": ("es", "com.mx"),
     "es-AR": ("es", "com.ar"),
@@ -29,7 +31,7 @@ def get_language_config(lang_code: str) -> Tuple[str, str]:
     """Convert scenario language code to gTTS format.
 
     Args:
-        lang_code: Language code like "en-US" or "es-ES"
+        lang_code: Language code like "en" / "es" (ISO 639-1) or BCP-47 variants
 
     Returns:
         Tuple of (language, tld) for gTTS

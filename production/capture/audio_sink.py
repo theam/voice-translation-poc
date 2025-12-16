@@ -9,6 +9,12 @@ from production.capture.collector import CollectedEvent
 from production.capture.conversation_tape import ConversationTape
 
 
+# Event types that contain audio content for persistence
+AUDIO_EVENT_TYPES = [
+    "translated_audio",
+]
+
+
 class AudioSink:
     def __init__(self, base_dir: Path, sample_rate: int = 16000) -> None:
         self.base_dir = base_dir
@@ -38,4 +44,4 @@ class AudioSink:
             wav.writeframes(payload)
 
 
-__all__ = ["AudioSink"]
+__all__ = ["AudioSink", "AUDIO_EVENT_TYPES"]

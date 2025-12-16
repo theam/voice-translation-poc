@@ -1,7 +1,8 @@
 .PHONY: build up down restart logs
 .PHONY: server server_stop bash clean_reports
 .PHONY: evaluations run_test
-.PHONY: test_prod test_suite calibrate
+.PHONY: test_prod test_suite calibrate generate_report
+.PHONY: test_parallel_tests test_parallel_suites
 .PHONY: mongo clean status
 
 # =============================================================================
@@ -74,9 +75,32 @@ test_suite:
 	@echo "Running production test suite..."
 	@docker compose exec -T vt-app poetry run prod run-suite production/tests/scenarios/
 
+test_parallel_tests:
+	@if [ -z "$(TEST_PATH)" ]; then \
+		echo "Error: TEST_PATH not specified"; \
+		echo "Usage: make test_parallel_tests TEST_PATH=production/tests/scenarios/ JOBS=4"; \
+		exit 1; \
+	fi
+	@echo "Running tests in parallel: path=$(TEST_PATH), jobs=$(or $(JOBS),4)"
+	@docker compose exec -T vt-app poetry run prod parallel tests $(TEST_PATH) --jobs $(or $(JOBS),4)
+
+test_parallel_suites:
+	@echo "Running test suite $(or $(COUNT),4) times in parallel..."
+	@docker compose exec -T vt-app poetry run prod parallel suites $(or $(SUITE_PATH),production/tests/scenarios/) --count $(or $(COUNT),4)
+
 calibrate:
 	@echo "Running metrics calibration..."
 	@docker compose exec -T vt-app poetry run prod calibrate $(ARGS)
+
+generate_report:
+	@if [ -z "$(EVAL_ID)" ]; then \
+		echo "Error: EVAL_ID not specified"; \
+		echo "Usage: make generate_report EVAL_ID=<24-char-hex-objectid>"; \
+		echo "Example: make generate_report EVAL_ID=507f1f77bcf86cd799439011"; \
+		exit 1; \
+	fi
+	@echo "Generating PDF report for evaluation: $(EVAL_ID)"
+	@docker compose exec -T vt-app poetry run prod generate-report $(EVAL_ID)
 
 # =============================================================================
 # Development

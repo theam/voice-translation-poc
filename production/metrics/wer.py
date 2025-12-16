@@ -16,7 +16,7 @@ import logging
 from typing import List, Sequence, Tuple
 
 from production.capture.conversation_manager import ConversationManager
-from production.scenario_engine.models import Expectations, TranscriptExpectation
+from production.scenario_engine.models import Scenario
 from production.utils.text_normalization import normalize_text_for_wer
 
 from .base import Metric, MetricResult
@@ -178,39 +178,40 @@ class WERMetric(Metric):
 
     def __init__(
         self,
-        expectations: Expectations,
+        scenario: Scenario,
         conversation_manager: ConversationManager,
-        threshold: float = 0.3,
+        threshold: float = 30.0,
         normalize: bool = True,
         language: str = "en"
     ) -> None:
         """Initialize WER metric.
 
         Args:
-            expectations: Scenario expectations with reference texts
+            scenario: Scenario with turns containing expected texts
             conversation_manager: Conversation manager with per-turn summaries
-            threshold: Maximum acceptable WER (default: 0.3 = 30%)
+            threshold: Maximum acceptable WER (default: 30)
             normalize: Whether to apply text normalization (default: True)
             language: Language code for normalization (default: "en")
         """
-        self.expectations = expectations
+        self.scenario = scenario
         self.conversation_manager = conversation_manager
         self.threshold = threshold
         self.normalize = normalize
         self.language = language
 
     def run(self) -> MetricResult:
-        """Calculate WER for all transcript expectations.
+        """Calculate WER for all turns with expected texts.
 
         Returns:
-            MetricResult with aggregated WER across all expectations
+            MetricResult with aggregated WER across all turns
         """
-        if not self.expectations.transcripts:
+        turns_with_expectations = self.scenario.turns_to_evaluate()
+
+        if not turns_with_expectations:
             return MetricResult(
                 metric_name=self.name,
-                passed=True,
-                value=0.0,
-                reason="No transcript expectations to evaluate",
+                score=0.0,
+                reason="No turns with expected texts to evaluate",
                 details={"wer_results": []}
             )
 
@@ -218,31 +219,32 @@ class WERMetric(Metric):
         total_errors = 0
         total_reference_words = 0
 
-        for expectation in self.expectations.transcripts:
-            # Find matching translated event
-            turn = self.conversation_manager.get_turn_summary(expectation.event_id)
-            hyp_text = turn.translation_text() if turn else None
+        for turn in turns_with_expectations:
+            # Find matching translated output
+            turn_summary = self.conversation_manager.get_turn_summary(turn.id)
+            hyp_text = turn_summary.translation_text() if turn_summary else None
 
             if not hyp_text:
-                logger.info(f"No transcript expectation for {expectation}")
+                logger.info(f"No translation found for turn {turn.id}")
                 wer_results.append({
-                    "id": expectation.id,
+                    "id": turn.id,
+                    "turn_id": turn.id,
                     "status": "failed",
                     "reason": "No translated text found",
                     "wer": 1.0
                 })
                 # Count as complete failure
-                ref_text = expectation.expected_text
+                ref_text = turn.expected_text
                 ref_words = _tokenize(ref_text, self.normalize, self.language)
                 total_errors += len(ref_words)
                 total_reference_words += len(ref_words)
                 continue
 
             # Calculate WER for this pair
-            ref_text = expectation.expected_text
+            ref_text = turn.expected_text
 
             result = self._calculate_wer_for_pair(
-                expectation.id,
+                turn.id,
                 ref_text,
                 hyp_text
             )
@@ -254,23 +256,53 @@ class WERMetric(Metric):
 
         # Calculate overall WER
         overall_wer = total_errors / total_reference_words if total_reference_words > 0 else 0.0
-        passed = overall_wer <= self.threshold
 
-        # Determine reason for failure
-        reason = None if passed else f"WER {overall_wer:.2%} exceeds threshold {self.threshold:.0%}"
+        # Normalize per-turn results: flatten structure and add score
+        per_turn_results = []
+        for item in wer_results:
+            turn_id = item.get("turn_id")
+            wer_value = item.get("wer", 1.0)
+            # Convert to 0-100 score (higher is better)
+            score_val = max(0.0, 100.0 - (wer_value * 100.0))
+
+            # Flatten all WER fields at turn level (no nested details)
+            turn_result = {
+                "turn_id": turn_id,
+                "score": score_val,
+                "status": item.get("status", "evaluated"),
+                # WER-specific fields (flattened)
+                "wer": item.get("wer"),
+                "wer_percentage": item.get("wer_percentage"),
+                "substitutions": item.get("substitutions"),
+                "deletions": item.get("deletions"),
+                "insertions": item.get("insertions"),
+                "total_errors": item.get("total_errors"),
+                "reference_words": item.get("reference_words"),
+                "hypothesis_words": item.get("hypothesis_words"),
+                "reference_text": item.get("reference_text"),
+                "hypothesis_text": item.get("hypothesis_text"),
+                "interpretation": item.get("interpretation"),
+                "reason": item.get("reason"),  # For failed turns
+            }
+            # Remove None values to keep structure clean
+            turn_result = {k: v for k, v in turn_result.items() if v is not None}
+            per_turn_results.append(turn_result)
+
+        overall_score = max(0.0, 100.0 - (overall_wer * 100.0))
 
         return MetricResult(
             metric_name=self.name,
-            passed=passed,
-            value=overall_wer,
-            reason=reason,
+            score=overall_score,
+            reason=None,
             details={
-                "overall_wer": f"{overall_wer * 100:.2f}%",
                 "threshold": self.threshold,
+                "evaluations": len(wer_results),
+                "turns": per_turn_results,
+                # WER-specific aggregated fields
+                "overall_wer": f"{overall_wer * 100:.2f}%",
                 "interpretation": _interpret_wer(overall_wer),
                 "total_errors": total_errors,
                 "total_reference_words": total_reference_words,
-                "wer_results": wer_results,
                 "normalize": self.normalize,
                 "language": self.language
             }
@@ -291,6 +323,7 @@ class WERMetric(Metric):
         if not reference or not reference.strip():
             return {
                 "id": expectation_id,
+                "turn_id": expectation_id,
                 "status": "failed",
                 "wer": 1.0,
                 "reason": "Reference text is empty",
@@ -303,6 +336,7 @@ class WERMetric(Metric):
             ref_words = _tokenize(reference, self.normalize, self.language)
             return {
                 "id": expectation_id,
+                "turn_id": expectation_id,
                 "status": "failed",
                 "wer": 1.0,
                 "reason": "Hypothesis text is empty",
@@ -339,12 +373,9 @@ class WERMetric(Metric):
         num_reference_words = len(reference_words)
         wer = total_distance / num_reference_words if num_reference_words > 0 else 0.0
 
-        # Individual result passes if WER <= threshold
-        status = "passed" if wer <= self.threshold else "failed"
-
         return {
             "id": expectation_id,
-            "status": status,
+            "turn_id": expectation_id,
             "wer": wer,
             "wer_percentage": f"{wer * 100:.2f}%",
             "substitutions": substitutions,

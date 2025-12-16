@@ -114,7 +114,7 @@ Tracks one full execution of the test framework.
 - `experiment_tags`: Experiment labels
 - `system_information`: Full system information snapshot (test runner and translation system)
 - `system_info_hash`: SHA-256 hash for quick system comparison
-- `metrics`: Aggregated metrics (e.g., `average_wer`, `average_completeness`)
+- `metrics`: Aggregated metrics (e.g., `wer`, `completeness`)
 - `num_tests`, `num_passed`, `num_failed`: Test counts
 - `status`: `running | completed | failed`
 - `score`: Overall evaluation score (0-100) averaged from all test scores
@@ -136,9 +136,8 @@ Stores detailed metrics for one test execution within an evaluation run.
 - `test_name`: Human-readable name (scenario.description)
 - `started_at`, `finished_at`, `duration_ms`: Timing
 - `metrics`: Dictionary of metric results (WER, completeness, etc.)
-- `status`: `success | failed | error`
-- `passed`: Overall pass/fail
 - `score`: Overall test score (0-100) calculated from metrics
+- `score_method`: Calculator used (e.g., `average`, `garbled_turn`)
 - `tags`: Test tags from scenario
 - `participants`: Participant names
 
@@ -173,7 +172,7 @@ db.test_runs.find({test_id: "doctor-patient-es-en"}).sort({finished_at: -1}).lim
 db.test_runs.find({test_id: "doctor-patient-es-en"}, {finished_at: 1, score: 1, passed: 1}).sort({finished_at: -1})
 
 # Average WER trend
-db.evaluation_runs.find({}, {evaluation_run_id: 1, started_at: 1, "metrics.average_wer": 1}).sort({started_at: -1})
+db.evaluation_runs.find({}, {evaluation_run_id: 1, started_at: 1, "metrics.wer": 1}).sort({started_at: -1})
 
 # Evaluation score trend over time
 db.evaluation_runs.find({}, {started_at: 1, score: 1, num_passed: 1, num_tests: 1}).sort({started_at: -1})
@@ -198,7 +197,7 @@ async def main():
     # Test history
     history = await service.get_test_history("doctor-patient-es-en", limit=20)
     for result in history:
-        wer = result['metrics'].get('wer', {}).get('value', 'N/A')
+        wer = result['metrics'].get('wer', {}).get('score', 'N/A')
         print(f"{result['finished_at']}: WER = {wer}")
 
     # Close
@@ -218,7 +217,7 @@ Monitor how metrics evolve across commits:
 db.evaluation_runs.aggregate([
   {$group: {
     _id: {$dateToString: {format: "%Y-%m-%d", date: "$started_at"}},
-    avg_wer: {$avg: "$metrics.average_wer"},
+    avg_wer: {$avg: "$metrics.wer"},
     count: {$sum: 1}
   }},
   {$sort: {_id: -1}}
@@ -265,7 +264,7 @@ Find regressions after config changes:
 
 ```bash
 # Get runs with different system information hashes
-db.evaluation_runs.find({}, {system_info_hash: 1, "metrics.average_wer": 1, evaluation_run_id: 1})
+db.evaluation_runs.find({}, {system_info_hash: 1, "metrics.wer": 1, evaluation_run_id: 1})
 ```
 
 ### 3. Identify Flaky Tests

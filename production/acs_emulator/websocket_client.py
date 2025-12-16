@@ -30,7 +30,7 @@ class WebSocketClient:
         self.connect_timeout = connect_timeout
         self.debug_wire = debug_wire
         self.log_sink = log_sink
-        self._conn: WebSocketClientProtocol | None = None
+        self._conn: Optional[WebSocketClientProtocol] = None
 
     async def __aenter__(self) -> "WebSocketClient":
         await self.connect()

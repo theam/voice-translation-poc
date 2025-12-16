@@ -1,0 +1,28 @@
+id: intelligibility_awkward_structure
+description: Intelligibility calibration - awkward but understandable structure
+websocket_client: loopback
+metrics:
+  - intelligibility
+expected_score: 50.0
+tags:
+  - calibration
+  - intelligibility
+  - moderate
+
+participants:
+  patient:
+    source_language: en
+    target_language: en
+
+turns:
+  - id: awkward_structure
+    type: loopback_text
+    participant: patient
+    text: "Pain I have in the chest and breathing is difficult for me."
+    start_at_ms: 0
+    source_language: en
+    expected_language: en
+    source_text: "I have chest pain and difficulty breathing."
+    expected_text: "I have chest pain and difficulty breathing."
+    metric_expectations:
+      intelligibility: 50.0

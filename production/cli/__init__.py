@@ -8,11 +8,16 @@ from typing import Optional
 import typer
 
 from production.cli.calibrate import calibrate_async
+from production.cli.generate_report import generate_report_async
 from production.cli.run_test import run_test_async
 from production.cli.run_suite import run_suite_async
 from production.cli.reset_db import reset_db_async
+from production.cli.run_parallel import app as parallel_app
 
 app = typer.Typer(help="ACS Live Translation production-grade test harness")
+
+# Add parallel command group
+app.add_typer(parallel_app, name="parallel", help="Run tests in parallel to simulate multiple users")
 
 
 @app.command("run-test")
@@ -53,88 +58,67 @@ def reset_db(
 
 @app.command("calibrate")
 def calibrate(
-    file: Optional[str] = typer.Option(
+    file: Optional[Path] = typer.Option(
         None,
         "--file",
         "-f",
-        help="Path to specific calibration YAML file"
+        help="Path to specific calibration scenario YAML file"
     ),
-    directory: str = typer.Option(
-        "production/tests/calibration",
+    directory: Path = typer.Option(
+        Path("production/tests/calibration"),
         "--dir",
         "-d",
-        help="Directory containing calibration files"
+        help="Directory containing calibration scenarios"
+    ),
+    pattern: str = typer.Option(
+        "**/*.yaml",
+        "--pattern",
+        "-p",
+        help="Glob pattern for calibration scenarios (recursive by default)"
     ),
     metric: Optional[str] = typer.Option(
         None,
         "--metric",
         "-m",
-        help="Filter by metric name (e.g., intelligibility, context)"
-    ),
-    tolerance: float = typer.Option(
-        0.5,
-        "--tolerance",
-        "-t",
-        help="Acceptable score difference (default: 0.5 on 1-5 scale)"
-    ),
-    output: Optional[str] = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output report file (.json or .md)"
-    ),
-    show_passed: bool = typer.Option(
-        True,
-        "--show-passed/--hide-passed",
-        help="Show passed test cases in detailed output"
-    ),
-    show_failed: bool = typer.Option(
-        True,
-        "--show-failed/--hide-failed",
-        help="Show failed test cases in detailed output"
+        help="Filter by metric/tag name (e.g., intelligibility, context)"
     ),
     store: bool = typer.Option(
         False,
         "--store",
         "-s",
-        help="Store calibration results to MongoDB"
+        help="Force-enable MongoDB storage for this run"
     ),
+    log_level: str = "INFO",
 ) -> None:
-    """Run metric calibration tests.
-
-    Validates metric behavior against known expected outcomes.
-
-    Examples:
-
-        # Run all calibrations
-        python -m production.cli calibrate
-
-        # Run specific file
-        python -m production.cli calibrate -f production/tests/calibration/intelligibility_samples.yaml
-
-        # Run only intelligibility calibrations
-        python -m production.cli calibrate --metric intelligibility
-
-        # Custom tolerance
-        python -m production.cli calibrate --tolerance 0.3
-
-        # Generate reports
-        python -m production.cli calibrate --output reports/calibration.json
-        python -m production.cli calibrate --output reports/calibration.md
-
-        # Store results to MongoDB
-        python -m production.cli calibrate --store
-    """
+    """Run calibration scenarios using the standard scenario engine."""
     asyncio.run(calibrate_async(
         file=file,
         directory=directory,
+        pattern=pattern,
         metric=metric,
-        tolerance=tolerance,
-        output=output,
-        show_passed=show_passed,
-        show_failed=show_failed,
-        store=store
+        store=store,
+        log_level=log_level
     ))
+
+
+@app.command("generate-report")
+def generate_report(
+    evaluation_run_id: str = typer.Argument(
+        ...,
+        help="MongoDB ObjectId of the evaluation run (24-char hex string)"
+    ),
+    log_level: str = typer.Option("INFO", help="Logging level")
+) -> None:
+    """Generate PDF report for an existing evaluation run.
+
+    The evaluation_run_id is the MongoDB ObjectId (_id field) from the
+    evaluation_runs collection. You can find it by running MongoDB queries
+    or checking the logs from previous test runs.
+
+    Example:
+        poetry run prod generate-report 507f1f77bcf86cd799439011
+    """
+    asyncio.run(generate_report_async(evaluation_run_id, log_level))
 
 
 __all__ = ["app"]
