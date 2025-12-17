@@ -75,6 +75,11 @@ jobs:
           username: ${{ steps.jf-saas-setup.outputs.oidc-subject }}
           password: ${{ steps.jf-saas-setup.outputs.access-token }}
 
+      - name: Prepare deployment config
+        run: |
+          cp docker/.env.deployment .env
+          echo "Deployment .env prepared for container build"
+
       - name: Docker Build and Tag
         run: |
           BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
