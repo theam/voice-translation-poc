@@ -1,18 +1,77 @@
-.PHONY: build up down restart logs
+.PHONY: build build-release up down restart logs
 .PHONY: server server_stop bash clean_reports
 .PHONY: evaluations run_test
 .PHONY: test_prod test_suite calibrate generate_report
 .PHONY: test_parallel_tests test_parallel_suites
+.PHONY: simulate_test simulate_suite
 .PHONY: mongo clean status
 
 # =============================================================================
 # Docker Compose Targets
 # =============================================================================
+#
+# Build arguments:
+#   PYTHON_BASE - Custom Python base image (default: python:3.12-slim)
+#   INSTALL_DEVTOOLS - Install development tools like PyCharm debugger (default: false)
+#
+# Examples:
+#   make build                                              # Use defaults
+#   make build PYTHON_BASE=myregistry.com/python:3.12-slim # Custom base image
+#   make build INSTALL_DEVTOOLS=true                        # With dev tools
+#   make build PYTHON_BASE=custom:image INSTALL_DEVTOOLS=true # Both
+# =============================================================================
+#
+# Release Build (for CI/CD):
+#   IMAGE_NAME - Docker image name (required)
+#   IMAGE_TAG - Docker image tag (required)
+#   GIT_SHA - Git commit SHA for labels (optional)
+#   GIT_BRANCH - Git branch name for labels (optional)
+#   BUILD_DATE - Build timestamp (optional, defaults to now)
+#   PYTHON_BASE - Python base image (optional)
+#
+# Examples:
+#   make build-release IMAGE_NAME=myapp IMAGE_TAG=v1.0.0 GIT_SHA=abc1234
+#   make build-release IMAGE_NAME=myapp IMAGE_TAG=main-abc1234 GIT_BRANCH=main
+# =============================================================================
 
 build:
 	@echo "Building Docker images..."
-	@docker compose build
+	@BUILD_ARGS=""; \
+	if [ -n "$(PYTHON_BASE)" ]; then \
+		echo "Using custom Python base image: $(PYTHON_BASE)"; \
+		BUILD_ARGS="$$BUILD_ARGS --build-arg PYTHON_BASE=$(PYTHON_BASE)"; \
+	fi; \
+	if [ -n "$(INSTALL_DEVTOOLS)" ]; then \
+		echo "Installing dev tools: $(INSTALL_DEVTOOLS)"; \
+		BUILD_ARGS="$$BUILD_ARGS --build-arg INSTALL_DEVTOOLS=$(INSTALL_DEVTOOLS)"; \
+	fi; \
+	docker compose build $$BUILD_ARGS
 	@echo "✓ Images built successfully"
+
+build-release:
+	@if [ -z "$(IMAGE_NAME)" ]; then \
+		echo "Error: IMAGE_NAME is required"; \
+		echo "Usage: make build-release IMAGE_NAME=myapp IMAGE_TAG=v1.0.0"; \
+		exit 1; \
+	fi
+	@if [ -z "$(IMAGE_TAG)" ]; then \
+		echo "Error: IMAGE_TAG is required"; \
+		echo "Usage: make build-release IMAGE_NAME=myapp IMAGE_TAG=v1.0.0"; \
+		exit 1; \
+	fi
+	@echo "Building release image: $(IMAGE_NAME):$(IMAGE_TAG)"
+	@# Set defaults
+	@BUILD_DATE=$${BUILD_DATE:-$$(date -u +'%Y-%m-%dT%H:%M:%SZ')}; \
+	PYTHON_BASE=$${PYTHON_BASE:-python:3.12-slim}; \
+	\
+	docker build \
+		--file docker/Dockerfile \
+		--tag $(IMAGE_NAME):$(IMAGE_TAG) \
+		--build-arg PYTHON_BASE=$$PYTHON_BASE \
+		--label "version=$(IMAGE_TAG)" \
+		--label "release-date=$$BUILD_DATE" \
+		.
+	@echo "✓ Release image built successfully: $(IMAGE_NAME):$(IMAGE_TAG)"
 
 up:
 	@echo "Starting services..."
@@ -87,6 +146,19 @@ test_parallel_tests:
 test_parallel_suites:
 	@echo "Running test suite $(or $(COUNT),4) times in parallel..."
 	@docker compose exec -T vt-app poetry run prod parallel suites $(or $(SUITE_PATH),production/tests/scenarios/) --count $(or $(COUNT),4)
+
+simulate_test:
+	@if [ -z "$(TEST_PATH)" ]; then \
+		echo "Error: TEST_PATH not specified"; \
+		echo "Usage: make simulate_test TEST_PATH=production/tests/scenarios/allergy_ceph.yaml USERS=10"; \
+		exit 1; \
+	fi
+	@echo "Simulating $(or $(USERS),4) concurrent users running: $(TEST_PATH)"
+	@docker compose exec -T vt-app poetry run prod parallel simulate-test $(TEST_PATH) --users $(or $(USERS),4)
+
+simulate_suite:
+	@echo "Simulating $(or $(USERS),4) concurrent users running suite: $(or $(SUITE_PATH),production/tests/scenarios/)"
+	@docker compose exec -T vt-app poetry run prod parallel simulate-suite $(or $(SUITE_PATH),production/tests/scenarios/) --users $(or $(USERS),4)
 
 calibrate:
 	@echo "Running metrics calibration..."

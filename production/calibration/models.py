@@ -50,8 +50,8 @@ class CalibrationSummary:
     """Summary of all calibration validation results."""
 
     test_id: str
-    turns: Optional[List[CalibrationResult]] = None
-    conversation: Optional[CalibrationResult] = None
+    turns: List[CalibrationResult] | None = None
+    conversation: CalibrationResult | None = None
     expected_score: Optional[float] = None
     actual_score: Optional[float] = None
     score_delta: Optional[float] = None

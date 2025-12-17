@@ -81,13 +81,13 @@ Storage will automatically:
 
 ### Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `MONGODB_ENABLED` | No | `false` | Enable/disable storage |
+| Variable | Required | Default                     | Description |
+|----------|----------|-----------------------------|-------------|
+| `MONGODB_ENABLED` | No | `false`                     | Enable/disable storage |
 | `MONGODB_CONNECTION_STRING` | No | `mongodb://localhost:27017` | MongoDB connection URI |
-| `MONGODB_DATABASE` | No | `vt_metrics` | Database name |
-| `ENVIRONMENT` | No | `dev` | Environment tag (dev/stage/prod/lab) |
-| `EXPERIMENT_TAGS` | No | `""` | Comma-separated experiment labels |
+| `MONGODB_DATABASE` | No | `vt_metrics`                | Database name |
+| `ENVIRONMENT` | No | `dev`                       | Environment tag (dev/stage/prod/lab) |
+| `EXPERIMENT_TAGS` | No | `""`                        | Comma-separated experiment labels |
 
 ### MongoDB Atlas (Production)
 

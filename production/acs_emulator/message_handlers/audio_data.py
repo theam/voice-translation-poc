@@ -5,7 +5,7 @@ Handles messages with kind="AudioData" containing translated audio payloads.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict
 
 from production.acs_emulator.message_handlers.base import MessageHandler
 from production.acs_emulator.models import AcsAudioMessage
@@ -61,7 +61,7 @@ class AudioDataHandler(MessageHandler):
         logger.debug("Decoded ACS-style AudioData event")
         return event
 
-    def _parse_iso_to_ms(self, timestamp: Optional[str]) -> Optional[int]:
+    def _parse_iso_to_ms(self, timestamp: str | None) -> int | None:
         """Parse ISO timestamp to milliseconds.
 
         Args:

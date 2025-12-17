@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -25,7 +25,7 @@ from .report_utils import (
 class CalibrationReportPdfGenerator:
     """Generate calibration-only PDF reports without sharing logic with other reports."""
 
-    def __init__(self, output_dir: Optional[Path] = None) -> None:
+    def __init__(self, output_dir: Path | None = None) -> None:
         project_root = Path(__file__).resolve().parents[2]
         self.output_dir = output_dir or project_root / "reports"
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -578,7 +578,7 @@ class CalibrationReportPdfGenerator:
                 elements.append(table)
                 elements.append(Spacer(1, 0.1 * inch))
 
-    def _turn_metric_details_html(self, turn_metric: Optional[Any]) -> str:
+    def _turn_metric_details_html(self, turn_metric: Any | None) -> str:
         """Return detail HTML for a turn or conversation metric."""
         if not turn_metric or not getattr(turn_metric, "details", None):
             return "No details available"
@@ -695,7 +695,7 @@ class CalibrationReportPdfGenerator:
 
     def _format_turn_metric_details(
         self,
-        turn_metric: Optional[TurnMetricData],
+        turn_metric: TurnMetricData | None,
         normal_style: ParagraphStyle,
     ) -> Paragraph:
         detail_html = self._turn_metric_details_html(turn_metric)

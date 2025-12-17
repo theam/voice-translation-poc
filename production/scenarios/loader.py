@@ -5,15 +5,9 @@ import json
 import importlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from production.scenario_engine.models import (
-    Event,
-    Expectations,
-    Participant,
-    Scenario,
-    TranscriptExpectation,
-)
+from production.scenario_engine.models import ScenarioTurn, Participant, Scenario
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +15,7 @@ logger = logging.getLogger(__name__)
 class ScenarioLoader:
     """Load scenario definitions into strongly typed dataclasses."""
 
-    def __init__(self, base_path: Optional[Path] = None) -> None:
+    def __init__(self, base_path: Path | None = None) -> None:
         self.base_path = base_path or Path.cwd()
 
     def load(self, path: Path) -> Scenario:
@@ -36,44 +30,35 @@ class ScenarioLoader:
             for name, data in (raw.get("participants") or {}).items()
         }
 
-        events = [
-            Event(
+        turns = [
+            ScenarioTurn(
                 id=item["id"],
                 type=item["type"],
                 participant=item["participant"],
                 audio_file=item.get("audio_file"),
+                text=item.get("text"),
                 start_at_ms=int(item.get("start_at_ms", 0)),
                 barge_in=bool(item.get("barge_in", False)),
+                source_language=item.get("source_language"),
+                expected_language=item.get("expected_language"),
+                source_text=item.get("source_text"),
+                expected_text=item.get("expected_text"),
+                metric_expectations=item.get("metric_expectations", {}),
             )
-            for item in raw.get("events", [])
+            for item in raw.get("turns", [])
         ]
-
-        transcript_expectations = [
-            TranscriptExpectation(
-                id=exp["id"],
-                event_id=exp["event_id"],
-                source_language=exp["source_language"],
-                target_language=exp["target_language"],
-                expected_text=exp.get("expected_text"),
-                regex=exp.get("regex"),
-                wer_threshold=exp.get("wer_threshold"),
-            )
-            for exp in raw.get("expectations", {}).get("transcripts", [])
-        ]
-
-        expectations = Expectations(
-            transcripts=transcript_expectations,
-            sequence=raw.get("expectations", {}).get("sequence", []),
-            max_latency_ms=raw.get("expectations", {}).get("max_latency_ms"),
-        )
 
         scenario = Scenario(
             id=raw["id"],
             description=raw.get("description", ""),
             participants=participants,
-            events=events,
-            expectations=expectations,
+            turns=turns,
             tags=raw.get("tags", []),
+            score_method=raw.get("score_method", "average"),
+            websocket_client=raw.get("websocket_client", "websocket"),
+            metrics=raw.get("metrics", []),
+            expected_score=raw.get("expected_score"),
+            tolerance=raw.get("tolerance"),
         )
 
         logger.info(f"Scenario loaded id:{scenario.id} path:{path}")

@@ -115,7 +115,7 @@ class CalibrationValidator:
         test_id: str,
         turns: List[Turn],
         metrics_by_turn: Dict[str, Dict[str, MetricData]],
-        conversation_metrics: Optional[Dict[str, MetricData]] = None,
+        conversation_metrics: Dict[str, MetricData] | None = None,
         expected_score: Optional[float] = None,
         actual_score: Optional[float] = None,
         metric_tolerance: Optional[float] = None,
@@ -138,7 +138,7 @@ class CalibrationValidator:
         """
         tol = metric_tolerance if metric_tolerance is not None else self.tolerance
         turn_results: List[CalibrationResult] = []
-        conversation_result: Optional[CalibrationResult] = None
+        conversation_result: CalibrationResult | None = None
 
         # Validate turn-level metric expectations
         for turn in turns:
@@ -181,7 +181,7 @@ class CalibrationValidator:
         expected_score: float,
         conversation_metrics: Dict[str, MetricData],
         tolerance: Optional[float] = None,
-    ) -> Optional[CalibrationResult]:
+    ) -> CalibrationResult | None:
         """Validate conversation-level metrics against expected score.
 
         Conversation-level metrics evaluate the entire conversation context

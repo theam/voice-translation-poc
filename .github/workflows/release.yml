@@ -1,0 +1,103 @@
+name: Build Docker Image
+
+env:
+  IMAGE_NAME: voice-translation-service
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set build metadata
+        id: meta
+        run: |
+          # Determine image tag based on trigger
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Version tag (e.g., v1.0.0)
+            TAG="${{ github.ref_name }}"
+          elif [[ "${{ github.ref }}" == refs/heads/* ]]; then
+            # Branch name (e.g., main, develop)
+            TAG="${{ github.ref_name }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # PR number
+            TAG="pr-${{ github.event.pull_request.number }}"
+          else
+            # Fallback
+            TAG="latest"
+          fi
+
+          # Add short commit SHA
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          TAG_WITH_SHA="${TAG}-${SHORT_SHA}"
+
+          echo "IMAGE_TAG=${TAG}" >> $GITHUB_ENV
+          echo "IMAGE_TAG_WITH_SHA=${TAG_WITH_SHA}" >> $GITHUB_ENV
+          echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
+
+      - name: Build and tag Docker image
+        env:
+          PYTHON_BASE: ${{ secrets.PYTHON_BASE_IMAGE || 'python:3.12-slim' }}
+          BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+        run: |
+          # Build with primary tag
+          make build-release \
+            IMAGE_NAME="${{ env.IMAGE_NAME }}" \
+            IMAGE_TAG="${{ env.IMAGE_TAG }}" \
+            PYTHON_BASE="${{ env.PYTHON_BASE }}" \
+            BUILD_DATE="${{ env.BUILD_DATE }}" \
+
+          # Tag as latest if main branch
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:latest
+          fi
+
+      - name: List built images
+        run: |
+          echo "Built images:"
+          docker images | grep ${{ env.IMAGE_NAME }}
+
+      - name: Inspect image labels
+        if: always()
+        run: |
+          echo "Image labels:"
+          docker inspect ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            --format='{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}' | sort
+
+      - name: Generate build summary
+        if: always()
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Short SHA:** \`${{ env.SHORT_SHA }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Python Base:** \`${{ secrets.PYTHON_BASE_IMAGE || 'python:3.12-slim' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Date:** \`${{ github.event.head_commit.timestamp }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Tags Created" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG_WITH_SHA }}\`" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "- \`${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Labels" >> $GITHUB_STEP_SUMMARY
+          echo "- **version:** \`${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **release-date:** \`${{ github.event.head_commit.timestamp }}\`" >> $GITHUB_STEP_SUMMARY

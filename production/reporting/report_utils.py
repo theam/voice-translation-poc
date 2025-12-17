@@ -1,14 +1,14 @@
 """Shared helpers for reporting layouts."""
 from __future__ import annotations
 
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, Iterable, List, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 from reportlab.platypus import Table, TableStyle
 
 
-def score_color_band(score: Optional[float]) -> colors.Color:
+def score_color_band(score: float | None) -> colors.Color:
     """Map a 0-100 score to a color band (red→orange→yellow→green).
 
     Args:
@@ -33,7 +33,7 @@ def create_standard_table(
     num_columns: int,
     total_width_inch: float = 6.0,
     header_color: colors.Color = colors.HexColor("#1f4788"),
-    extra_styles: Optional[Iterable[Tuple]] = None,
+    extra_styles: Iterable[Tuple] | None = None,
 ) -> Table:
     """Create a table with shared styling and evenly divided widths."""
     col_width = (total_width_inch * inch) / num_columns

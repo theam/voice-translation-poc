@@ -22,7 +22,7 @@ class ProtocolEvent:
     timestamp_ms: int
     text: Optional[str] = None
     audio_payload: Optional[bytes] = None
-    raw: Optional[Dict[str, Any]] = None
+    raw: Dict[str, Any] | None = None
 
 
 class ProtocolAdapter:
@@ -32,7 +32,7 @@ class ProtocolAdapter:
         self.call_id = call_id
         self.subscription_id = str(uuid.uuid4())
         self._transcript_buffers: dict[str, str] = {}
-        self._message_handlers: Optional[List] = None
+        self._message_handlers: List | None = None
 
     def build_audio_metadata(self, sample_rate: int, channels: int, frame_bytes: int) -> Dict[str, Any]:
         metadata = AcsAudioMetadata(
@@ -85,7 +85,7 @@ class ProtocolAdapter:
             self._message_handlers = get_message_handlers(self)
         return self._message_handlers
 
-    def decode_inbound(self, message: Dict[str, Any]) -> Optional[ProtocolEvent]:
+    def decode_inbound(self, message: Dict[str, Any]) -> ProtocolEvent | None:
         """Decode inbound SUT messages to structured events.
 
         Uses a chain of message handlers to decode different message types.

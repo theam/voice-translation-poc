@@ -1,7 +1,7 @@
 """Metrics for evaluating translation scenarios."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 from production.capture.conversation_manager import ConversationManager
 from production.scenario_engine.models import Scenario
@@ -35,7 +35,7 @@ def create_metric(
     name: str,
     scenario: Scenario,
     conversation_manager: ConversationManager,
-    model: Optional[str] = None,
+    model: str | None = None,
     **kwargs
 ) -> Metric:
     """Create a metric instance by name.

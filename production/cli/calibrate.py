@@ -173,7 +173,7 @@ def _discover_scenarios(
     return scenario_root, paths
 
 
-def _validate_calibration(scenario, summary, conversation_manager, validator, score_tolerance: Optional[float] = None):
+def _validate_calibration(scenario, summary, conversation_manager, validator, score_tolerance: float | None = None):
     """Validate calibration expectations against actual results."""
     from production.scenario_engine.models import Scenario
     from production.metrics import MetricsSummary
@@ -337,7 +337,7 @@ def _calculate_calibration_status(calibration_results: List[Tuple[str, Calibrati
     return "passed" if all_passed else "failed"
 
 
-def _score_tolerance_from_metric_tol(metric_tol: Optional[float]) -> float:
+def _score_tolerance_from_metric_tol(metric_tol: float | None) -> float:
     """Get score tolerance (0-100 scale) for overall score validation.
 
     Uses metric tolerance as baseline but can be different if needed.

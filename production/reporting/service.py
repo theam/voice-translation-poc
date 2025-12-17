@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict
 
 from bson import ObjectId
 
@@ -31,7 +31,7 @@ class ReportingService:
     def __init__(
         self,
         storage_service: MetricsStorageService,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
     ) -> None:
         """Initialize reporting service.
 
@@ -207,9 +207,9 @@ class ReportingService:
         test_id: str,
         turns: list[Turn],
         metrics: dict[str, MetricData],
-        expected_score: Optional[float],
+        expected_score: float | None,
         actual_score: float,
-        tolerance: Optional[float] = None,
+        tolerance: float | None = None,
     ):
         """Compute calibration validation summary from stored test data.
 
@@ -249,7 +249,7 @@ class ReportingService:
         )
 
     @staticmethod
-    def _score_tolerance_from_metric_tol(metric_tol: Optional[float]) -> float:
+    def _score_tolerance_from_metric_tol(metric_tol: float | None) -> float:
         """Derive score tolerance (0-100 scale) from metric tolerance (0-1 scale)."""
         if metric_tol is None:
             return 10.0
