@@ -48,7 +48,7 @@ class MetricsRunner:
         self,
         scenario: Scenario,
         conversation_manager: ConversationManager,
-        metrics: Optional[List[Metric]] = None,
+        metrics: List[Metric] | None = None,
         storage_service: Optional[MetricsStorageService] = None,
         evaluation_run_id: Optional[ObjectId] = None,
         test_id: Optional[str] = None,

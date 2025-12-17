@@ -24,8 +24,11 @@ poetry run prod run-suite production/tests/scenarios/
 # Run tests in parallel (4 concurrent workers)
 poetry run prod parallel tests production/tests/scenarios/ -j 4
 
-# Simulate 4 concurrent users running the full suite
-poetry run prod parallel suites production/tests/scenarios/ -n 4
+# Simulate 10 users all hitting the same test at once (load testing)
+poetry run prod parallel simulate-test production/tests/scenarios/allergy_ceph.yaml -u 10
+
+# Or via Make from host
+make simulate_test TEST_PATH=production/tests/scenarios/allergy_ceph.yaml USERS=10
 ```
 
 Configure via environment variables (see `.env.example`) or defaults in `production/utils/config.py`.
@@ -158,6 +161,42 @@ make test_parallel_suites SUITE_PATH=production/tests/scenarios/ COUNT=8
 poetry run prod parallel suites production/tests/scenarios/ -n 4 -p "allergy*.yaml"
 ```
 
+**Concurrent User Load Testing** – Simulate N users all starting the same test/suite simultaneously:
+
+```bash
+# Inside container
+poetry run prod parallel simulate-test production/tests/scenarios/allergy_ceph.yaml -u 10
+
+# Via Make (from host)
+make simulate_test TEST_PATH=production/tests/scenarios/allergy_ceph.yaml USERS=10
+
+# Simulate 5 users running the same suite
+poetry run prod parallel simulate-suite production/tests/scenarios/ -u 5
+
+# Via Make (from host) - defaults to 4 users
+make simulate_suite SUITE_PATH=production/tests/scenarios/ USERS=5
+
+# With pattern filtering (inside container)
+poetry run prod parallel simulate-suite production/tests/scenarios/ -u 20 -p "allergy*.yaml"
+```
+
+### Parallel Execution Modes
+
+**1. Distributed Tests (`parallel tests`)** - Distribute different tests across workers with concurrency control
+- Tests are queued and run N at a time (controlled by `--jobs`)
+- Best for: Running many tests efficiently with resource limits
+- Use case: CI/CD test suite execution
+
+**2. Suite Repetition (`parallel suites`)** - Run same suite N times with concurrency control
+- Each suite run is queued and runs when a slot is available
+- Best for: Moderate load testing with controlled resource usage
+- Use case: Testing stability across multiple runs
+
+**3. Concurrent User Simulation (`simulate-test`, `simulate-suite`)** - All N users start simultaneously
+- **No concurrency limits** - all users start at the exact same time
+- Best for: Load testing, stress testing, simulating traffic spikes
+- Use case: Testing how the system handles sudden user load
+
 ### Parallel Execution Features
 
 - **Isolated output**: Each run creates unique directories under `production_results/<evaluation_run_id>/<scenario_id>/`
@@ -165,10 +204,11 @@ poetry run prod parallel suites production/tests/scenarios/ -n 4 -p "allergy*.ya
 - **Progress tracking**: Real-time status updates for running tests
 - **Summary reports**: Aggregated success/failure counts and timing statistics
 - **Pattern matching**: Filter tests with glob patterns (`*.yaml`, `**/*.yaml`, `allergy*.yaml`)
-- **Configurable concurrency**: Adjust parallel job count based on system resources
+- **Configurable concurrency**: Adjust parallel job count based on system resources (modes 1 & 2)
 
-### Output Example
+### Output Examples
 
+**Distributed Tests:**
 ```
 ================================================================================
 PARALLEL TEST RUN SUMMARY
@@ -182,9 +222,29 @@ Avg per test:    3.77s
 ================================================================================
 ```
 
+**Concurrent User Simulation:**
+```
+================================================================================
+CONCURRENT USER SIMULATION SUMMARY
+================================================================================
+Test:            allergy_ceph.yaml
+Concurrent users: 10
+Successful:      10
+Failed:          0
+Total duration:  23.45s
+Avg per user:    22.18s
+Min duration:    21.34s
+Max duration:    23.12s
+================================================================================
+```
+
 ### Resource Considerations
 
-- **WebSocket endpoint**: Verify your translation service handles concurrent connections
+- **WebSocket endpoint**: Verify your translation service handles concurrent connections (especially important for `simulate-*` commands which create all connections simultaneously)
 - **System resources**: Monitor CPU/memory with `docker stats` when running parallel tests
 - **LLM API limits**: Check OpenAI/LLM provider rate limits if running many parallel jobs
-- **Recommended**: Start with 2-4 parallel jobs and scale based on observed resource usage
+- **Recommended starting points**:
+  - `parallel tests`: Start with 2-4 jobs, scale based on resources
+  - `parallel suites`: Start with 2-4 concurrent runs
+  - `simulate-*`: Start with 5-10 users, increase gradually to test system limits
+- **Load testing**: Use `simulate-*` commands to find breaking points and capacity limits

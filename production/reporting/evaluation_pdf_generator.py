@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -20,7 +20,7 @@ from .report_utils import create_standard_table, score_color_band, sanitize_html
 class EvaluationReportPdfGenerator:
     """Generate PDF reports for standard evaluation runs."""
 
-    def __init__(self, output_dir: Optional[Path] = None) -> None:
+    def __init__(self, output_dir: Path | None = None) -> None:
         project_root = Path(__file__).resolve().parents[2]
         self.output_dir = output_dir or project_root / "reports"
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -524,7 +524,7 @@ class EvaluationReportPdfGenerator:
             return "; ".join(f"{k}: {v}" for k, v in value.items())
         return str(value)
 
-    def _turn_metric_details_html(self, turn_metric: Optional[TurnMetricData]) -> str:
+    def _turn_metric_details_html(self, turn_metric: TurnMetricData | None) -> str:
         """Return detail HTML for a turn metric."""
         if not turn_metric or not turn_metric.details:
             return "No details available"

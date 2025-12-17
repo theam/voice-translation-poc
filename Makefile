@@ -3,15 +3,36 @@
 .PHONY: evaluations run_test
 .PHONY: test_prod test_suite calibrate generate_report
 .PHONY: test_parallel_tests test_parallel_suites
+.PHONY: simulate_test simulate_suite
 .PHONY: mongo clean status
 
 # =============================================================================
 # Docker Compose Targets
 # =============================================================================
+#
+# Build arguments:
+#   PYTHON_BASE - Custom Python base image (default: python:3.12-slim)
+#   INSTALL_DEVTOOLS - Install development tools like PyCharm debugger (default: false)
+#
+# Examples:
+#   make build                                              # Use defaults
+#   make build PYTHON_BASE=myregistry.com/python:3.12-slim # Custom base image
+#   make build INSTALL_DEVTOOLS=true                        # With dev tools
+#   make build PYTHON_BASE=custom:image INSTALL_DEVTOOLS=true # Both
+# =============================================================================
 
 build:
 	@echo "Building Docker images..."
-	@docker compose build
+	@BUILD_ARGS=""; \
+	if [ -n "$(PYTHON_BASE)" ]; then \
+		echo "Using custom Python base image: $(PYTHON_BASE)"; \
+		BUILD_ARGS="$$BUILD_ARGS --build-arg PYTHON_BASE=$(PYTHON_BASE)"; \
+	fi; \
+	if [ -n "$(INSTALL_DEVTOOLS)" ]; then \
+		echo "Installing dev tools: $(INSTALL_DEVTOOLS)"; \
+		BUILD_ARGS="$$BUILD_ARGS --build-arg INSTALL_DEVTOOLS=$(INSTALL_DEVTOOLS)"; \
+	fi; \
+	docker compose build $$BUILD_ARGS
 	@echo "✓ Images built successfully"
 
 up:
@@ -87,6 +108,19 @@ test_parallel_tests:
 test_parallel_suites:
 	@echo "Running test suite $(or $(COUNT),4) times in parallel..."
 	@docker compose exec -T vt-app poetry run prod parallel suites $(or $(SUITE_PATH),production/tests/scenarios/) --count $(or $(COUNT),4)
+
+simulate_test:
+	@if [ -z "$(TEST_PATH)" ]; then \
+		echo "Error: TEST_PATH not specified"; \
+		echo "Usage: make simulate_test TEST_PATH=production/tests/scenarios/allergy_ceph.yaml USERS=10"; \
+		exit 1; \
+	fi
+	@echo "Simulating $(or $(USERS),4) concurrent users running: $(TEST_PATH)"
+	@docker compose exec -T vt-app poetry run prod parallel simulate-test $(TEST_PATH) --users $(or $(USERS),4)
+
+simulate_suite:
+	@echo "Simulating $(or $(USERS),4) concurrent users running suite: $(or $(SUITE_PATH),production/tests/scenarios/)"
+	@docker compose exec -T vt-app poetry run prod parallel simulate-suite $(or $(SUITE_PATH),production/tests/scenarios/) --users $(or $(USERS),4)
 
 calibrate:
 	@echo "Running metrics calibration..."

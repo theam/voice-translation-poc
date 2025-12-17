@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Iterable, Optional
+from typing import Iterable
 
 
-def configure_logging(level: str = "INFO", extra_handlers: Optional[Iterable[logging.Handler]] = None) -> None:
+def configure_logging(level: str = "INFO", extra_handlers: Iterable[logging.Handler] | None = None) -> None:
     """Configure application logging with standard Python logging."""
 
     logging_level = getattr(logging, level.upper(), logging.INFO)

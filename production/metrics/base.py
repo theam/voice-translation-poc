@@ -2,18 +2,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Protocol
 
 
 @dataclass
 class MetricResult:
-    """Outcome for a single metric execution."""
+    """Outcome for a single metric execution.
+
+    Attributes:
+        metric_name: Name of the metric
+        score: Numeric score (0.00-100.00)
+        reason: Optional human-readable reason for context
+        details: Additional metric-specific data
+    """
 
     metric_name: str
-    passed: bool
-    value: Optional[float] = None
-    reason: Optional[str] = None
-    details: Optional[Dict[str, Any]] = None
+    score: float | None = None
+    reason: str | None = None
+    details: Dict[str, Any] | None = None
 
 
 class Metric(Protocol):
