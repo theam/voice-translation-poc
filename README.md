@@ -1,4 +1,4 @@
-# Wolfram Voice Translation POC
+# VT Voice Translation POC
 
 Proof-of-concept that exercises Azure AI Speech Translation (Live Interpreter preview with Personal Voice) from Python, targeting rapid experimentation with speech-to-speech translation workflows. The implementation follows the Microsoft guidance for configuring translation, target languages, and event-based synthesis with Personal Voice [\[docs\]](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-translate-speech?tabs=terminal&pivots=programming-language-csharp#using-live-interpreter-preview-for-real-time-speech-to-speech-translation-with-personal-voice).
 
