@@ -205,18 +205,9 @@ class MetricsRunner:
             participants: Participant names for metadata
         """
         from production.storage.models import MetricData, TestRun, Turn
-        from production.storage.utils import generate_test_run_id
 
         finished_at = self.finished_at or datetime.utcnow()
         duration_ms = int((finished_at - self.started_at).total_seconds() * 1000)
-
-        # Generate test_run_id
-        # We don't have access to evaluation_run_id string here, only ObjectId
-        # So we'll generate without it for now
-        test_run_id = generate_test_run_id(
-            timestamp=self.started_at,
-            test_id=self.test_id
-        )
 
         # Convert MetricResults to MetricData
         metrics_dict = {}
@@ -259,7 +250,6 @@ class MetricsRunner:
         # Create TestRun
         test_run = TestRun(
             evaluation_run_id=self.evaluation_run_id,
-            test_run_id=test_run_id,
             test_id=self.test_id,
             test_name=self.test_name or self.test_id,
             started_at=self.started_at,

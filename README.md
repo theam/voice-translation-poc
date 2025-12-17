@@ -1,4 +1,4 @@
-# vt Voice Translation POC
+# VT Voice Translation POC
 
 Proof-of-concept that exercises Azure AI Speech Translation (Live Interpreter preview with Personal Voice) from Python, targeting rapid experimentation with speech-to-speech translation workflows. The implementation follows the Microsoft guidance for configuring translation, target languages, and event-based synthesis with Personal Voice [\[docs\]](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-translate-speech?tabs=terminal&pivots=programming-language-csharp#using-live-interpreter-preview-for-real-time-speech-to-speech-translation-with-personal-voice).
 
@@ -13,7 +13,7 @@ Proof-of-concept that exercises Azure AI Speech Translation (Live Interpreter pr
 - **WebSocket server mode** for receiving audio data from external applications (see [WEBSOCKET_API.md](WEBSOCKET_API.md) for client integration details).
 
 ## Requirements
-- Python 3.9.6 or higher (but less than 3.10).
+- Python 3.12 or higher.
 - Azure subscription with access to the Speech resource and Live Interpreter preview + Personal Voice.
 - Access to a compatible microphone for live capture (optional).
 - MP3 support relies on the Azure SDK's compressed audio streaming; no extra codecs required.
@@ -334,5 +334,3 @@ A non-zero exit code indicates that at least one test case failed; inspect the c
 - Extend to streaming conversations (continuous recognition) for true live interpretation scenarios.
 - Integrate quality metrics (latency, translation confidence) and logging to persistent storage.
 - Capture architecture decisions in `.cursorrules` as the prototype evolves.
-
-

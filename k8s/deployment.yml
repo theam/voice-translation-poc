@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <<APP_NAME>>
+  namespace: <<K8S_NAMESPACE>>
+spec:
+  replicas: <<REPLICAS>>
+  selector:
+    matchLabels:
+      app: <<APP_NAME>>
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: <<APP_NAME>>
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  # change to match the labels of your pods below
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - <<APP_NAME>>
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+      containers:
+        - name: <<APP_NAME>>
+          image: <<CONTAINER_REGISTRY>>/<<APP_NAME>>:<<CURRENT_ENV>>
+          envFrom:
+            - secretRef:
+                name: capco
+          imagePullPolicy: Always
+          # livenessProbe:
+          #   httpGet:
+          #     path: /actuator/health
+          #     port: 8765
+          #   failureThreshold: 3
+          #   initialDelaySeconds: 80
+          #   periodSeconds: 10
+          #   successThreshold: 1
+          #   timeoutSeconds: 10
+          # readinessProbe:
+          #   httpGet:
+          #     path: /actuator/health
+          #     port: 8765
+          #   failureThreshold: 3
+          #   initialDelaySeconds: 60
+          #   periodSeconds: 10
+          #   successThreshold: 1
+          #   timeoutSeconds: 10
+          ports:
+            - containerPort: 8765
+              protocol: TCP
+          resources:
+            limits:
+              cpu: <<CPU_LIMIT>>
+              memory: <<MEMORY_LIMIT>>
+            requests:
+              cpu: <<CPU_REQUEST>>
+              memory: <<MEMORY_REQUEST>>
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - KILL
+                - MKNOD
+                - SYS_CHROOT
+            readOnlyRootFilesystem: false
+            runAsUser: 1000
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 2000
+        runAsGroup: 3000
+        runAsUser: 1000
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        app: <<NODE_SELECTOR>>
+      tolerations:
+        - key: app
+          operator: Equal
+          value: <<TOLERATION>>
+          effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: <<APP_NAME>>
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8765
+      protocol: TCP
+      targetPort: 8765
+  selector:
+    app: <<APP_NAME>>

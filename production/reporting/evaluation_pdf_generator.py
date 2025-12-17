@@ -14,7 +14,12 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, 
 from production.storage.models import MetricData, Turn, TurnMetricData
 
 from .models import EvaluationRunData, TestReportData
-from .report_utils import create_standard_table, score_color_band, sanitize_html_for_reportlab
+from .report_utils import (
+    create_standard_table,
+    generate_report_filename,
+    sanitize_html_for_reportlab,
+    score_color_band,
+)
 
 
 class EvaluationReportPdfGenerator:
@@ -31,7 +36,7 @@ class EvaluationReportPdfGenerator:
         test_reports: List[TestReportData],
     ) -> Path:
         """Generate an evaluation PDF report."""
-        report_name = f"evaluation_report_{evaluation_data.evaluation_run_id}.pdf"
+        report_name = generate_report_filename("evaluation", evaluation_data.evaluation_run_id)
         output_path = self.output_dir / report_name
 
         doc = SimpleDocTemplate(

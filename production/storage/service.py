@@ -35,7 +35,6 @@ class MetricsStorageService:
         >>> # Create test run
         >>> test_run = TestRun(
         ...     evaluation_run_id=evaluation_id,
-        ...     test_run_id="2025-12-05T10-30-00Z-test-001",
         ...     test_id="test-001",
         ...     test_name="Test 1",
         ...     started_at=datetime.utcnow(),
@@ -75,8 +74,8 @@ class MetricsStorageService:
         """
         result = await self.client.evaluation_runs.insert_one(evaluation_run.to_document())
         logger.info(
-            f"Created evaluation run: {evaluation_run.evaluation_run_id} "
-            f"(ID: {result.inserted_id}, environment: {evaluation_run.environment})"
+            f"Created evaluation run with _id: {result.inserted_id} "
+            f"(environment: {evaluation_run.environment})"
         )
         return result.inserted_id
 
@@ -148,30 +147,43 @@ class MetricsStorageService:
         """
         result = await self.client.test_runs.insert_one(test_run.to_document())
         logger.info(
-            f"Created test run: {test_run.test_run_id} "
-            f"(test_id: {test_run.test_id}, evaluation: {test_run.evaluation_run_id}, "
+            f"Created test run with _id: {result.inserted_id} "
+            f"(test_id: {test_run.test_id}, evaluation_run_id: {test_run.evaluation_run_id}, "
             f"score: {test_run.score:.1f}, method: {test_run.score_method})"
         )
         return result.inserted_id
 
-    async def update_test_run(self, test_run_id: str, updates: Dict[str, Any]) -> None:
-        """Update an existing test run by test_run_id."""
+    async def update_test_run(self, test_run_object_id: ObjectId, updates: Dict[str, Any]) -> None:
+        """Update an existing test run by MongoDB ObjectId.
+
+        Args:
+            test_run_object_id: MongoDB ObjectId of test run
+            updates: Dictionary of fields to update
+        """
         await self.client.test_runs.update_one(
-            {"test_run_id": test_run_id},
+            {"_id": test_run_object_id},
             {"$set": updates}
         )
 
-    async def get_evaluation_run_by_id(self, evaluation_run_id: str) -> Optional[EvaluationRun]:
-        """Fetch evaluation run by evaluation_run_id.
+    async def get_test_run_by_evaluation_and_test_id(
+        self,
+        evaluation_run_id: ObjectId,
+        test_id: str
+    ) -> Optional[TestRun]:
+        """Fetch a specific test run by evaluation run ID and test ID.
 
         Args:
-            evaluation_run_id: Human-readable evaluation run ID (e.g., "2025-12-05T10-30Z-abc")
+            evaluation_run_id: MongoDB ObjectId of evaluation run
+            test_id: Test identifier (from scenario.id)
 
         Returns:
-            EvaluationRun instance or None if not found
+            TestRun instance or None if not found
         """
-        doc = await self.client.evaluation_runs.find_one({"evaluation_run_id": evaluation_run_id})
-        return EvaluationRun.from_document(doc) if doc else None
+        doc = await self.client.test_runs.find_one({
+            "evaluation_run_id": evaluation_run_id,
+            "test_id": test_id
+        })
+        return TestRun.from_document(doc) if doc else None
 
     async def get_evaluation_run_by_object_id(self, object_id: ObjectId) -> Optional[EvaluationRun]:
         """Fetch evaluation run by MongoDB ObjectId.

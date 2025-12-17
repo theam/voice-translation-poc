@@ -60,11 +60,22 @@ RUN poetry install --no-root --no-interaction --no-ansi --with evaluations
 # Now copy the application code (this layer changes most often)
 COPY . .
 
+# Copy deployment .env if present (prepared by CI/CD pipeline)
+# Uses wildcard pattern so it doesn't fail if .env doesn't exist (local builds)
+COPY .en[v] .env* ./
+
 # Install the project itself now that source code is available
 RUN poetry lock
 RUN poetry install --no-interaction --no-ansi --with evaluations
 
 # ------------------------------------------------------------
-# Default command (adapt to your app)
+# Default command - Run the WebSocket translation service
+# Override via Kubernetes deployment for different languages/voices
 # ------------------------------------------------------------
-# CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8765
+CMD ["poetry", "run", "speech-poc", "serve", \
+     "--host", "0.0.0.0", \
+     "--port", "8765", \
+     "--from-language", "en-US", \
+     "--to-language", "es", \
+     "--voice", "alloy"]

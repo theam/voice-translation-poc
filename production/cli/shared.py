@@ -15,7 +15,7 @@ from production.storage import (
     MetricsStorageService,
     EvaluationRun,
 )
-from production.storage.utils import compute_config_hash, generate_evaluation_run_id, get_git_info
+from production.storage.utils import compute_config_hash, get_git_info
 from production.utils.config import FrameworkConfig
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,6 @@ async def create_evaluation_run(
     system_info = await collect_system_information(config)
 
     evaluation_run = EvaluationRun(
-        evaluation_run_id=generate_evaluation_run_id(started_at, git_commit, git_branch),
         environment=config.environment,
         target_system=config.target_system,
         started_at=started_at,
@@ -91,7 +90,7 @@ async def create_evaluation_run(
     )
 
     evaluation_id = await storage_service.create_evaluation_run(evaluation_run)
-    logger.info(f"Evaluation run created: {evaluation_run.evaluation_run_id}")
+    logger.info(f"Evaluation run created with _id: {evaluation_id}")
     return evaluation_id
 
 
