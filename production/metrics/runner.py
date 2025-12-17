@@ -189,6 +189,48 @@ class MetricsRunner:
 
         return summary
 
+    def _extract_latency_metrics(self, turn_summary):
+        """Extract latency metrics from TurnSummary.
+
+        Args:
+            turn_summary: TurnSummary with runtime timing data
+
+        Returns:
+            LatencyMetrics object with all timing data, or None if no data available
+        """
+        from production.storage.models import LatencyMetrics
+
+        # Count events
+        audio_events = [e for e in turn_summary.inbound_events if e.event_type == "translated_audio"]
+        text_events = [e for e in turn_summary.inbound_events if e.event_type == "translated_delta"]
+
+        # Calculate audio duration
+        audio_duration = None
+        if turn_summary.first_outbound_ms is not None and turn_summary.last_outbound_ms is not None:
+            audio_duration = turn_summary.last_outbound_ms - turn_summary.first_outbound_ms
+
+        # Create latency metrics (all fields optional - only set if data available)
+        return LatencyMetrics(
+            # Core latency metrics (properties already calculate these)
+            latency_ms=turn_summary.latency_ms,
+            text_latency_ms=turn_summary.text_latency_ms,
+            first_chunk_latency_ms=turn_summary.first_chunk_latency_ms,
+
+            # Raw timestamps
+            first_outbound_ms=turn_summary.first_outbound_ms,
+            last_outbound_ms=turn_summary.last_outbound_ms,
+            first_response_ms=turn_summary.first_response_ms,
+            first_audio_response_ms=turn_summary.first_audio_response_ms,
+            first_text_response_ms=turn_summary.first_text_response_ms,
+
+            # Derived metrics
+            audio_duration_ms=audio_duration,
+
+            # Event counts
+            audio_event_count=len(audio_events) if audio_events else None,
+            text_event_count=len(text_events) if text_events else None,
+        )
+
     async def _persist_test_result(
         self,
         summary: MetricsSummary,
@@ -204,7 +246,7 @@ class MetricsRunner:
             tags: Test tags for metadata
             participants: Participant names for metadata
         """
-        from production.storage.models import MetricData, TestRun, Turn
+        from production.storage.models import LatencyMetrics, MetricData, TestRun, Turn
 
         finished_at = self.finished_at or datetime.utcnow()
         duration_ms = int((finished_at - self.started_at).total_seconds() * 1000)
@@ -232,6 +274,9 @@ class MetricsRunner:
             # Get corresponding scenario turn for expected values
             scenario_turn = scenario_turns_by_id.get(turn_summary.turn_id)
 
+            # Extract latency metrics from TurnSummary
+            latency_metrics = self._extract_latency_metrics(turn_summary)
+
             turn = Turn(
                 turn_id=turn_summary.turn_id,
                 start_ms=turn_summary.turn_start_ms or 0,
@@ -244,6 +289,8 @@ class MetricsRunner:
                 expected_language=scenario_turn.expected_language if scenario_turn else None,
                 # Add metric expectations for calibration validation
                 metric_expectations=scenario_turn.metric_expectations if scenario_turn else {},
+                # Add latency metrics
+                latency=latency_metrics,
             )
             turns.append(turn)
 

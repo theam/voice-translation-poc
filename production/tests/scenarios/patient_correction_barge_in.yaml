@@ -1,0 +1,38 @@
+id: patient_correction_barge_in
+description: Patient corrects themselves mid-translation to test barge-in handling
+tags:
+- barge-in
+- correction
+- interruption
+- medical
+metrics:
+- barge_in
+- wer
+participants:
+  patient:
+    source_language: es
+    target_language: en
+    audio_files:
+      p1: ../audios/patient_correction_001.wav
+      p2: ../audios/patient_correction_002.wav
+turns:
+- id: patient_initial_statement
+  type: play_audio
+  participant: patient
+  audio_file: p1
+  start_at_ms: 0
+  barge_in: false
+  source_language: es
+  expected_language: en
+  source_text: Buenos días doctor. Vengo porque llevo tres días con un dolor de cabeza constante. El dolor es moderado, está en la parte frontal, y empeora cuando me muevo rápido o me agacho.
+  expected_text: Good morning doctor. I'm here because I've had a constant headache for three days. The pain is moderate, it's in the frontal area, and it gets worse when I move quickly or bend down.
+- id: patient_correction
+  type: play_audio
+  participant: patient
+  audio_file: p2
+  start_at_ms: 22000
+  barge_in: true
+  source_language: es
+  expected_language: en
+  source_text: Perdón, me equivoqué. No es moderado, es bastante fuerte. Y también tengo náuseas y algo de sensibilidad a la luz desde esta mañana.
+  expected_text: Sorry, I was wrong. It's not moderate, it's quite severe. And I also have nausea and some light sensitivity since this morning.

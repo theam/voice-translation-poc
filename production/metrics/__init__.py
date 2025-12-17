@@ -7,6 +7,7 @@ from production.capture.conversation_manager import ConversationManager
 from production.scenario_engine.models import Scenario
 
 from .base import Metric, MetricResult
+from .barge_in import BargeInMetric
 from .completeness import CompletenessMetric
 from .context import ContextMetric
 from .intelligibility import IntelligibilityMetric
@@ -20,6 +21,7 @@ from .wer import WERMetric
 
 # Metric registry mapping metric names to classes
 METRIC_REGISTRY = {
+    "barge_in": BargeInMetric,
     "intelligibility": IntelligibilityMetric,
     "segmentation": SegmentationMetric,
     "context": ContextMetric,
@@ -112,6 +114,7 @@ def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -
     # If no specific metrics requested, return all metrics
     if not scenario.metrics:
         return [
+            BargeInMetric(scenario, conversation_manager),  # Barge-in handling with default threshold 70.0
             WERMetric(scenario, conversation_manager),  # WER with default threshold 0.3
             TechnicalTermsMetric(scenario, conversation_manager),  # Technical terms with default threshold 0.90
             CompletenessMetric(scenario, conversation_manager),  # Completeness with default threshold 0.85
@@ -137,6 +140,7 @@ __all__ = [
     "get_metrics",
     "create_metric",
     "METRIC_REGISTRY",
+    "BargeInMetric",
     "SequenceMetric",
     "TechnicalTermsMetric",
     "WERMetric",

@@ -61,6 +61,18 @@ class ConversationTape:
         sample_width = 2
         segments: List[Tuple[int, array]] = []
         min_start_ms = min(start for start, _ in self._segments)
+        max_end_ms = max(start + len(pcm) / 2 / self.sample_rate * 1000 for start, pcm in self._segments)
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(
+            f"🎵 CONVERSATION TAPE: "
+            f"total_segments={len(self._segments)}, "
+            f"timeline_span={min_start_ms}ms-{int(max_end_ms)}ms, "
+            f"duration={int(max_end_ms - min_start_ms)}ms"
+        )
+
         for start_ms, pcm in sorted(self._segments, key=lambda seg: seg[0]):
             samples = array("h")
             samples.frombytes(pcm)
@@ -72,6 +84,14 @@ class ConversationTape:
             segments.append((normalized_start, samples))
 
         total_samples = max(start + len(samples) for start, samples in segments)
+        total_duration_s = total_samples / self.sample_rate
+
+        logger.info(
+            f"🎵 MIXED WAV: "
+            f"total_samples={total_samples}, "
+            f"duration={total_duration_s:.2f}s, "
+            f"sample_rate={self.sample_rate}Hz"
+        )
         chunk_samples = max(1, _samples_from_ms(chunk_ms, self.sample_rate))
 
         wav_io = buffer_override if buffer_override is not None else open(path, "wb")
