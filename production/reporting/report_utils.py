@@ -1,6 +1,7 @@
 """Shared helpers for reporting layouts."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Iterable, List, Tuple
 
 from reportlab.lib import colors
@@ -54,6 +55,25 @@ def create_standard_table(
     return table
 
 
+def generate_report_filename(report_type: str, evaluation_run_id: str) -> str:
+    """Generate a timestamped report filename with shortened ID.
+
+    Args:
+        report_type: Type of report ("calibration" or "evaluation")
+        evaluation_run_id: Full evaluation run ID string
+
+    Returns:
+        Filename in format: {report_type}_report_{date}_{last5chars}.pdf
+
+    Example:
+        >>> generate_report_filename("calibration", "67890abcdef12345")
+        'calibration_report_2025-12-17_12345.pdf'
+    """
+    current_date = datetime.utcnow().strftime("%Y-%m-%d")
+    id_suffix = evaluation_run_id[-5:] if len(evaluation_run_id) >= 5 else evaluation_run_id
+    return f"{report_type}_report_{current_date}_{id_suffix}.pdf"
+
+
 def sanitize_html_for_reportlab(text: str) -> str:
     """Escape angle brackets while preserving simple formatting tags."""
     import re
@@ -90,4 +110,9 @@ def sanitize_html_for_reportlab(text: str) -> str:
     return sanitized
 
 
-__all__ = ["score_color_band", "sanitize_html_for_reportlab", "create_standard_table"]
+__all__ = [
+    "score_color_band",
+    "sanitize_html_for_reportlab",
+    "create_standard_table",
+    "generate_report_filename",
+]

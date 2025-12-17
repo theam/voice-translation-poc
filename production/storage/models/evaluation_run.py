@@ -12,7 +12,6 @@ from bson import ObjectId
 class EvaluationRun:
     """Metadata and aggregated metrics for a full evaluation run."""
 
-    evaluation_run_id: str
     environment: str
     target_system: str
     started_at: datetime
@@ -35,7 +34,6 @@ class EvaluationRun:
 
     def to_document(self) -> Dict[str, Any]:
         doc = {
-            "evaluation_run_id": self.evaluation_run_id,
             "environment": self.environment,
             "target_system": self.target_system,
             "started_at": self.started_at,
@@ -59,7 +57,6 @@ class EvaluationRun:
     @classmethod
     def from_document(cls, doc: Dict[str, Any]) -> "EvaluationRun":
         return cls(
-            evaluation_run_id=doc["evaluation_run_id"],
             environment=doc["environment"],
             target_system=doc["target_system"],
             started_at=doc["started_at"],

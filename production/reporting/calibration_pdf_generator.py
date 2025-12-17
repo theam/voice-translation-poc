@@ -17,6 +17,7 @@ from production.storage.models import Turn, TurnMetricData
 from .models import EvaluationRunData, TestReportData
 from .report_utils import (
     create_standard_table,
+    generate_report_filename,
     sanitize_html_for_reportlab,
     score_color_band,
 )
@@ -36,7 +37,7 @@ class CalibrationReportPdfGenerator:
         test_reports: List[TestReportData],
     ) -> Path:
         """Generate a calibration PDF report."""
-        report_name = f"calibration_report_{evaluation_data.evaluation_run_id}.pdf"
+        report_name = generate_report_filename("calibration", evaluation_data.evaluation_run_id)
         output_path = self.output_dir / report_name
 
         doc = SimpleDocTemplate(

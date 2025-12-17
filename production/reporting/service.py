@@ -153,7 +153,7 @@ class ReportingService:
     ) -> EvaluationRunData:
         """Build EvaluationRunData from EvaluationRun model."""
         return EvaluationRunData(
-            evaluation_run_id=eval_run.evaluation_run_id,
+            evaluation_run_id=str(evaluation_run_id),
             started_at=eval_run.started_at,
             finished_at=eval_run.finished_at,
             git_commit=eval_run.git_commit,
@@ -188,7 +188,7 @@ class ReportingService:
         return TestReportData(
             test_id=test_run.test_id,
             test_name=test_run.test_name,
-            test_run_id=test_run.test_run_id,
+            test_run_id=str(test_run._id) if test_run._id else "unknown",
             started_at=test_run.started_at,
             finished_at=test_run.finished_at,
             duration_ms=test_run.duration_ms,

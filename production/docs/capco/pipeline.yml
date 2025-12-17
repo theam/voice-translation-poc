@@ -1,0 +1,111 @@
+name: Build and push to ACR
+
+env:
+ ENVIRONMENT: capco-dev
+ CONFIG_NAME: hcep
+ JFROG_HOST: centraluhg.jfrog.io
+ JFROG_EDGE_HOST: edgeinternal1uhg.optum.com
+ JFROG_PROJECT_KEY: com-optum-osgp
+ VAULT_URL: "https://pam-dev.uhc.com"
+ VAULT_NAMESPACE: "OPTUM/APP/MT-PSM-TENANT/DEV"
+ VAULT_METHOD: "jwt"
+ VAULT_ROLE: "hcep-osgp-actions"
+ API_NAME: capco-voice-translation-en-es
+ TAG_NAME: develop
+
+permissions:
+ actions: read
+ id-token: write
+ contents: write
+ pull-requests: write
+ security-events: write
+ issues: write
+
+on:
+ workflow_dispatch:
+ push:
+  branches:
+   - develop
+
+jobs:
+ Build:
+  runs-on: uhg-runner
+  steps:
+   - name: Checkout
+    uses: actions/checkout@v3
+    with:
+     fetch-depth: 0
+
+   - name: Fetch UHG CA information
+    run: |
+     echo UHG_CA_BASE64=$(cat /usr/local/share/ca-certificates/Optum_ProxyMITM_Bundle.crt | base64) >> $GITHUB_ENV
+   - name: Get Workflow Secrets
+    uses: hashicorp/vault-action@v3
+    with:
+     url: ${{ env.VAULT_URL }}
+     caCertificate: ${{ env.UHG_CA_BASE64 }}
+     method: ${{ env.VAULT_METHOD }}
+     role: ${{ env.VAULT_ROLE }}
+     namespace: ${{ env.VAULT_NAMESPACE }}
+     secrets: |
+      gh-actions/data/hcep/devops gitToken | GIT_TOKEN ;
+      gh-actions/data/hcep/azure/multi/acr ${{ env.ENVIRONMENT }} | ACR_CREDENTIAL ;
+      gh-actions/data/hcep/azure/multi/aks ${{ env.ENVIRONMENT }} | AKS_CREDENTIAL ;
+
+   - name: Set Environment variables
+    id: env_variables
+    run: |
+     echo "ACR_HOST=$(echo '${{ env.ACR_CREDENTIAL }}' | jq -r .host)" >> $GITHUB_ENV
+     echo "ACR_USERNAME=$(echo '${{ env.ACR_CREDENTIAL }}' | jq -r .username)" >> $GITHUB_ENV
+     echo "ACR_PASSWORD=$(echo '${{ env.ACR_CREDENTIAL }}' | jq -r .password)" >> $GITHUB_ENV
+
+   - name: Get Artifactory Access Token
+    id: jf-saas-setup
+    uses: uhg-pipelines/epl-jf/configure-saas-connection@v4
+    with:
+     jfrog-project-key: ${{ env.JFROG_PROJECT_KEY }}
+
+   - name: JFROG SAAS Login
+    continue-on-error: true
+    uses: docker/login-action@v3
+    with:
+     registry: ${{ env.JFROG_EDGE_HOST }}
+     username: ${{ steps.jf-saas-setup.outputs.oidc-subject }}
+     password: ${{ steps.jf-saas-setup.outputs.access-token }}
+
+   - name: Docker Build
+    run: |
+      docker build --tag ${{ vars.ACR_LOGIN_SERVER }}/vt/${{ env.API_NAME }}:${{ env.TAG_NAME }} --label version=${{ env.TAG_NAME }} --label release-date=$(date +%Y-%m-%d) -f Dockerfile .
+
+   - name: ACR Login Capco
+    uses: docker/login-action@v3
+    with:
+     registry: ${{ vars.ACR_LOGIN_SERVER }}
+     username: ${{ vars.ACR_USERNAME }}
+     password: ${{ secrets.ACR_PASSWORD }}
+
+   - name: ACR Docker Push Capco
+    run: |
+      docker push ${{ vars.ACR_LOGIN_SERVER }}/vt/${{ env.API_NAME }}:${{ env.TAG_NAME }}
+
+   - name: ACR Login OSGP
+    uses: docker/login-action@v3
+    with:
+      registry: ${{ env.ACR_HOST }}
+      username: ${{ env.ACR_USERNAME }}
+      password: ${{ env.ACR_PASSWORD }}
+
+   - name: ACR Docker Push OSGP
+    run: |
+      docker tag ${{ vars.ACR_LOGIN_SERVER }}/vt/${{ env.API_NAME }}:${{ env.TAG_NAME }} ${{ env.ACR_HOST }}/${{ env.API_NAME }}:${{ env.TAG_NAME }}
+      docker push ${{ env.ACR_HOST }}/${{ env.API_NAME }}:${{ env.TAG_NAME }}
+
+   - name: Deploy PEP
+    uses: optum-sgs/gh-actions-custom-marketplace/apply-deploy/az-action@main
+    with:
+     environment: ${{ env.ENVIRONMENT }}
+     config-name: ${{ env.CONFIG_NAME }}
+     azure-creds: ${{ env.AKS_CREDENTIAL }}
+     target-tag: ${{ env.TAG_NAME }}
+     deploy-name: ${{ env.API_NAME }}
+     acr-repo-name: ${{ env.API_NAME }}

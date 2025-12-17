@@ -15,7 +15,6 @@ from production.reporting import ReportingService
 from production.scenario_engine.engine import ScenarioEngine
 from production.scenarios.loader import ScenarioLoader
 from production.storage import MongoDBClient, MetricsStorageService
-from production.storage.utils import generate_test_run_id
 from production.utils.config import load_config
 from production.utils.debug import setup_remote_debugging
 from production.utils.logging_setup import configure_logging
@@ -114,11 +113,15 @@ async def calibrate_async(
 
                 # Persist calibration summary on the stored test_run if storage is enabled
                 if storage_service and evaluation_run_id:
-                    test_run_id = generate_test_run_id(timestamp=started_at, test_id=scenario.id)
-                    await storage_service.update_test_run(
-                        test_run_id,
-                        {"calibration_summary": _calibration_summary_to_dict(calibration_summary)},
+                    # Fetch the test run to get its ObjectId
+                    test_run = await storage_service.get_test_run_by_evaluation_and_test_id(
+                        evaluation_run_id, scenario.id
                     )
+                    if test_run and test_run._id:
+                        await storage_service.update_test_run(
+                            test_run._id,
+                            {"calibration_summary": _calibration_summary_to_dict(calibration_summary)},
+                        )
 
         if storage_service and evaluation_run_id:
             # Calculate calibration status based on all test results

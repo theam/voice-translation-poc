@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+ api:
+  build: .
+  ports:
+   - "8085:8085"
+  # mount the code so --reload actually reloads while you hack
+  volumes: #! Comment this out to prevent changes from going live on save
+   - ./:/app #! This is useful for dev, not for clients (who won't have the repo cloned)
+  # dev-friendly: auto-reload on code change
+  command: uvicorn voice_backend:app --host 0.0.0.0 --port 8085 --reload
+  # if you've got env vars, drop a .env file next to this compose file
+  env_file:
+   - .env

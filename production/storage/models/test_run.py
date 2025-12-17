@@ -18,7 +18,6 @@ class TestRun:
     """Result for a single test execution."""
 
     evaluation_run_id: ObjectId
-    test_run_id: str
     test_id: str
     test_name: str
     started_at: datetime
@@ -40,7 +39,6 @@ class TestRun:
     def to_document(self) -> Dict[str, Any]:
         doc = {
             "evaluation_run_id": self.evaluation_run_id,
-            "test_run_id": self.test_run_id,
             "test_id": self.test_id,
             "test_name": self.test_name,
             "started_at": self.started_at,
@@ -107,7 +105,6 @@ class TestRun:
 
         return cls(
             evaluation_run_id=doc["evaluation_run_id"],
-            test_run_id=doc["test_run_id"],
             test_id=doc["test_id"],
             test_name=doc["test_name"],
             started_at=doc["started_at"],

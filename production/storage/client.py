@@ -58,28 +58,26 @@ class MongoDBClient:
         Indexes created:
         - evaluation_runs:
             - started_at: Time-series queries
-            - evaluation_run_id: Unique identifier lookup
             - system_info_hash: Group by configuration
             - experiment_tags: Multi-key for tag filtering
             - score: For score-based queries and graphing
 
         - test_runs:
-            - test_run_id: Unique identifier lookup
             - (test_id, finished_at): Compound index for test evolution
-            - evaluation_run_id: Fetch all tests for an evaluation run
+            - evaluation_run_id: Fetch all tests for an evaluation run (foreign key to _id)
             - score: For score-based queries and graphing
+
+        Note: MongoDB automatically creates a unique index on _id for both collections.
         """
         logger.info("Creating MongoDB indexes...")
 
         # Evaluation runs indexes
         await self.evaluation_runs.create_index("started_at")
-        await self.evaluation_runs.create_index("evaluation_run_id", unique=True)
         await self.evaluation_runs.create_index("system_info_hash")
         await self.evaluation_runs.create_index("experiment_tags")
         await self.evaluation_runs.create_index("score")
 
         # Test runs indexes
-        await self.test_runs.create_index("test_run_id", unique=True)
         await self.test_runs.create_index([("test_id", 1), ("finished_at", -1)])
         await self.test_runs.create_index("evaluation_run_id")
         await self.test_runs.create_index("score")
