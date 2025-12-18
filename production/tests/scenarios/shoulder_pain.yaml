@@ -23,7 +23,6 @@ turns:
   participant: doctor
   audio_file: d1
   start_at_ms: 0
-  barge_in: false
   source_language: en
   expected_language: es
   source_text: Hi, how can I help you today?
@@ -33,7 +32,6 @@ turns:
   participant: patient
   audio_file: p1
   start_at_ms: 9487
-  barge_in: false
   source_language: es
   expected_language: en
   source_text: Tengo un dolor en el hombro desde hace par de días que no se me quita.
@@ -43,7 +41,6 @@ turns:
   participant: doctor
   audio_file: d2
   start_at_ms: 22000
-  barge_in: false
   source_language: en
   expected_language: es
   source_text: Do you remember if you did a strange movement or if you hit your shoulder?
@@ -53,7 +50,6 @@ turns:
   participant: patient
   audio_file: p2
   start_at_ms: 40000
-  barge_in: false
   source_language: es
   expected_language: en
   source_text: El dolor me empezó el pasado sábado después de terminar un partido de padel.

@@ -6,7 +6,6 @@ tags:
 - interruption
 - medical
 metrics:
-- barge_in
 - wer
 participants:
   patient:
@@ -21,7 +20,6 @@ turns:
   participant: patient
   audio_file: p1
   start_at_ms: 0
-  barge_in: false
   source_language: es
   expected_language: en
   source_text: Buenos días doctor. Vengo porque llevo tres días con un dolor de cabeza constante. El dolor es moderado, está en la parte frontal, y empeora cuando me muevo rápido o me agacho.
@@ -31,7 +29,6 @@ turns:
   participant: patient
   audio_file: p2
   start_at_ms: 22000
-  barge_in: true
   source_language: es
   expected_language: en
   source_text: Perdón, me equivoqué. No es moderado, es bastante fuerte. Y también tengo náuseas y algo de sensibilidad a la luz desde esta mañana.

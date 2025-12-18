@@ -7,11 +7,11 @@ from production.capture.conversation_manager import ConversationManager
 from production.scenario_engine.models import Scenario
 
 from .base import Metric, MetricResult
-from .barge_in import BargeInMetric
 from .completeness import CompletenessMetric
 from .context import ContextMetric
 from .intelligibility import IntelligibilityMetric
 from .intent_preservation import IntentPreservationMetric
+from .overlap import OverlapMetric
 from .target_language import TargetLanguageMetric
 from .runner import MetricsRunner, MetricsSummary
 from .segmentation import SegmentationMetric
@@ -21,7 +21,6 @@ from .wer import WERMetric
 
 # Metric registry mapping metric names to classes
 METRIC_REGISTRY = {
-    "barge_in": BargeInMetric,
     "intelligibility": IntelligibilityMetric,
     "segmentation": SegmentationMetric,
     "context": ContextMetric,
@@ -30,6 +29,7 @@ METRIC_REGISTRY = {
     "completeness": CompletenessMetric,
     "intent_preservation": IntentPreservationMetric,
     "target_language": TargetLanguageMetric,
+    "overlap": OverlapMetric,
 }
 
 
@@ -94,6 +94,7 @@ def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -
     - intelligibility: Evaluates text clarity and readability using LLM (1-5 scale)
     - segmentation: Evaluates sentence boundaries and turn segmentation using LLM (1-5 scale)
     - context: Evaluates conversational context and relevance using LLM (1-5 scale)
+    - overlap: Detects audio overlap (response arriving during transmission)
 
     Args:
         scenario: Scenario with turns containing expectations
@@ -114,7 +115,6 @@ def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -
     # If no specific metrics requested, return all metrics
     if not scenario.metrics:
         return [
-            BargeInMetric(scenario, conversation_manager),  # Barge-in handling with default threshold 70.0
             WERMetric(scenario, conversation_manager),  # WER with default threshold 0.3
             TechnicalTermsMetric(scenario, conversation_manager),  # Technical terms with default threshold 0.90
             CompletenessMetric(scenario, conversation_manager),  # Completeness with default threshold 0.85
@@ -123,6 +123,7 @@ def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -
             SegmentationMetric(scenario, conversation_manager),  # Segmentation with default threshold 0.80
             TargetLanguageMetric(scenario, conversation_manager),  # Target language validation per turn
             ContextMetric(scenario, conversation_manager),  # Context with default threshold 0.80
+            OverlapMetric(scenario, conversation_manager),  # Audio overlap detection
         ]
 
     # Return only requested metrics
@@ -140,8 +141,6 @@ __all__ = [
     "get_metrics",
     "create_metric",
     "METRIC_REGISTRY",
-    "BargeInMetric",
-    "SequenceMetric",
     "TechnicalTermsMetric",
     "WERMetric",
     "CompletenessMetric",
@@ -150,4 +149,5 @@ __all__ = [
     "IntelligibilityMetric",
     "SegmentationMetric",
     "ContextMetric",
+    "OverlapMetric",
 ]
