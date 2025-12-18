@@ -310,7 +310,10 @@ class MetricsCollector:
                 for turn in turns:
                     latency_data = turn.get("latency")
                     if latency_data and latency_data.get("latency_ms") is not None:
-                        turn_latencies.append(latency_data.get("latency_ms"))
+                        latency_val = latency_data.get("latency_ms")
+                        # Skip negative latencies - streaming responses with VAD
+                        if latency_val >= 0:
+                            turn_latencies.append(latency_val)
 
                 # If this test has turn latencies, calculate its average
                 if turn_latencies:
@@ -390,7 +393,11 @@ class MetricsCollector:
             for turn in turns:
                 latency_data = turn.get("latency")
                 if latency_data and latency_data.get("latency_ms") is not None:
-                    latencies_by_env_target[key].append(latency_data.get("latency_ms"))
+                    latency_val = latency_data.get("latency_ms")
+                    # Skip negative latencies - these occur when response arrives before
+                    # all outbound audio is sent (streaming with VAD)
+                    if latency_val >= 0:
+                        latencies_by_env_target[key].append(latency_val)
 
         # Emit overall latency statistics
         for (environment, target_system), latencies in latencies_by_env_target.items():

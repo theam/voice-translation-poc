@@ -39,7 +39,7 @@ turns:
   type: play_audio
   participant: patient
   audio_file: p1
-  start_at_ms: 24257
+  start_at_ms: 44000
   barge_in: false
   source_language: es
   expected_language: en
@@ -54,7 +54,7 @@ turns:
   type: play_audio
   participant: doctor
   audio_file: d2
-  start_at_ms: 51779
+  start_at_ms: 95000
   barge_in: false
   source_language: en
   expected_language: es
@@ -72,7 +72,7 @@ turns:
   type: play_audio
   participant: patient
   audio_file: p2
-  start_at_ms: 83411
+  start_at_ms: 172000
   barge_in: false
   source_language: es
   expected_language: en
@@ -86,7 +86,7 @@ turns:
   type: play_audio
   participant: doctor
   audio_file: d3
-  start_at_ms: 106371
+  start_at_ms: 240000
   barge_in: false
   source_language: en
   expected_language: es

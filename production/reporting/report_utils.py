@@ -63,15 +63,15 @@ def generate_report_filename(report_type: str, evaluation_run_id: str) -> str:
         evaluation_run_id: Full evaluation run ID string
 
     Returns:
-        Filename in format: {report_type}_report_{date}_{last5chars}.pdf
+        Filename in format: {report_type}_{last5chars}_{date_with_time}.pdf
 
     Example:
         >>> generate_report_filename("calibration", "67890abcdef12345")
-        'calibration_report_2025-12-17_12345.pdf'
+        'calibration_12345_2025-12-17_14-30-45.pdf'
     """
-    current_date = datetime.utcnow().strftime("%Y-%m-%d")
+    current_date_time = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
     id_suffix = evaluation_run_id[-5:] if len(evaluation_run_id) >= 5 else evaluation_run_id
-    return f"{report_type}_report_{current_date}_{id_suffix}.pdf"
+    return f"{report_type}_{id_suffix}_{current_date_time}.pdf"
 
 
 def sanitize_html_for_reportlab(text: str) -> str:

@@ -113,6 +113,18 @@ server_stop:
 # =============================================================================
 # Testing
 # =============================================================================
+#
+# Environment Configuration:
+#   Use APP_ENV to select environment-specific configuration
+#   Examples:
+#     APP_ENV=local make test_prod SCENARIO=production/tests/scenarios/test.yaml
+#     APP_ENV=dev make test_suite
+#     APP_ENV=staging make calibrate
+#
+#   Supported environments: local, dev, staging, prod
+#   Configuration files: .env (base), .env.{APP_ENV} (override)
+#   See production/docs/ENVIRONMENT_CONFIGURATION.md for details
+# =============================================================================
 
 evaluations:
 	@echo "Running evaluations..."

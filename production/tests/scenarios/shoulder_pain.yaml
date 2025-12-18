@@ -42,7 +42,7 @@ turns:
   type: play_audio
   participant: doctor
   audio_file: d2
-  start_at_ms: 19577
+  start_at_ms: 22000
   barge_in: false
   source_language: en
   expected_language: es
@@ -52,7 +52,7 @@ turns:
   type: play_audio
   participant: patient
   audio_file: p2
-  start_at_ms: 30739
+  start_at_ms: 40000
   barge_in: false
   source_language: es
   expected_language: en
