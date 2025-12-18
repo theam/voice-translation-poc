@@ -209,6 +209,11 @@ class MetricsRunner:
         if turn_summary.first_outbound_ms is not None and turn_summary.last_outbound_ms is not None:
             audio_duration = turn_summary.last_outbound_ms - turn_summary.first_outbound_ms
 
+        # Calculate last audio response timestamp
+        last_audio_response = None
+        if audio_events:
+            last_audio_response = max(e.timestamp_ms for e in audio_events)
+
         # Create latency metrics (all fields optional - only set if data available)
         return LatencyMetrics(
             # Core latency metrics (properties already calculate these)
@@ -221,6 +226,7 @@ class MetricsRunner:
             last_outbound_ms=turn_summary.last_outbound_ms,
             first_response_ms=turn_summary.first_response_ms,
             first_audio_response_ms=turn_summary.first_audio_response_ms,
+            last_audio_response_ms=last_audio_response,
             first_text_response_ms=turn_summary.first_text_response_ms,
 
             # Derived metrics
@@ -294,6 +300,9 @@ class MetricsRunner:
             )
             turns.append(turn)
 
+        # Determine target language from first participant
+        first_participant = list(self.scenario.participants.values())[0] if self.scenario.participants else None
+
         # Create TestRun
         test_run = TestRun(
             evaluation_run_id=self.evaluation_run_id,
@@ -311,6 +320,7 @@ class MetricsRunner:
             scenario_metrics=self.scenario.metrics,
             expected_score=self.scenario.expected_score,
             tolerance=self.metric_tolerance,
+            target_language=first_participant.target_language if first_participant else None,
         )
 
         # Persist to MongoDB

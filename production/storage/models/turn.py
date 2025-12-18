@@ -23,6 +23,7 @@ class LatencyMetrics:
     last_outbound_ms: Optional[int] = None  # When last audio sent
     first_response_ms: Optional[int] = None  # First response (any type)
     first_audio_response_ms: Optional[int] = None  # First audio response
+    last_audio_response_ms: Optional[int] = None  # Last audio response
     first_text_response_ms: Optional[int] = None  # First text response
 
     # Derived metrics

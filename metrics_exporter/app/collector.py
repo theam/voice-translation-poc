@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable
 
@@ -112,6 +113,31 @@ class MetricsCollector:
                 "calibration_run_count",
                 "Total number of calibration runs per environment.",
                 labels=["environment"],
+            ),
+            "evaluation_run_sequence_latency_ms": GaugeMetricFamily(
+                "evaluation_run_sequence_latency_ms",
+                "Evaluation run average latency (EOS to first output) in seconds, with sequence numbers.",
+                labels=["series", "environment", "target_system", "run_seq"],
+            ),
+            "overall_latency_max_ms": GaugeMetricFamily(
+                "overall_latency_max_ms",
+                "Overall maximum latency across all turns in all evaluations (seconds).",
+                labels=["environment", "target_system"],
+            ),
+            "overall_latency_min_ms": GaugeMetricFamily(
+                "overall_latency_min_ms",
+                "Overall minimum latency across all turns in all evaluations (seconds).",
+                labels=["environment", "target_system"],
+            ),
+            "overall_latency_avg_ms": GaugeMetricFamily(
+                "overall_latency_avg_ms",
+                "Overall average latency across all turns in all evaluations (seconds).",
+                labels=["environment", "target_system"],
+            ),
+            "overall_latency_p95_ms": GaugeMetricFamily(
+                "overall_latency_p95_ms",
+                "Overall 95th percentile latency across all turns in all evaluations (seconds).",
+                labels=["environment", "target_system"],
             ),
         }
         return families
@@ -265,6 +291,120 @@ class MetricsCollector:
                 families["evaluation_run_sequence_score"].add_metric(
                     [series_label, environment, target_system, str(run_seq)], float(run.get("score"))
                 )
+
+        # Calculate average latency for each evaluation run (average of test-level averages)
+        eval_id_to_avg_latency = {}
+        test_runs_by_eval = {}
+        for test_doc in test_runs:
+            eval_id = test_doc.get("evaluation_run_id")
+            if eval_id not in test_runs_by_eval:
+                test_runs_by_eval[eval_id] = []
+            test_runs_by_eval[eval_id].append(test_doc)
+
+        for eval_id, tests in test_runs_by_eval.items():
+            test_level_avg_latencies = []
+            for test_doc in tests:
+                # Calculate average latency_ms across all turns in this test
+                turns = test_doc.get("turns", [])
+                turn_latencies = []
+                for turn in turns:
+                    latency_data = turn.get("latency")
+                    if latency_data and latency_data.get("latency_ms") is not None:
+                        turn_latencies.append(latency_data.get("latency_ms"))
+
+                # If this test has turn latencies, calculate its average
+                if turn_latencies:
+                    test_avg = sum(turn_latencies) / len(turn_latencies)
+                    test_level_avg_latencies.append(test_avg)
+
+            # Calculate average of test-level averages
+            if test_level_avg_latencies:
+                eval_avg_latency = sum(test_level_avg_latencies) / len(test_level_avg_latencies)
+                eval_id_to_avg_latency[eval_id] = eval_avg_latency
+
+        # Add sequence-based latency for evaluation runs
+        runs_by_env_target_latency = {}
+        for eval_doc in evaluation_runs:
+            if eval_doc.get("target_system") == "calibration":
+                continue
+            eval_id = eval_doc.get("_id")
+            # Skip if no latency data available
+            if eval_id not in eval_id_to_avg_latency:
+                continue
+
+            environment = eval_doc.get("environment", "unknown")
+            target_system = eval_doc.get("target_system", "unknown")
+            key = (environment, target_system)
+            if key not in runs_by_env_target_latency:
+                runs_by_env_target_latency[key] = []
+
+            # Add latency to the eval doc
+            eval_doc_with_latency = dict(eval_doc)
+            eval_doc_with_latency["avg_latency_ms"] = eval_id_to_avg_latency[eval_id]
+            runs_by_env_target_latency[key].append(eval_doc_with_latency)
+
+        # First pass: calculate the maximum sequence length for latency metrics
+        max_latency_seq = 0
+        latency_series_runs = {}
+        for (environment, target_system), runs in runs_by_env_target_latency.items():
+            # Sort by finished_at (oldest first)
+            sorted_runs = sorted(
+                runs,
+                key=lambda x: x.get("finished_at") or x.get("started_at") or datetime.min,
+                reverse=False  # oldest first
+            )
+            latency_series_runs[(environment, target_system)] = sorted_runs
+            max_latency_seq = max(max_latency_seq, len(sorted_runs))
+
+        # Second pass: emit latency metrics with re-sequenced positions (right-aligned)
+        for (environment, target_system), runs_with_latency in latency_series_runs.items():
+            n = len(runs_with_latency)
+            series_label = f"{environment}/{target_system}"
+            # Calculate the starting sequence number to right-align with max_latency_seq
+            start_seq = max_latency_seq - n + 1
+            for i, run in enumerate(runs_with_latency):
+                run_seq = start_seq + i
+                # Convert milliseconds to seconds
+                latency_seconds = run.get("avg_latency_ms") / 1000.0
+                families["evaluation_run_sequence_latency_ms"].add_metric(
+                    [series_label, environment, target_system, str(run_seq)], latency_seconds
+                )
+
+        # Calculate overall latency statistics by environment and target_system
+        latencies_by_env_target = {}
+        for test_doc in test_runs:
+            eval_id = test_doc.get("evaluation_run_id")
+            environment = all_env_by_eval_id.get(eval_id)
+            target_system = all_target_system_by_eval_id.get(eval_id)
+            if environment is None or target_system is None:
+                continue
+            if target_system == "calibration":
+                continue
+
+            key = (environment, target_system)
+            if key not in latencies_by_env_target:
+                latencies_by_env_target[key] = []
+
+            # Collect all turn latencies from this test
+            turns = test_doc.get("turns", [])
+            for turn in turns:
+                latency_data = turn.get("latency")
+                if latency_data and latency_data.get("latency_ms") is not None:
+                    latencies_by_env_target[key].append(latency_data.get("latency_ms"))
+
+        # Emit overall latency statistics
+        for (environment, target_system), latencies in latencies_by_env_target.items():
+            if latencies:
+                # Convert milliseconds to seconds
+                max_latency_s = max(latencies) / 1000.0
+                min_latency_s = min(latencies) / 1000.0
+                avg_latency_s = statistics.mean(latencies) / 1000.0
+                p95_latency_s = statistics.quantiles(latencies, n=20)[18] / 1000.0  # 95th percentile
+
+                families["overall_latency_max_ms"].add_metric([environment, target_system], max_latency_s)
+                families["overall_latency_min_ms"].add_metric([environment, target_system], min_latency_s)
+                families["overall_latency_avg_ms"].add_metric([environment, target_system], avg_latency_s)
+                families["overall_latency_p95_ms"].add_metric([environment, target_system], p95_latency_s)
 
         # Add sequence-based status for calibration runs
         calibration_runs = [
