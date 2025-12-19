@@ -1,0 +1,41 @@
+system:
+  log_level: INFO
+  payload_capture:
+    enabled: false
+    mode: metadata_only
+    output_dir: ./artifacts
+
+ingress:
+  kind: acs_websocket
+  url: wss://example.com/acs-ingress
+  reconnect:
+    initial_delay_ms: 250
+    max_delay_ms: 10000
+
+buffering:
+  ingress_queue_max: 2000
+  egress_queue_max: 2000
+  overflow_policy: DROP_OLDEST
+
+dispatch:
+  provider: mock
+  max_concurrency: 4
+  request_timeout_ms: 8000
+  batching:
+    enabled: true
+    max_batch_ms: 200
+    max_batch_bytes: 65536
+
+providers:
+  voicelive:
+    endpoint: https://voicelive.example.com
+    api_key: ${VOICELIVE_KEY}
+  live_interpreter:
+    endpoint: https://live-interpreter.example.com
+    key: ${LIVEINTERPRETER_KEY}
+  mock: {}
+
+egress:
+  destinations:
+    - kind: acs_websocket
+      url: wss://example.com/acs-egress
