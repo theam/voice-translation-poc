@@ -21,7 +21,6 @@ turns:
   participant: patient
   audio_file: p1
   start_at_ms: 0
-  barge_in: false
   source_language: es
   expected_language: en
   source_text: Tengo fiebre, dolor en el cuerpo y escalofríos. Hace cuatro horas,
@@ -32,8 +31,7 @@ turns:
   type: play_audio
   participant: nurse
   audio_file: n1
-  start_at_ms: 14516
-  barge_in: false
+  start_at_ms: 21000
   source_language: en
   expected_language: es
   source_text: Okay, have you been around anyone who's been sick recently?
@@ -42,8 +40,7 @@ turns:
   type: play_audio
   participant: patient
   audio_file: p2
-  start_at_ms: 24398
-  barge_in: false
+  start_at_ms: 39000
   source_language: es
   expected_language: en
   source_text: Sí, mi hijo tuvo gripe la semana pasada.

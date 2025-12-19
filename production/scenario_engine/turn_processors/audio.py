@@ -62,9 +62,20 @@ class AudioTurnProcessor(TurnProcessor):
 
         # Stream audio chunks
         chunk_count = 0
+        first_chunk_wall_clock = None
+        last_chunk_wall_clock = None
+
         async for offset_ms, data in async_chunk_audio(audio_path, FRAME_DURATION_MS):
             send_at = turn.start_at_ms + offset_ms
             chunk_count += 1
+            wall_clock_ms = self.clock.now_ms()
+
+            if chunk_count == 1:
+                first_chunk_wall_clock = wall_clock_ms
+                logger.info(
+                    f"🎤 OUTGOING AUDIO START: turn='{turn.id}', "
+                    f"scenario_time={send_at}ms, wall_clock={wall_clock_ms}ms"
+                )
 
             logger.debug(
                 f"Sending audio chunk #{chunk_count} for '{turn.id}': "
@@ -77,19 +88,24 @@ class AudioTurnProcessor(TurnProcessor):
                 pcm_bytes=data,
                 timestamp_ms=send_at,
             )
+            # Register with scenario timeline timestamp (send_at), not wall-clock
+            # This ensures last_outbound_ms matches when audio actually plays in the tape
             self.conversation_manager.register_outgoing(
                 turn.id,
                 payload,
                 participant_id=turn.id,
+                timestamp_ms=send_at,  # Use scenario timeline!
             )
             await self.ws.send_json(payload)
             self.tape.add_pcm(send_at, data)
             await self.clock.sleep(FRAME_DURATION_MS)
             current_time = send_at + FRAME_DURATION_MS
+            last_chunk_wall_clock = wall_clock_ms
 
-        logger.debug(
-            "Completed audio turn: turn=%s participant=%s final_time=%s",
-            turn.id, participant.name, current_time
+        logger.info(
+            f"🎤 OUTGOING AUDIO END: turn='{turn.id}', "
+            f"scenario_time={current_time}ms, wall_clock={last_chunk_wall_clock}ms, "
+            f"total_chunks={chunk_count}, duration={current_time - turn.start_at_ms}ms"
         )
         return current_time
 

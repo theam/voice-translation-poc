@@ -9,7 +9,7 @@ from bson import ObjectId
 
 from .metric_data import MetricData
 from .conversation_metric_data import ConversationMetricData
-from .turn import Turn
+from .turn import LatencyMetrics, Turn
 from .turn_metric_data import TurnMetricData
 
 
@@ -34,6 +34,7 @@ class TestRun:
     expected_score: Optional[float] = None
     tolerance: Optional[float] = None
     calibration_summary: Optional[Dict[str, Any]] = None
+    target_language: Optional[str] = None
     _id: Optional[ObjectId] = None
 
     def to_document(self) -> Dict[str, Any]:
@@ -55,6 +56,7 @@ class TestRun:
             "expected_score": self.expected_score,
             "calibration_summary": self.calibration_summary,
             "tolerance": self.tolerance,
+            "target_language": self.target_language,
         }
         if self._id:
             doc["_id"] = self._id
@@ -91,6 +93,25 @@ class TestRun:
 
         turns = []
         for turn_data in doc["turns"]:
+            # Deserialize latency metrics if present
+            latency = None
+            if "latency" in turn_data and turn_data["latency"]:
+                latency_data = turn_data["latency"]
+                latency = LatencyMetrics(
+                    latency_ms=latency_data.get("latency_ms"),
+                    text_latency_ms=latency_data.get("text_latency_ms"),
+                    first_chunk_latency_ms=latency_data.get("first_chunk_latency_ms"),
+                    first_outbound_ms=latency_data.get("first_outbound_ms"),
+                    last_outbound_ms=latency_data.get("last_outbound_ms"),
+                    first_response_ms=latency_data.get("first_response_ms"),
+                    first_audio_response_ms=latency_data.get("first_audio_response_ms"),
+                    last_audio_response_ms=latency_data.get("last_audio_response_ms"),
+                    first_text_response_ms=latency_data.get("first_text_response_ms"),
+                    audio_duration_ms=latency_data.get("audio_duration_ms"),
+                    audio_event_count=latency_data.get("audio_event_count"),
+                    text_event_count=latency_data.get("text_event_count"),
+                )
+
             turns.append(Turn(
                 turn_id=turn_data["turn_id"],
                 start_ms=turn_data["start_ms"],
@@ -101,6 +122,7 @@ class TestRun:
                 source_language=turn_data.get("source_language"),
                 expected_language=turn_data.get("expected_language"),
                 metric_expectations=turn_data.get("metric_expectations", {}),
+                latency=latency,
             ))
 
         return cls(
@@ -121,6 +143,7 @@ class TestRun:
             expected_score=doc.get("expected_score"),
             tolerance=doc.get("tolerance"),
             calibration_summary=doc.get("calibration_summary"),
+            target_language=doc.get("target_language"),
             _id=doc.get("_id"),
         )
 

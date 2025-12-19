@@ -21,7 +21,6 @@ turns:
   participant: patient
   audio_file: p1
   start_at_ms: 0
-  barge_in: false
   source_language: es
   expected_language: en
   source_text: Estoy con tós desde la semana pasada y cuando subo escaleras, noto que me falta el aire.
@@ -31,7 +30,6 @@ turns:
   participant: nurse
   audio_file: n1
   start_at_ms: 15000
-  barge_in: false
   source_language: en
   expected_language: es
   source_text: Have you noticed weezing or any colour change in your phlegm?
@@ -41,7 +39,6 @@ turns:
   participant: patient
   audio_file: p2
   start_at_ms: 29000
-  barge_in: false
   source_language: es
   expected_language: en
   source_text: Sí, esta mañana la flema estaba más amarillenta.

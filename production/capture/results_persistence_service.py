@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -34,7 +35,9 @@ class ResultsPersistenceService:
             scenario_id: Unique identifier for the scenario
             evaluation_run_id: Unique identifier for the evaluation run
         """
-        self.output_root = base_output_dir  / str(evaluation_run_id) /scenario_id
+        date_time_suffix = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+        folder_name = f"{evaluation_run_id}_{date_time_suffix}"
+        self.output_root = base_output_dir / folder_name / scenario_id
         self.output_root.mkdir(parents=True, exist_ok=True)
 
         # Create websocket log sink for capturing WebSocket traffic

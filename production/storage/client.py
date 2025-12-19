@@ -82,6 +82,10 @@ class MongoDBClient:
         await self.test_runs.create_index("evaluation_run_id")
         await self.test_runs.create_index("score")
 
+        # Latency indexes for performance queries
+        await self.test_runs.create_index("turns.latency.latency_ms")
+        await self.test_runs.create_index([("test_id", 1), ("turns.latency.latency_ms", -1)])
+
         logger.info("MongoDB indexes created successfully")
 
     async def close(self) -> None:

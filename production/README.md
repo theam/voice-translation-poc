@@ -31,7 +31,7 @@ poetry run prod parallel simulate-test production/tests/scenarios/allergy_ceph.y
 make simulate_test TEST_PATH=production/tests/scenarios/allergy_ceph.yaml USERS=10
 ```
 
-Configure via environment variables (see `.env.example`) or defaults in `production/utils/config.py`.
+Configure via environment variables using the Base + Override strategy (see [Environment Configuration](docs/ENVIRONMENT_CONFIGURATION.md)) or defaults in `production/utils/config.py`.
 
 ## Architecture
 

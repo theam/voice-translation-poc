@@ -22,7 +22,6 @@ turns:
   participant: patient
   audio_file: p1
   start_at_ms: 0
-  barge_in: false
   source_language: es
   expected_language: en
   source_text: Soy alérgico a la penicilina y a la amoxicilina. Ayer me dieron un
@@ -33,8 +32,7 @@ turns:
   type: play_audio
   participant: nurse
   audio_file: n1
-  start_at_ms: 13225
-  barge_in: false
+  start_at_ms: 18000
   source_language: en
   expected_language: es
   source_text: What is the name of the antibiotic?
@@ -43,8 +41,7 @@ turns:
   type: play_audio
   participant: patient
   audio_file: p2
-  start_at_ms: 21870
-  barge_in: false
+  start_at_ms: 29000
   source_language: es
   expected_language: en
   source_text: Se llama Sefalecina 500 miligramos.

@@ -11,6 +11,7 @@ from .completeness import CompletenessMetric
 from .context import ContextMetric
 from .intelligibility import IntelligibilityMetric
 from .intent_preservation import IntentPreservationMetric
+from .overlap import OverlapMetric
 from .target_language import TargetLanguageMetric
 from .runner import MetricsRunner, MetricsSummary
 from .segmentation import SegmentationMetric
@@ -28,6 +29,7 @@ METRIC_REGISTRY = {
     "completeness": CompletenessMetric,
     "intent_preservation": IntentPreservationMetric,
     "target_language": TargetLanguageMetric,
+    "overlap": OverlapMetric,
 }
 
 
@@ -92,6 +94,7 @@ def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -
     - intelligibility: Evaluates text clarity and readability using LLM (1-5 scale)
     - segmentation: Evaluates sentence boundaries and turn segmentation using LLM (1-5 scale)
     - context: Evaluates conversational context and relevance using LLM (1-5 scale)
+    - overlap: Detects audio overlap (response arriving during transmission)
 
     Args:
         scenario: Scenario with turns containing expectations
@@ -120,6 +123,7 @@ def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -
             SegmentationMetric(scenario, conversation_manager),  # Segmentation with default threshold 0.80
             TargetLanguageMetric(scenario, conversation_manager),  # Target language validation per turn
             ContextMetric(scenario, conversation_manager),  # Context with default threshold 0.80
+            OverlapMetric(scenario, conversation_manager),  # Audio overlap detection
         ]
 
     # Return only requested metrics
@@ -137,7 +141,6 @@ __all__ = [
     "get_metrics",
     "create_metric",
     "METRIC_REGISTRY",
-    "SequenceMetric",
     "TechnicalTermsMetric",
     "WERMetric",
     "CompletenessMetric",
@@ -146,4 +149,5 @@ __all__ = [
     "IntelligibilityMetric",
     "SegmentationMetric",
     "ContextMetric",
+    "OverlapMetric",
 ]
