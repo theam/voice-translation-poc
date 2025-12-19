@@ -31,51 +31,6 @@ services:
       - "8099:8099"
     environment:
       # ========================================================================
-      # Speech Provider Configuration
-      # ========================================================================
-      SPEECH__PROVIDER: ${SPEECH__PROVIDER:-voice_live}
-      SPEECH__SERVICE__REGION: ${SPEECH__SERVICE__REGION:-eastus2}
-
-      # ========================================================================
-      # Azure AI Foundry (for Voice Live provider)
-      # ========================================================================
-      AZURE_AI_FOUNDRY_KEY: ${AZURE_AI_FOUNDRY_KEY}
-      AZURE_AI_FOUNDRY_ENDPOINT: ${AZURE_AI_FOUNDRY_ENDPOINT}
-      AZURE_AI_FOUNDRY_RESOURCE: ${AZURE_AI_FOUNDRY_RESOURCE:-vt-voice-live-proj}
-      AZURE_AI_FOUNDRY_MODEL: ${AZURE_AI_FOUNDRY_MODEL:-gpt-realtime-mini}
-
-      # ========================================================================
-      # OpenAI Configuration (for LLM metrics)
-      # ========================================================================
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-
-      # ========================================================================
-      # Framework Configuration
-      # ========================================================================
-      TRANSLATION_WEBSOCKET_URL: ${TRANSLATION_WEBSOCKET_URL:-ws://localhost:8765}
-      TRANSLATION_DEBUG_WIRE: ${TRANSLATION_DEBUG_WIRE:-false}
-      TRANSLATION_TIME_ACCELERATION: ${TRANSLATION_TIME_ACCELERATION:-1.0}
-      TRANSLATION_CONNECT_TIMEOUT: ${TRANSLATION_CONNECT_TIMEOUT:-10.0}
-      TRANSLATION_WS_AUTH: ${TRANSLATION_WS_AUTH}
-      TRANSLATION_TAIL_SILENCE_MS: ${TRANSLATION_TAIL_SILENCE_MS:-10000}
-
-      # ========================================================================
-      # Metrics Storage Configuration
-      # ========================================================================
-      MONGODB_ENABLED: ${MONGODB_ENABLED:-true}
-      MONGODB_CONNECTION_STRING: ${MONGODB_CONNECTION_STRING:-mongodb://mongodb:27017}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-vt_metrics}
-      EXPERIMENT_TAGS: ${EXPERIMENT_TAGS:-docker-test}
-
-      # ========================================================================
-      # Remote Debugging (Optional)
-      # ========================================================================
-      TRANSLATION_REMOTE_DEBUG: ${TRANSLATION_REMOTE_DEBUG:-false}
-      TRANSLATION_DEBUG_HOST: ${TRANSLATION_DEBUG_HOST:-localhost}
-      TRANSLATION_DEBUG_PORT: ${TRANSLATION_DEBUG_PORT:-5678}
-
-      # ========================================================================
       # Python Configuration
       # ========================================================================
       PYTHONUNBUFFERED: "1"
@@ -87,7 +42,6 @@ services:
       # Mount output directories
       - ./output:/app/output
       - ./reports:/app/reports
-      - ./production_results:/app/production_results
 
     networks:
       - vt-network

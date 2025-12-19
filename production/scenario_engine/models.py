@@ -22,7 +22,6 @@ class ScenarioTurn:
     audio_file: Optional[str] = None
     text: Optional[str] = None  # For play_text turns
     start_at_ms: int = 0
-    barge_in: bool = False
     # Translation expectations
     source_language: Optional[str] = None
     expected_language: Optional[str] = None

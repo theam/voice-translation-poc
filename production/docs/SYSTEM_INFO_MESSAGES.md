@@ -258,7 +258,7 @@ Translation systems may include **any additional fields** relevant to their impl
   "timestamp": "2025-12-09T16:30:00.234567Z",
   "system_info": {
     "service": {
-      "name": "vt Translation Service",
+      "name": "Voice Translation Service",
       "version": "3.2.1",
       "build": "f4a3b2c",
       "provider": "Custom"

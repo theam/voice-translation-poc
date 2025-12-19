@@ -272,25 +272,24 @@ class ScenarioEngine:
         tape: ConversationTape,
         started_at_ms: int,
     ) -> None:
+        # Track first/last audio per turn for gap calculation
+        turn_audio_tracking = {}  # turn_id -> (first_ms, last_ms)
+
         async for message in ws.iter_messages():
             raw_messages.append(message)
             protocol_event = adapter.decode_inbound(message)
             if protocol_event is None:
                 continue
 
+            # SIMPLIFIED: Always use arrival time for all events
+            # This represents when events actually arrived (ground truth for user experience)
+            # and avoids all clock coordination complexity with service timestamps
             arrival_ms = self.clock.now_ms() - started_at_ms
-            raw_ts = protocol_event.timestamp_ms
-            # If the SUT sends absolute timestamps (e.g., UNIX epoch ms),
-            # normalize them to the scenario start time to avoid multi-hour
-            # gaps of silence in the mixed call tape. Otherwise respect the
-            # provided relative timestamp or fall back to arrival time.
-            if raw_ts is not None and raw_ts > 1_000_000_000:
-                timestamp_ms = max(0, raw_ts - started_at_ms)
-            else:
-                timestamp_ms = raw_ts if raw_ts is not None else arrival_ms
+            wall_clock_ms = self.clock.now_ms()
+
             collected = CollectedEvent(
                 event_type=protocol_event.event_type,
-                timestamp_ms=timestamp_ms,
+                timestamp_ms=arrival_ms,  # Always use arrival time - simple and accurate!
                 participant_id=protocol_event.participant_id,
                 source_language=protocol_event.source_language,
                 target_language=protocol_event.target_language,
@@ -300,8 +299,29 @@ class ScenarioEngine:
             )
             collector.add(collected)
             conversation_manager.register_incoming(collected)
+
             if protocol_event.event_type == "translated_audio" and protocol_event.audio_payload:
                 tape.add_pcm(arrival_ms, protocol_event.audio_payload)
+
+                # Track for logging
+                turn_id = protocol_event.participant_id
+                if turn_id not in turn_audio_tracking:
+                    turn_audio_tracking[turn_id] = (arrival_ms, arrival_ms)
+                    logger.info(
+                        f"🔊 INCOMING AUDIO START: turn='{turn_id}', "
+                        f"arrival_ms={arrival_ms}ms, wall_clock={wall_clock_ms}ms, "
+                        f"payload_size={len(protocol_event.audio_payload)} bytes"
+                    )
+                else:
+                    first_ms, _ = turn_audio_tracking[turn_id]
+                    turn_audio_tracking[turn_id] = (first_ms, arrival_ms)
+
+            elif protocol_event.event_type == "translated_delta":
+                # Log text events for comparison
+                logger.debug(
+                    f"📝 TEXT DELTA: turn='{protocol_event.participant_id}', "
+                    f"arrival_ms={arrival_ms}ms, text='{protocol_event.text[:50] if protocol_event.text else ''}...'"
+                )
 
     def _build_audio_metadata(
         self, adapter: ProtocolAdapter, scenario: Scenario

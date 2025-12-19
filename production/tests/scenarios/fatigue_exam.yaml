@@ -24,7 +24,6 @@ turns:
   participant: doctor
   audio_file: d1
   start_at_ms: 0
-  barge_in: false
   source_language: en
   expected_language: es
   source_text: Good afternoon. Before we begin, I want you to take your time and explain
@@ -39,8 +38,7 @@ turns:
   type: play_audio
   participant: patient
   audio_file: p1
-  start_at_ms: 24257
-  barge_in: false
+  start_at_ms: 44000
   source_language: es
   expected_language: en
   source_text: Gracias. Doctor, desde hace unos 5 días siento un cansancio que no
@@ -54,8 +52,7 @@ turns:
   type: play_audio
   participant: doctor
   audio_file: d2
-  start_at_ms: 51779
-  barge_in: false
+  start_at_ms: 95000
   source_language: en
   expected_language: es
   source_text: Thank you for being so detailed. That helps a lot. Fatigue and muscle
@@ -72,8 +69,7 @@ turns:
   type: play_audio
   participant: patient
   audio_file: p2
-  start_at_ms: 83411
-  barge_in: false
+  start_at_ms: 172000
   source_language: es
   expected_language: en
   source_text: No he tenido fiebre, eso seguro, mi apetito está un poco más bajo.
@@ -86,8 +82,7 @@ turns:
   type: play_audio
   participant: doctor
   audio_file: d3
-  start_at_ms: 106371
-  barge_in: false
+  start_at_ms: 240000
   source_language: en
   expected_language: es
   source_text: Understood. Thanks for clarifying. We'll run a couple of basic checks.

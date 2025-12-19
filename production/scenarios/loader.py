@@ -38,7 +38,6 @@ class ScenarioLoader:
                 audio_file=item.get("audio_file"),
                 text=item.get("text"),
                 start_at_ms=int(item.get("start_at_ms", 0)),
-                barge_in=bool(item.get("barge_in", False)),
                 source_language=item.get("source_language"),
                 expected_language=item.get("expected_language"),
                 source_text=item.get("source_text"),

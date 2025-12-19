@@ -116,18 +116,60 @@ def _parse_tags(tags_str: str) -> List[str]:
     return [tag.strip() for tag in tags_str.split(",") if tag.strip()]
 
 
-def load_config(env_path: Optional[Path] = None, override_existing: bool = False) -> FrameworkConfig:
-    """Load framework configuration, optionally sourcing a ``.env`` file first.
+def load_config(
+    base_env_path: Optional[Path] = None,
+    override_existing: bool = False
+) -> FrameworkConfig:
+    """Load framework configuration using Base + Override strategy.
+
+    Loading Strategy:
+        1. Load base environment file (.env) with shared defaults
+        2. Load environment-specific override file (.env.{APP_ENV}) if APP_ENV is set
+        3. Environment-specific values always override base values
+        4. Both files are optional - fail gracefully if missing
+
+    Environment Selection:
+        - APP_ENV determines which environment-specific file to load
+        - Default: "local" if APP_ENV not set
+        - Examples: local, dev, staging, prod
 
     Args:
-        env_path: Path to a ``.env`` file. If ``None``, ``load_dotenv`` will look
-            for a file named ``.env`` in the current working directory and
-            parent directories.
-        override_existing: Whether values from the ``.env`` file should override
-            already-set environment variables. Defaults to ``False`` to avoid
-            surprising overrides when running in CI where env vars are
-            explicit.
-    """
+        base_env_path: Path to the base .env file. If None, searches for .env
+            in current directory and parent directories.
+        override_existing: Whether base .env should override already-set
+            environment variables. Defaults to False to preserve explicit
+            env vars in CI/production contexts.
 
-    load_dotenv(dotenv_path=env_path, override=override_existing)
+    Returns:
+        FrameworkConfig instance with values from base + environment override
+
+    Example:
+        # Load .env, then .env.dev (if APP_ENV=dev)
+        config = load_config()
+
+        # Explicit base path
+        config = load_config(base_env_path=Path("custom/.env"))
+    """
+    # Step 1: Load base environment (.env)
+    # This provides shared defaults across all environments
+    base_loaded = load_dotenv(dotenv_path=base_env_path, override=override_existing)
+
+    # Step 2: Determine active environment
+    # APP_ENV selector determines which override file to load
+    app_env = os.getenv("APP_ENV", "local")
+
+    # Step 3: Load environment-specific override (.env.{APP_ENV})
+    # Environment-specific values always win over base values
+    if base_env_path:
+        # If explicit base path provided, look for override in same directory
+        env_dir = base_env_path.parent
+        env_override_path = env_dir / f".env.{app_env}"
+    else:
+        # Search for override file starting from current directory
+        env_override_path = Path(f".env.{app_env}")
+
+    if env_override_path.exists():
+        # Override=True ensures environment-specific values take precedence
+        load_dotenv(dotenv_path=env_override_path, override=True)
+
     return FrameworkConfig()
