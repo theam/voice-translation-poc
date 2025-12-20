@@ -5,8 +5,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from ..envelope import Envelope
-from ..payload_capture import PayloadCapture
+from ..models.envelope import Envelope
+from ..services.payload_capture import PayloadCapture
 from .base import Handler, HandlerSettings
 
 logger = logging.getLogger(__name__)

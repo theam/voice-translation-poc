@@ -40,6 +40,7 @@ class BatchingConfig:
     enabled: bool = True
     max_batch_ms: int = 200
     max_batch_bytes: int = 65_536
+    idle_timeout_ms: int = 500
 
 
 @dataclass

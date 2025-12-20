@@ -25,6 +25,7 @@ dispatch:
     enabled: true
     max_batch_ms: 200
     max_batch_bytes: 65536
+    idle_timeout_ms: 500
 
 providers:
   voicelive:
