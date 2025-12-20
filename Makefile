@@ -1,10 +1,40 @@
-.PHONY: build build-release up down restart logs
-.PHONY: server server_stop bash clean_reports
+.PHONY: build build_release up down restart
+.PHONY: bash bash_server
+.PHONY: logs logs_server logs_all
 .PHONY: evaluations run_test
 .PHONY: test_prod test_suite calibrate generate_report
 .PHONY: test_parallel_tests test_parallel_suites
 .PHONY: simulate_test simulate_suite
-.PHONY: mongo clean status
+.PHONY: mongo clean clean_reports status help
+
+# =============================================================================
+# Help
+# =============================================================================
+
+help:
+	@echo "Voice Translation POC - Available Make Targets"
+	@echo ""
+	@echo "Docker Compose:"
+	@echo "  make build            Build Docker images"
+	@echo "  make up               Start all services"
+	@echo "  make down             Stop all services"
+	@echo "  make restart          Restart all services"
+	@echo "  make status           Show service status"
+	@echo "  make logs             View original server logs"
+	@echo "  make logs_server      View new server logs"
+	@echo "  make logs_all         View all logs"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make evaluations      Run evaluations"
+	@echo "  make test_prod        Run production test"
+	@echo "  make test_suite       Run test suite"
+	@echo ""
+	@echo "Development:"
+	@echo "  make bash             Shell into vt-app container"
+	@echo "  make bash_server      Shell into vt-server container"
+	@echo "  make mongo            MongoDB shell"
+	@echo "  make clean            Remove all containers and data"
+	@echo ""
 
 # =============================================================================
 # Docker Compose Targets
@@ -48,7 +78,7 @@ build:
 	docker compose build $$BUILD_ARGS
 	@echo "✓ Images built successfully"
 
-build-release:
+build_release:
 	@if [ -z "$(IMAGE_NAME)" ]; then \
 		echo "Error: IMAGE_NAME is required"; \
 		echo "Usage: make build-release IMAGE_NAME=myapp IMAGE_TAG=v1.0.0"; \
@@ -93,22 +123,14 @@ restart:
 logs:
 	@docker compose logs -f vt-app
 
+logs_server:
+	@docker compose logs -f vt-server
+
+logs_all:
+	@docker compose logs -f
+
 status:
 	@docker compose ps
-
-# =============================================================================
-# Server Management
-# =============================================================================
-
-server:
-	@echo "Starting WebSocket server...."
-	@poetry run speech-poc serve --host 0.0.0.0 --port 8765 --from-language en-US --to-language es --voice alloy --testing
-	@echo "  View logs: make logs"
-
-server_stop:
-	@echo "Stopping server..."
-	@docker compose down
-	@echo "✓ Server stopped"
 
 # =============================================================================
 # Testing
@@ -180,6 +202,9 @@ generate_report:
 
 bash:
 	@docker compose exec vt-app bash
+
+bash_server:
+	@docker compose exec vt-server bash
 
 mongo:
 	@docker compose exec mongodb mongosh vt_metrics
