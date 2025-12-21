@@ -1,0 +1,15 @@
+azure-cognitiveservices-speech>=1.44.0
+typer[all]>=0.12.3
+python-dotenv>=1.0.1
+rich>=13.9.2
+websockets>=11.0.3
+click>=8.1.0,<8.2.0
+numpy>=2.1.2
+sounddevice>=0.5.3
+# Evaluations dependencies
+pyyaml>=6.0.1
+reportlab>=4.0.0
+openai>=1.0.0
+pymongo>=4.10.1
+motor>=3.6.0
+gitpython>=3.1.43

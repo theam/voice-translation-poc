@@ -227,8 +227,7 @@ server/
 ├── handlers/
 │   ├── audit.py                 # Logs all ACS messages
 │   ├── translation.py           # Buffers audio, auto-commits
-│   ├── provider_result.py       # Formats provider responses
-│   └── acs_egress_handler.py    # Sends to ACS (legacy, unused in new arch)
+│   └── provider_result.py       # Formats provider responses
 ├── models/
 │   └── messages.py              # AudioRequest, TranslationResponse
 ├── services/
