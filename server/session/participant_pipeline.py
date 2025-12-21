@@ -12,7 +12,7 @@ from ..core.event_bus import EventBus, HandlerConfig
 from ..handlers.audit import AuditHandler
 from ..handlers.base import HandlerSettings
 from ..handlers.provider_result import ProviderResultHandler
-from ..handlers.translation import TranslationDispatchHandler
+from ..handlers.acs.inbound_handler import AcsInboundMessageHandler
 from ..core.queues import OverflowPolicy
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class ParticipantPipeline:
         self.provider_adapter: Optional[TranslationAdapter] = None
 
         # Handlers (per-participant instances)
-        self._translation_handler: Optional[TranslationDispatchHandler] = None
+        self._translation_handler: Optional[AcsInboundMessageHandler] = None
 
     async def start(self):
         """Start participant pipeline: create provider and register handlers."""
@@ -99,13 +99,14 @@ class ParticipantPipeline:
         )
 
         # 2. Translation dispatch handler
-        self._translation_handler = TranslationDispatchHandler(
+        self._translation_handler = AcsInboundMessageHandler(
             HandlerSettings(
                 name="translation",
                 queue_max=self.config.buffering.ingress_queue_max,
                 overflow_policy=str(self.config.buffering.overflow_policy)
             ),
             provider_outbound_bus=self.provider_outbound_bus,
+            acs_outbound_bus=self.acs_outbound_bus,
             batching_config=self.config.dispatch.batching
         )
 

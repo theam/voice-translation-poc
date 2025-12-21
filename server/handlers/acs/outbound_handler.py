@@ -1,23 +1,25 @@
-"""Handler for sending messages to ACS egress."""
-
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Protocol
 
-from ..adapters.egress import ACSEgressAdapter
-from .base import Handler, HandlerSettings
+from ..base import Handler, HandlerSettings
 
 logger = logging.getLogger(__name__)
 
 
-class ACSEgressHandler(Handler):
+class AcsEgressAdapter(Protocol):
+    """Protocol for ACS egress adapter."""
+    async def send(self, payload: Dict[str, Any]) -> None: ...
+
+
+class AcsOutboundMessageHandler(Handler):
     """
     Handles outgoing messages to ACS.
     Consumes payloads from acs_outbound_bus and sends via ACS egress adapter.
     """
 
-    def __init__(self, settings: HandlerSettings, egress_adapter: Optional[ACSEgressAdapter] = None):
+    def __init__(self, settings: HandlerSettings, egress_adapter: Optional[AcsEgressAdapter] = None):
         super().__init__(settings)
         self.egress_adapter = egress_adapter
 

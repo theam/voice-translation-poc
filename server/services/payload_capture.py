@@ -5,7 +5,7 @@ import json
 import logging
 from pathlib import Path
 
-from .envelope import Envelope
+from ..models.envelope import Envelope
 
 logger = logging.getLogger(__name__)
 

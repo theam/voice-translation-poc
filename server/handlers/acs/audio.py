@@ -5,15 +5,14 @@ import logging
 import time
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from ..config import BatchingConfig
-from ..models.envelope import Envelope
-from ..core.event_bus import EventBus
-from ..models.messages import AudioRequest
-from ..services.audio_duration import AudioDurationCalculator
-from .base import Handler, HandlerSettings
+from ...config import BatchingConfig
+from ...models.envelope import Envelope
+from ...core.event_bus import EventBus
+from ...models.messages import AudioRequest
+from ...services.audio_duration import AudioDurationCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +29,14 @@ class ParticipantState:
     idle_timer_task: Optional[asyncio.Task] = None  # Async task for idle timeout
 
 
-class TranslationDispatchHandler(Handler):
-    """Consumes ACS envelopes, buffers audio, and dispatches to provider."""
+class AudioMessageHandler:
+    """Consumes audio envelopes, buffers audio, and dispatches to provider."""
 
     def __init__(
         self,
-        settings: HandlerSettings,
         provider_outbound_bus: EventBus,
         batching_config: BatchingConfig
     ):
-        super().__init__(settings)
         self._provider_outbound_bus = provider_outbound_bus
         self._batching_config = batching_config
         self._buffers: Dict[AudioKey, List[bytes]] = defaultdict(list)
@@ -47,15 +44,7 @@ class TranslationDispatchHandler(Handler):
         self._lock = asyncio.Lock()
 
     async def handle(self, envelope: Envelope) -> None:
-        if envelope.type.startswith("audio"):
-            await self._handle_audio(envelope)
-        elif envelope.type == "control":
-            logger.info("Control event received: %s", envelope.message_id)
-        else:
-            logger.debug("Ignoring unsupported envelope type: %s", envelope.type)
-        # Note: Removed audio.commit handling - now auto-commits based on thresholds
-
-    async def _handle_audio(self, envelope: Envelope) -> None:
+        """Handle audio envelope."""
         key: AudioKey = (envelope.session_id, envelope.participant_id)
         chunk_b64 = envelope.payload.get("audio_b64")
 
@@ -174,4 +163,3 @@ class TranslationDispatchHandler(Handler):
         if tasks_to_cancel:
             await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
             logger.info("Cancelled %d idle timers during shutdown", len(tasks_to_cancel))
-
