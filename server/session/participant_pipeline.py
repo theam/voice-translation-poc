@@ -5,14 +5,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from ..adapters.adapter_factory import AdapterFactory, TranslationAdapter
+from ..providers.adapter_factory import AdapterFactory, TranslationAdapter
 from ..config import Config
 from ..models.envelope import Envelope
 from ..core.event_bus import EventBus, HandlerConfig
-from ..handlers.audit import AuditHandler
-from ..handlers.base import HandlerSettings
-from ..handlers.provider_result import ProviderResultHandler
-from ..handlers.acs.inbound_handler import AcsInboundMessageHandler
+from ..gateways.audit import AuditHandler
+from ..gateways.base import HandlerSettings
+from ..gateways.provider_result import ProviderResultHandler
+from ..gateways.acs.inbound_handler import AcsInboundMessageHandler
 from ..core.queues import OverflowPolicy
 
 logger = logging.getLogger(__name__)

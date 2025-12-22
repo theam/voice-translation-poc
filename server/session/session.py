@@ -13,7 +13,7 @@ from websockets.server import WebSocketServerProtocol
 from ..config import Config
 from ..models.envelope import Envelope
 from ..core.event_bus import HandlerConfig
-from ..handlers.base import Handler, HandlerSettings
+from ..gateways.base import Handler, HandlerSettings
 from ..core.queues import OverflowPolicy
 from .participant_pipeline import ParticipantPipeline
 

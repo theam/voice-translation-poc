@@ -2,7 +2,7 @@
 
 ## Core Concept
 
-The service is a **WebSocket server** that listens for incoming ACS connections. Each connection represents an independent translation session with its own state, handlers, and provider connection.
+The service is a **WebSocket server** that listens for incoming ACS connections. Each connection represents an independent translation session with its own state, gateways, and provider connection.
 
 ## Key Principles
 
@@ -56,8 +56,8 @@ Event Buses    Event Buses  Event Buses      │
 (4 buses)      (4 buses)    (4 buses)        │
     │               │            │           │
     ▼               ▼            ▼           │
-Handlers       Handlers     Handlers         │
-(4 handlers)   (4 handlers) (4 handlers)     │
+Gateways       Gateways     Gateways         │
+(4 gateways)   (4 gateways) (4 gateways)     │
     │               │            │           │
     ▼               ▼            ▼           │
 Provider       Provider     Provider         │
@@ -70,8 +70,8 @@ VoiceLive      LiveInterp   Mock             │
 
 **Key Enhancement**: Each participant gets their own isolated pipeline with independent:
 - Event buses (4 per participant)
-- Handlers (4 instances per participant)
-- Provider adapter (can be different per participant)
+- Gateways (4 instances per participant)
+- Provider (can be different per participant)
 - Auto-commit state and buffering
 
 ## Components
@@ -195,15 +195,15 @@ class ParticipantPipeline:
         self.provider_inbound_bus = EventBus(f"prov_in_{pipeline_id}")
         self.acs_outbound_bus = EventBus(f"acs_out_{pipeline_id}")
 
-        # Provider adapter (per-participant)
+        # Provider (per-participant)
         self.provider_adapter: Optional[TranslationAdapter] = None
 
-        # Handlers (per-participant instances)
+        # Gateways (per-participant instances)
         self._translation_handler: Optional[TranslationDispatchHandler] = None
 
     async def start(self):
         """Start participant pipeline: create provider and register handlers."""
-        # Create provider adapter
+        # Create provider
         self.provider_adapter = AdapterFactory.create_adapter(
             config=self.config,
             provider_type=self.provider_type,
@@ -296,8 +296,8 @@ class ParticipantPipeline:
 **Key Points**:
 - One pipeline per participant_id
 - Complete isolation from other participants
-- Own provider adapter (can be different type)
-- Own event buses and handlers
+- Own provider instance (can be different type)
+- Own event buses and gateways
 - Independent auto-commit state
 
 ### 4. Session (`session.py`)
@@ -894,7 +894,7 @@ Resources: 3 pipelines, 3 provider connections, 12 event buses
 ## Key Differences from Previous Design
 
 ### Previous Design (Incorrect)
-- ❌ ACS adapters were WebSocket **clients** (connecting out)
+- ❌ ACS gateways were WebSocket **clients** (connecting out)
 - ❌ Global event buses shared across all sessions
 - ❌ Provider selected globally via static config
 - ❌ No per-session isolation
@@ -903,7 +903,7 @@ Resources: 3 pipelines, 3 provider connections, 12 event buses
 ### New Design (Correct)
 - ✅ ACS server is WebSocket **server** (listening for connections)
 - ✅ Per-session event buses (complete isolation)
-- ✅ Per-session provider adapters
+- ✅ Per-session providers
 - ✅ Provider selected dynamically from ACS metadata
 - ✅ Each session completely independent
 - ✅ Symmetric bidirectional flow (ACS ↔ Provider)
@@ -976,7 +976,7 @@ The routing strategy determines how participants are handled within a session. T
 
 **Behavior**:
 - Each participant gets own pipeline
-- Independent providers, buffers, handlers
+- Independent providers, buffers, gateways
 - Participants don't interfere with each other
 - Created on-demand as participants send messages
 
@@ -1091,8 +1091,8 @@ Map customer → provider in config or database.
 │ First Message       │
 │ - Extract metadata  │
 │ - Select provider   │
-│ - Create adapter    │
-│ - Register handlers │
+│ - Create provider   │
+│ - Register gateways │
 └────────┬────────────┘
          │
          ▼
@@ -1166,9 +1166,9 @@ async with websockets.connect("ws://localhost:8080") as ws:
 
 If migrating from current code:
 
-1. Keep existing handlers (they work per-session)
-2. Keep existing adapters (VoiceLiveAdapter, MockAdapter)
+1. Keep existing gateways (they work per-session)
+2. Keep existing providers (VoiceLiveAdapter, MockAdapter)
 3. Keep existing models (Envelope, AudioRequest, TranslationResponse)
 4. Replace: `service.py` → `acs_server.py` + `session.py` + `session_manager.py`
-5. Remove: `adapters/ingress.py`, `adapters/egress.py` (no longer needed)
+5. Remove: `providers/ingress.py`, `providers/egress.py` (no longer needed)
 6. Update: `adapter_factory.py` to take `provider_type` parameter
