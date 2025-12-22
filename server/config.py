@@ -37,6 +37,8 @@ class DispatchConfig:
 class ProviderConfig:
     endpoint: Optional[str] = None
     api_key: Optional[str] = None
+    region: Optional[str] = None
+    resource: Optional[str] = None
 
 
 @dataclass

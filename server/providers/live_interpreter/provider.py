@@ -30,14 +30,18 @@ class LiveInterpreterProvider:
     def __init__(
         self,
         *,
-        endpoint: str,
+        endpoint: Optional[str],
         api_key: str,
+        region: Optional[str],
+        resource: Optional[str],
         outbound_bus: EventBus,
         inbound_bus: EventBus,
         session_metadata: Optional[Dict[str, Any]] = None,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
+        self.region = region
+        self.resource = resource
         self.outbound_bus = outbound_bus
         self.inbound_bus = inbound_bus
         self.session_metadata = session_metadata or {}
@@ -71,16 +75,24 @@ class LiveInterpreterProvider:
 
     def _create_translation_config(self) -> Tuple[speechsdk.translation.SpeechTranslationConfig, Optional[speechsdk.languageconfig.AutoDetectSourceLanguageConfig]]:
         """Build translation config with optional auto-detect."""
-        try:
-            translation_config = speechsdk.translation.SpeechTranslationConfig(
-                speech_key=self.api_key,
-                endpoint=self.endpoint,
-            )
-        except Exception:
-            logger.warning("Failed to initialize SpeechTranslationConfig with endpoint; falling back to subscription/region")
+        endpoint = self.endpoint or self._build_endpoint_from_resource()
+        translation_config: speechsdk.translation.SpeechTranslationConfig
+        if endpoint:
+            try:
+                translation_config = speechsdk.translation.SpeechTranslationConfig(
+                    speech_key=self.api_key,
+                    endpoint=endpoint,
+                )
+            except Exception:
+                logger.warning("Failed to initialize SpeechTranslationConfig with endpoint; falling back to subscription/region")
+                translation_config = speechsdk.translation.SpeechTranslationConfig(
+                    subscription=self.api_key,
+                    region=self._infer_region_from_endpoint(endpoint),
+                )
+        else:
             translation_config = speechsdk.translation.SpeechTranslationConfig(
                 subscription=self.api_key,
-                region=self._infer_region_from_endpoint(self.endpoint),
+                region=self._infer_region_from_endpoint(endpoint),
             )
 
         translation_config.set_property(
@@ -149,8 +161,18 @@ class LiveInterpreterProvider:
         channels = audio_format.get("channels") or 1
         return int(sample_rate), int(channels)
 
-    def _infer_region_from_endpoint(self, endpoint: str) -> str:
-        """Best-effort region inference from endpoint hostname."""
+    def _build_endpoint_from_resource(self) -> Optional[str]:
+        """Construct endpoint from resource/region if explicit endpoint is missing."""
+        if not self.resource:
+            return None
+        return f"https://{self.resource}.cognitiveservices.azure.com/"
+
+    def _infer_region_from_endpoint(self, endpoint: Optional[str]) -> str:
+        """Best-effort region inference from endpoint hostname or provided region."""
+        if self.region:
+            return self.region
+        if not endpoint:
+            return "eastus"
         try:
             host = endpoint.split("://", 1)[-1]
             host = host.split("/", 1)[0]

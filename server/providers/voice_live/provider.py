@@ -30,11 +30,15 @@ class VoiceLiveProvider:
         self,
         endpoint: str,
         api_key: str,
+        region: Optional[str],
+        resource: Optional[str],
         outbound_bus: EventBus,
         inbound_bus: EventBus,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
+        self.region = region
+        self.resource = resource
         self.outbound_bus = outbound_bus
         self.inbound_bus = inbound_bus
 
@@ -85,7 +89,12 @@ class VoiceLiveProvider:
                 ping_interval=20,
                 ping_timeout=10,
             )
-            logger.info("VoiceLive WebSocket connected to %s", self.endpoint)
+            logger.info(
+                "VoiceLive WebSocket connected to %s (region=%s, resource=%s)",
+                self.endpoint,
+                self.region,
+                self.resource,
+            )
         except Exception as exc:
             logger.exception("Failed to connect to VoiceLive: %s", exc)
             raise
