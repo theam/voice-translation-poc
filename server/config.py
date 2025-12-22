@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 class ConfigError(Exception):
     """Raised when configuration cannot be loaded or is invalid."""
@@ -39,6 +39,7 @@ class ProviderConfig:
     api_key: Optional[str] = None
     region: Optional[str] = None
     resource: Optional[str] = None
+    settings: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -67,6 +68,7 @@ class ProvidersConfig:
                 api_key=provider_data.get("api_key"),
                 region=provider_data.get("region"),
                 resource=provider_data.get("resource"),
+                settings=provider_data.get("settings", {}) or {},
             )
 
         return cls(providers=providers)

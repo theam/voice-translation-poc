@@ -25,6 +25,13 @@ providers:
     api_key: ${VOICELIVE_KEY}
     region: eastus
     resource: voicelive-resource-name
+    settings:
+      # Optional: override defaults sent in the Voice Live session.create payload.
+      # instructions: |
+      #   Custom prompt to use for the session.
+      # voice: alloy
+      # input_audio_transcription:
+      #   language: en-US
   live_interpreter:
     type: live_interpreter
     endpoint: https://live-interpreter.example.com
