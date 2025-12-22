@@ -35,13 +35,13 @@ class ParticipantPipeline:
         session_id: str,
         participant_id: str,
         config: Config,
-        provider_type: str,
+        provider_name: str,
         metadata: Dict[str, Any]
     ):
         self.session_id = session_id
         self.participant_id = participant_id
         self.config = config
-        self.provider_type = provider_type
+        self.provider_name = provider_name
         self.metadata = metadata
 
         # Event buses (per-participant)
@@ -62,7 +62,7 @@ class ParticipantPipeline:
         # Create provider adapter
         self.provider_adapter = ProviderFactory.create_provider(
             config=self.config,
-            provider_type=self.provider_type,
+            provider_name=self.provider_name,
             outbound_bus=self.provider_outbound_bus,
             inbound_bus=self.provider_inbound_bus,
             session_metadata=self.metadata,
@@ -71,7 +71,7 @@ class ParticipantPipeline:
         # Start provider
         await self.provider_adapter.start()
         logger.info(
-            f"Participant {self.participant_id} provider started: {self.provider_type}"
+            f"Participant {self.participant_id} provider started: {self.provider_name}"
         )
 
         # Register handlers
