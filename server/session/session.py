@@ -157,13 +157,13 @@ class Session:
         if self.routing_strategy == "shared":
             # Create single shared pipeline
             participant_id = "shared"
-            provider_type = self._select_provider(self.metadata, participant_id)
+            provider_name = self._select_provider(self.metadata, participant_id)
 
             self.shared_pipeline = ParticipantPipeline(
                 session_id=self.session_id,
                 participant_id=participant_id,
                 config=self.config,
-                provider_type=provider_type,
+                provider_name=provider_name,
                 metadata=self.metadata
             )
             await self.shared_pipeline.start()
@@ -247,7 +247,7 @@ class Session:
             session_id=self.session_id,
             participant_id=participant_id,
             config=self.config,
-            provider_type=provider_type,
+            provider_name=provider_type,
             metadata=self.metadata
         )
 
