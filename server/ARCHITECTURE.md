@@ -660,32 +660,37 @@ class ProviderFactory:
     @staticmethod
     def create_provider(
         config: Config,
-        provider_type: str,  # Now passed per-session
+        provider_name: str,  # Now passed per-session
         outbound_bus: EventBus,
         inbound_bus: EventBus,
     ) -> TranslationProvider:
         """Create provider based on session-specific provider type."""
-        logger.info(f"Creating provider: type={provider_type}")
+        provider_config = config.providers.get(provider_name)
+        logger.info(
+            "Creating provider: name=%s type=%s",
+            provider_name,
+            provider_config.type,
+        )
 
-        if provider_type == "mock":
+        if provider_config.type == "mock":
             return MockProvider(
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
                 delay_ms=50
             )
 
-        elif provider_type == "voicelive":
+        elif provider_config.type == "voice_live":
             return VoiceLiveProvider(
-                endpoint=config.providers.voicelive.endpoint,
-                api_key=config.providers.voicelive.api_key,
-                region=config.providers.voicelive.region,
-                resource=config.providers.voicelive.resource,
+                endpoint=provider_config.endpoint,
+                api_key=provider_config.api_key,
+                region=provider_config.region,
+                resource=provider_config.resource,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus
             )
 
         else:
-            raise ValueError(f"Unknown provider type: {provider_type}")
+            raise ValueError(f"Unknown provider type: {provider_config.type}")
 ```
 
 ### 5. Main Entry Point (`main.py`)

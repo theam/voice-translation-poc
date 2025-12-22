@@ -43,7 +43,7 @@ class ProviderFactory:
     @staticmethod
     def create_provider(
         config: Config,
-        provider_type: str,
+        provider_name: str,
         outbound_bus: EventBus,
         inbound_bus: EventBus,
         session_metadata: Optional[dict] = None,
@@ -53,7 +53,7 @@ class ProviderFactory:
 
         Args:
             config: Service configuration
-            provider_type: Provider type to create (e.g., "mock", "voicelive")
+            provider_name: Provider name in configuration (e.g., "mock", "demo-voicelive")
             outbound_bus: Bus to consume AudioRequest from
             inbound_bus: Bus to publish TranslationResponse to
             session_metadata: Session-level metadata (e.g., languages, audio format)
@@ -62,22 +62,27 @@ class ProviderFactory:
             Configured translation provider
 
         Raises:
-            ValueError: If provider type is unknown
+            ValueError: If provider type is unknown or configuration missing
         """
-        adapter_type = provider_type.lower()
+        provider_config = config.providers.get(provider_name)
+        provider_type = (provider_config.type or "mock").lower()
 
-        logger.info("Creating translation provider: type=%s", adapter_type)
+        logger.info(
+            "Creating translation provider: name=%s type=%s",
+            provider_name,
+            provider_type,
+        )
 
-        if adapter_type == "mock":
+        if provider_type == "mock":
             return MockProvider(
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
                 delay_ms=50,  # Configurable if needed
             )
 
-        elif adapter_type == "voicelive":
-            endpoint = config.providers.voicelive.endpoint
-            api_key = config.providers.voicelive.api_key
+        elif provider_type == "voice_live":
+            endpoint = provider_config.endpoint
+            api_key = provider_config.api_key
 
             if not endpoint:
                 raise ValueError("VoiceLive endpoint not configured")
@@ -85,35 +90,35 @@ class ProviderFactory:
             return VoiceLiveProvider(
                 endpoint=endpoint,
                 api_key=api_key or "",
-                region=config.providers.voicelive.region,
-                resource=config.providers.voicelive.resource,
+                region=provider_config.region,
+                resource=provider_config.resource,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
             )
 
-        elif adapter_type == "live_interpreter":
+        elif provider_type == "live_interpreter":
             from .live_interpreter import LiveInterpreterProvider
 
-            endpoint = config.providers.live_interpreter.endpoint
-            api_key = config.providers.live_interpreter.api_key
+            endpoint = provider_config.endpoint
+            api_key = provider_config.api_key
 
             if not api_key:
                 raise ValueError("Live Interpreter api_key not configured")
-            if not endpoint and not config.providers.live_interpreter.resource:
+            if not endpoint and not provider_config.resource:
                 raise ValueError("Live Interpreter requires either endpoint or resource configuration")
 
             return LiveInterpreterProvider(
                 endpoint=endpoint,
                 api_key=api_key,
-                region=config.providers.live_interpreter.region,
-                resource=config.providers.live_interpreter.resource,
+                region=provider_config.region,
+                resource=provider_config.resource,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
                 session_metadata=session_metadata,
             )
 
         else:
-            raise ValueError(f"Unknown adapter type: {adapter_type}")
+            raise ValueError(f"Unknown adapter type: {provider_type}")
 
 
 # Future enhancement: Dynamic per-session provider selection

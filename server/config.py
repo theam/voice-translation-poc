@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import importlib
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 class ConfigError(Exception):
     """Raised when configuration cannot be loaded or is invalid."""
@@ -35,6 +34,7 @@ class DispatchConfig:
 
 @dataclass
 class ProviderConfig:
+    type: str = "mock"
     endpoint: Optional[str] = None
     api_key: Optional[str] = None
     region: Optional[str] = None
@@ -43,9 +43,33 @@ class ProviderConfig:
 
 @dataclass
 class ProvidersConfig:
-    voicelive: ProviderConfig = field(default_factory=ProviderConfig)
-    live_interpreter: ProviderConfig = field(default_factory=ProviderConfig)
-    mock: ProviderConfig = field(default_factory=ProviderConfig)
+    providers: Dict[str, ProviderConfig] = field(
+        default_factory=lambda: {"mock": ProviderConfig(type="mock")}
+    )
+
+    def get(self, name: str) -> ProviderConfig:
+        try:
+            return self.providers[name]
+        except KeyError as exc:
+            raise ValueError(f"Provider configuration '{name}' not found") from exc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Dict]) -> "ProvidersConfig":
+        if not data:
+            return cls()
+
+        providers: Dict[str, ProviderConfig] = {}
+        for name, provider_data in data.items():
+            provider_data = provider_data or {}
+            providers[name] = ProviderConfig(
+                type=provider_data.get("type", "mock"),
+                endpoint=provider_data.get("endpoint"),
+                api_key=provider_data.get("api_key"),
+                region=provider_data.get("region"),
+                resource=provider_data.get("resource"),
+            )
+
+        return cls(providers=providers)
 
 
 
@@ -94,11 +118,7 @@ class Config:
                 provider=dispatch.get("provider", "mock"),
                 batching=BatchingConfig(**dispatch.get("batching", {})),
             ),
-            providers=ProvidersConfig(
-                voicelive=ProviderConfig(**providers.get("voicelive", {})),
-                live_interpreter=ProviderConfig(**providers.get("live_interpreter", {})),
-                mock=ProviderConfig(**providers.get("mock", {})),
-            ),
+            providers=ProvidersConfig.from_dict(providers),
         )
 
     @staticmethod
