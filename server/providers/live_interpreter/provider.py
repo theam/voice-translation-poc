@@ -10,6 +10,11 @@ import azure.cognitiveservices.speech as speechsdk
 from ...core.event_bus import EventBus, HandlerConfig
 from ...core.queues import OverflowPolicy
 from ...models.messages import AudioRequest, TranslationResponse
+from .inbound_handlers import (
+    CanceledHandler,
+    RecognizedHandler,
+    RecognizingHandler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +166,17 @@ class LiveInterpreterProvider:
         channels = audio_format.get("channels") or 1
         return int(sample_rate), int(channels)
 
+    def _pick_translation(self, result: speechsdk.translation.TranslationRecognitionResult) -> Optional[str]:
+        """Select translation text using target language preference."""
+        translations = result.translations if hasattr(result, "translations") else None
+        if translations:
+            for lang in self._resolve_target_languages():
+                if lang in translations:
+                    return translations[lang]
+            for value in translations.values():
+                return value
+        return result.text or None
+
     def _build_endpoint_from_resource(self) -> Optional[str]:
         """Construct endpoint from resource/region if explicit endpoint is missing."""
         if not self.resource:
@@ -187,49 +203,28 @@ class LiveInterpreterProvider:
             raise RuntimeError("Recognizer not initialized")
         if not self._loop:
             raise RuntimeError("Event loop not captured")
+        recognizing_handler = RecognizingHandler(self._pick_translation)
+        recognized_handler = RecognizedHandler(self._pick_translation)
+        canceled_handler = CanceledHandler()
 
-        def publish_response(text: str, *, partial: bool) -> None:
-            commit_id = self._last_commit_id
-            response = TranslationResponse(
-                commit_id=commit_id,
-                session_id=self._session_id or "unknown",
-                participant_id=self._participant_id,
-                text=text,
-                partial=partial,
-            )
-            asyncio.run_coroutine_threadsafe(self.inbound_bus.publish(response), self._loop)  # type: ignore[arg-type]
+        def recognizing_callback(evt: speechsdk.translation.TranslationRecognitionEventArgs) -> None:
+            text = recognizing_handler.handle(evt)
+            if text:
+                self._publish_response(text, partial=True)
 
-        def pick_translation(result: speechsdk.translation.TranslationRecognitionResult) -> Optional[str]:
-            translations = result.translations if hasattr(result, "translations") else None
-            if translations:
-                # Prioritize the first configured target language
-                for lang in self._resolve_target_languages():
-                    if lang in translations:
-                        return translations[lang]
-                # Fallback to first available translation
-                for value in translations.values():
-                    return value
-            return result.text or None
+        def recognized_callback(evt: speechsdk.translation.TranslationRecognitionEventArgs) -> None:
+            text = recognized_handler.handle(evt)
+            if text:
+                self._publish_response(text, partial=False)
 
-        def recognizing_handler(evt: speechsdk.translation.TranslationRecognitionEventArgs) -> None:
-            if evt.result:
-                text = pick_translation(evt.result)
-                if text:
-                    publish_response(text, partial=True)
+        def canceled_callback(evt: speechsdk.translation.TranslationRecognitionCanceledEventArgs) -> None:
+            message = canceled_handler.handle(evt)
+            if message:
+                logger.error("Live Interpreter canceled: %s", message)
 
-        def recognized_handler(evt: speechsdk.translation.TranslationRecognitionEventArgs) -> None:
-            if evt.result:
-                text = pick_translation(evt.result)
-                if text:
-                    publish_response(text, partial=False)
-
-        def canceled_handler(evt: speechsdk.translation.TranslationRecognitionCanceledEventArgs) -> None:
-            details = evt.error_details if evt else "unknown"
-            logger.error("Live Interpreter canceled: %s", details)
-
-        self._recognizer.recognizing.connect(recognizing_handler)
-        self._recognizer.recognized.connect(recognized_handler)
-        self._recognizer.canceled.connect(canceled_handler)
+        self._recognizer.recognizing.connect(recognizing_callback)
+        self._recognizer.recognized.connect(recognized_callback)
+        self._recognizer.canceled.connect(canceled_callback)
 
     def _start_recognition(self) -> None:
         """Start continuous recognition."""
@@ -282,6 +277,21 @@ class LiveInterpreterProvider:
             )
         except Exception as exc:
             logger.exception("Failed to write audio for commit=%s: %s", request.commit_id, exc)
+
+    def _publish_response(self, text: str, *, partial: bool) -> None:
+        """Publish translation response to inbound bus from SDK callbacks."""
+        if not self._loop:
+            logger.debug("Event loop not set; skipping publish")
+            return
+
+        response = TranslationResponse(
+            commit_id=self._last_commit_id,
+            session_id=self._session_id or "unknown",
+            participant_id=self._participant_id,
+            text=text,
+            partial=partial,
+        )
+        asyncio.run_coroutine_threadsafe(self.inbound_bus.publish(response), self._loop)  # type: ignore[arg-type]
 
     async def close(self) -> None:
         """Stop recognition and cleanup resources."""
