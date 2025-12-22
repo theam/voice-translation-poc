@@ -94,6 +94,8 @@ class ProviderFactory:
                 resource=provider_config.resource,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
+                settings=provider_config.settings,
+                session_metadata=session_metadata,
             )
 
         elif provider_type == "live_interpreter":
