@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Protocol
 
-from ...models.messages import TranslationResponse
+from ....models.messages import TranslationResponse
 
 
 class VoiceLiveMessageHandler(Protocol):
