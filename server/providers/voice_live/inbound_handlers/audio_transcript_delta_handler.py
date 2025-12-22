@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from ...models.messages import TranslationResponse
+from ....models.messages import TranslationResponse
 from .base import extract_context
 
 logger = logging.getLogger(__name__)
