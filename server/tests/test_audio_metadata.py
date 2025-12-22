@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from unittest.mock import MagicMock
-from server.handlers.acs.audio_metadata import AudioMetadataHandler
+from server.gateways.acs.audio_metadata import AudioMetadataHandler
 from server.models.envelope import Envelope
 
 class TestAudioMetadataHandler(unittest.TestCase):
