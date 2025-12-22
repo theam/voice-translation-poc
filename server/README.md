@@ -220,14 +220,15 @@ server/
 │   ├── participant_pipeline.py  # Translation pipeline per participant
 │   ├── session.py               # Manages one ACS connection
 │   └── session_manager.py       # Tracks active sessions
-├── adapters/
+├── providers/
 │   ├── adapter_factory.py       # Factory for creating providers
 │   ├── mock_adapter.py          # Mock provider (testing)
 │   └── voicelive_adapter.py     # VoiceLive bidirectional streaming
-├── handlers/
+├── gateways/
 │   ├── audit.py                 # Logs all ACS messages
-│   ├── translation.py           # Buffers audio, auto-commits
-│   └── provider_result.py       # Formats provider responses
+│   ├── base.py                  # Base classes for gateway handlers
+│   ├── provider_result.py       # Formats provider responses
+│   └── acs/                     # ACS inbound gateway handlers
 ├── models/
 │   └── messages.py              # AudioRequest, TranslationResponse
 ├── services/
@@ -262,13 +263,13 @@ server/
 
 The new architecture replaces:
 - ❌ `service.py` (client-based) → ✅ `acs_server.py` + `session/` (server-based)
-- ❌ `adapters/ingress.py` → ✅ Session receive loop
-- ❌ `adapters/egress.py` → ✅ Session send loop
+- ❌ `providers/ingress.py` → ✅ Session receive loop
+- ❌ `providers/egress.py` → ✅ Session send loop
 - ❌ Global event buses → ✅ Per-participant pipelines
 
 Unchanged (reused as-is):
-- ✅ All handlers (audit, translation, provider_result)
-- ✅ Provider adapters (VoiceLiveAdapter, MockAdapter)
+- ✅ All gateways (audit, ACS inbound, provider_result)
+- ✅ Provider implementations (VoiceLiveAdapter, MockAdapter)
 - ✅ Models (Envelope, AudioRequest, TranslationResponse)
 - ✅ Services (AudioDurationCalculator)
 - ✅ Config, EventBus, Queues
