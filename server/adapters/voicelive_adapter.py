@@ -7,6 +7,7 @@ import json
 import logging
 from typing import Optional
 
+import uuid
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
@@ -86,9 +87,15 @@ class VoiceLiveAdapter:
             return
 
         try:
-            headers = {}
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
+            # Headers required for Azure OpenAI Realtime API
+            # Matches src/vt_voice_translation_poc/voice_live.py implementation
+            headers = {
+                "api-key": self.api_key,
+                "Ocp-Apim-Subscription-Key": self.api_key,
+                "x-ms-client-request-id": str(uuid.uuid4()),
+                "Authorization": f"Bearer {self.api_key}",
+                "OpenAI-Beta": "realtime=v1",
+            }
 
             self._ws = await websockets.connect(
                 self.endpoint,

@@ -107,7 +107,8 @@ class ParticipantPipeline:
             ),
             provider_outbound_bus=self.provider_outbound_bus,
             acs_outbound_bus=self.acs_outbound_bus,
-            batching_config=self.config.dispatch.batching
+            batching_config=self.config.dispatch.batching,
+            session_metadata=self.metadata
         )
 
         await self.acs_inbound_bus.register_handler(
