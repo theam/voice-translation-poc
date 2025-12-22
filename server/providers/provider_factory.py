@@ -7,7 +7,7 @@ from typing import Optional
 
 from ..config import Config
 from ..core.event_bus import EventBus
-from .mock_adapter import MockAdapter
+from .mock_provider import MockProvider
 from .voice_live import VoiceLiveProvider
 
 logger = logging.getLogger(__name__)
@@ -41,11 +41,12 @@ class ProviderFactory:
     """
 
     @staticmethod
-    def create_adapter(
+    def create_provider(
         config: Config,
         provider_type: str,
         outbound_bus: EventBus,
         inbound_bus: EventBus,
+        session_metadata: Optional[dict] = None,
     ) -> TranslationProvider:
         """
         Create translation provider based on provider type.
@@ -55,6 +56,7 @@ class ProviderFactory:
             provider_type: Provider type to create (e.g., "mock", "voicelive")
             outbound_bus: Bus to consume AudioRequest from
             inbound_bus: Bus to publish TranslationResponse to
+            session_metadata: Session-level metadata (e.g., languages, audio format)
 
         Returns:
             Configured translation provider
@@ -67,7 +69,7 @@ class ProviderFactory:
         logger.info("Creating translation provider: type=%s", adapter_type)
 
         if adapter_type == "mock":
-            return MockAdapter(
+            return MockProvider(
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
                 delay_ms=50,  # Configurable if needed
@@ -83,17 +85,31 @@ class ProviderFactory:
             return VoiceLiveProvider(
                 endpoint=endpoint,
                 api_key=api_key or "",
+                region=config.providers.voicelive.region,
+                resource=config.providers.voicelive.resource,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
             )
 
         elif adapter_type == "live_interpreter":
-            # Future: Implement LiveInterpreterProvider
-            logger.warning("LiveInterpreter provider not yet implemented, using Mock")
-            return MockAdapter(
+            from .live_interpreter import LiveInterpreterProvider
+
+            endpoint = config.providers.live_interpreter.endpoint
+            api_key = config.providers.live_interpreter.api_key
+
+            if not api_key:
+                raise ValueError("Live Interpreter api_key not configured")
+            if not endpoint and not config.providers.live_interpreter.resource:
+                raise ValueError("Live Interpreter requires either endpoint or resource configuration")
+
+            return LiveInterpreterProvider(
+                endpoint=endpoint,
+                api_key=api_key,
+                region=config.providers.live_interpreter.region,
+                resource=config.providers.live_interpreter.resource,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
-                delay_ms=50,
+                session_metadata=session_metadata,
             )
 
         else:
