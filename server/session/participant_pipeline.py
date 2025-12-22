@@ -64,7 +64,8 @@ class ParticipantPipeline:
             config=self.config,
             provider_type=self.provider_type,
             outbound_bus=self.provider_outbound_bus,
-            inbound_bus=self.provider_inbound_bus
+            inbound_bus=self.provider_inbound_bus,
+            session_metadata=self.metadata,
         )
 
         # Start provider

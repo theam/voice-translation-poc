@@ -46,6 +46,7 @@ class ProviderFactory:
         provider_type: str,
         outbound_bus: EventBus,
         inbound_bus: EventBus,
+        session_metadata: Optional[dict] = None,
     ) -> TranslationProvider:
         """
         Create translation provider based on provider type.
@@ -55,6 +56,7 @@ class ProviderFactory:
             provider_type: Provider type to create (e.g., "mock", "voicelive")
             outbound_bus: Bus to consume AudioRequest from
             inbound_bus: Bus to publish TranslationResponse to
+            session_metadata: Session-level metadata (e.g., languages, audio format)
 
         Returns:
             Configured translation provider
@@ -88,12 +90,23 @@ class ProviderFactory:
             )
 
         elif adapter_type == "live_interpreter":
-            # Future: Implement LiveInterpreterProvider
-            logger.warning("LiveInterpreter provider not yet implemented, using Mock")
-            return MockAdapter(
+            from .live_interpreter import LiveInterpreterProvider
+
+            endpoint = config.providers.live_interpreter.endpoint
+            api_key = (
+                config.providers.live_interpreter.api_key
+                or config.providers.live_interpreter.key
+            )
+
+            if not endpoint or not api_key:
+                raise ValueError("Live Interpreter endpoint or key not configured")
+
+            return LiveInterpreterProvider(
+                endpoint=endpoint,
+                api_key=api_key,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
-                delay_ms=50,
+                session_metadata=session_metadata,
             )
 
         else:
