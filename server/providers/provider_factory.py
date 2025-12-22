@@ -8,36 +8,36 @@ from typing import Optional
 from ..config import Config
 from ..core.event_bus import EventBus
 from .mock_adapter import MockAdapter
-from .voicelive_adapter import VoiceLiveAdapter
+from .voice_live import VoiceLiveProvider
 
 logger = logging.getLogger(__name__)
 
 
-class TranslationAdapter:
+class TranslationProvider:
     """
-    Base interface for translation adapters.
-    All adapters should implement these methods.
+    Base interface for translation providers.
+    All providers should implement these methods.
     """
 
     async def start(self) -> None:
-        """Start the adapter (connect, start loops)."""
+        """Start the provider (connect, start loops)."""
         raise NotImplementedError
 
     async def close(self) -> None:
-        """Close the adapter and cleanup resources."""
+        """Close the provider and cleanup resources."""
         raise NotImplementedError
 
     async def health(self) -> str:
-        """Check adapter health status."""
+        """Check provider health status."""
         raise NotImplementedError
 
 
-class AdapterFactory:
+class ProviderFactory:
     """
-    Factory for creating translation adapters.
+    Factory for creating translation providers.
 
-    Supports dynamic adapter selection based on configuration.
-    Future enhancement: Per-session adapter selection based on ACS metadata.
+    Supports dynamic provider selection based on configuration.
+    Future enhancement: Per-session provider selection based on ACS metadata.
     """
 
     @staticmethod
@@ -46,9 +46,9 @@ class AdapterFactory:
         provider_type: str,
         outbound_bus: EventBus,
         inbound_bus: EventBus,
-    ) -> TranslationAdapter:
+    ) -> TranslationProvider:
         """
-        Create translation adapter based on provider type.
+        Create translation provider based on provider type.
 
         Args:
             config: Service configuration
@@ -57,14 +57,14 @@ class AdapterFactory:
             inbound_bus: Bus to publish TranslationResponse to
 
         Returns:
-            Configured translation adapter
+            Configured translation provider
 
         Raises:
-            ValueError: If adapter type is unknown
+            ValueError: If provider type is unknown
         """
         adapter_type = provider_type.lower()
 
-        logger.info("Creating translation adapter: type=%s", adapter_type)
+        logger.info("Creating translation provider: type=%s", adapter_type)
 
         if adapter_type == "mock":
             return MockAdapter(
@@ -80,7 +80,7 @@ class AdapterFactory:
             if not endpoint:
                 raise ValueError("VoiceLive endpoint not configured")
 
-            return VoiceLiveAdapter(
+            return VoiceLiveProvider(
                 endpoint=endpoint,
                 api_key=api_key or "",
                 outbound_bus=outbound_bus,
@@ -88,8 +88,8 @@ class AdapterFactory:
             )
 
         elif adapter_type == "live_interpreter":
-            # Future: Implement LiveInterpreterAdapter
-            logger.warning("LiveInterpreter adapter not yet implemented, using Mock")
+            # Future: Implement LiveInterpreterProvider
+            logger.warning("LiveInterpreter provider not yet implemented, using Mock")
             return MockAdapter(
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
@@ -100,10 +100,10 @@ class AdapterFactory:
             raise ValueError(f"Unknown adapter type: {adapter_type}")
 
 
-# Future enhancement: Dynamic per-session adapter selection
-class SessionBasedAdapterFactory:
+# Future enhancement: Dynamic per-session provider selection
+class SessionBasedProviderFactory:
     """
-    Future enhancement: Factory that selects adapters based on session metadata.
+    Future enhancement: Factory that selects providers based on session metadata.
 
     Example usage:
         # Extract provider from ACS envelope metadata
@@ -116,7 +116,7 @@ class SessionBasedAdapterFactory:
         )
 
     This would allow:
-    - Different customers using different translation services
+    - Different customers using different translation providers
     - A/B testing different providers
     - Fallback to different providers on failure
     """
@@ -129,7 +129,7 @@ class SessionBasedAdapterFactory:
         self,
         session_id: str,
         provider: Optional[str] = None
-    ) -> TranslationAdapter:
+    ) -> TranslationProvider:
         """Get or create adapter for specific session."""
         # TODO: Implement session-based selection
-        raise NotImplementedError("Session-based adapter selection not yet implemented")
+        raise NotImplementedError("Session-based provider selection not yet implemented")

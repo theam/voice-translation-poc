@@ -196,7 +196,7 @@ class ParticipantPipeline:
         self.acs_outbound_bus = EventBus(f"acs_out_{pipeline_id}")
 
         # Provider (per-participant)
-        self.provider_adapter: Optional[TranslationAdapter] = None
+        self.provider_adapter: Optional[TranslationProvider] = None
 
         # Gateways (per-participant instances)
         self._translation_handler: Optional[TranslationDispatchHandler] = None
@@ -204,7 +204,7 @@ class ParticipantPipeline:
     async def start(self):
         """Start participant pipeline: create provider and register handlers."""
         # Create provider
-        self.provider_adapter = AdapterFactory.create_adapter(
+        self.provider_adapter = ProviderFactory.create_adapter(
             config=self.config,
             provider_type=self.provider_type,
             outbound_bus=self.provider_outbound_bus,
@@ -651,21 +651,21 @@ class Session:
 - Pipelines created on-demand
 - Lifecycle: initialize → route → cleanup
 
-### 4. Adapter Factory (`adapter_factory.py`)
+### 4. Provider Factory (`provider_factory.py`)
 
 **Updated to support per-session provider selection**:
 
 ```python
-class AdapterFactory:
+class ProviderFactory:
     @staticmethod
     def create_adapter(
         config: Config,
         provider_type: str,  # Now passed per-session
         outbound_bus: EventBus,
         inbound_bus: EventBus,
-    ) -> TranslationAdapter:
-        """Create adapter based on session-specific provider type."""
-        logger.info(f"Creating adapter: type={provider_type}")
+    ) -> TranslationProvider:
+        """Create provider based on session-specific provider type."""
+        logger.info(f"Creating provider: type={provider_type}")
 
         if provider_type == "mock":
             return MockAdapter(
@@ -675,7 +675,7 @@ class AdapterFactory:
             )
 
         elif provider_type == "voicelive":
-            return VoiceLiveAdapter(
+            return VoiceLiveProvider(
                 endpoint=config.providers.voicelive.endpoint,
                 api_key=config.providers.voicelive.api_key,
                 outbound_bus=outbound_bus,
@@ -776,7 +776,7 @@ Session creates pipelines on-demand:
 
 Message flow:
   Participant A audio → Pipeline A → VoiceLive connection A
-  Participant B audio → Pipeline B → Mock adapter B
+  Participant B audio → Pipeline B → Mock provider B
   Participant C audio → Pipeline C → VoiceLive connection C
 
 Resources: 3 pipelines, 3 provider connections, 12 event buses
@@ -862,7 +862,7 @@ Resources: 3 pipelines, 3 provider connections, 12 event buses
    ↓
 4. Session extracts metadata → selects "voicelive" provider
    ↓
-5. VoiceLiveAdapter created and started
+5. VoiceLiveProvider created and started
    ↓
 6. Handlers registered on session buses
    ↓
@@ -876,11 +876,11 @@ Resources: 3 pipelines, 3 provider connections, 12 event buses
     ↓
 11. AudioRequest published to provider_outbound_bus
     ↓
-12. VoiceLiveAdapter egress loop consumes, sends to VoiceLive WebSocket
+12. VoiceLiveProvider egress loop consumes, sends to VoiceLive WebSocket
     ↓
 13. VoiceLive responds with translation
     ↓
-14. VoiceLiveAdapter ingress loop receives, publishes TranslationResponse
+14. VoiceLiveProvider ingress loop receives, publishes TranslationResponse
     ↓
 15. ProviderResultHandler consumes, converts to ACS format
     ↓
@@ -1018,7 +1018,7 @@ When using per-participant routing, you can specify different providers per part
 ```
 
 **Result**:
-- user-123 → VoiceLiveAdapter
+- user-123 → VoiceLiveProvider
 - user-456 → MockAdapter
 - user-789 → LiveInterpreterAdapter (when implemented)
 
@@ -1109,7 +1109,7 @@ Map customer → provider in config or database.
          ▼
 ┌─────────────────┐
 │ Cleanup Session │
-│ - Stop adapter  │
+│ - Stop provider │
 │ - Shutdown buses│
 │ - Close WebSocket│
 └─────────────────┘
@@ -1167,8 +1167,8 @@ async with websockets.connect("ws://localhost:8080") as ws:
 If migrating from current code:
 
 1. Keep existing gateways (they work per-session)
-2. Keep existing providers (VoiceLiveAdapter, MockAdapter)
+2. Keep existing providers (VoiceLiveProvider, MockAdapter)
 3. Keep existing models (Envelope, AudioRequest, TranslationResponse)
 4. Replace: `service.py` → `acs_server.py` + `session.py` + `session_manager.py`
 5. Remove: `providers/ingress.py`, `providers/egress.py` (no longer needed)
-6. Update: `adapter_factory.py` to take `provider_type` parameter
+6. Update: `provider_factory.py` to take `provider_type` parameter
