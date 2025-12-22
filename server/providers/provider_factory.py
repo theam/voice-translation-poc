@@ -93,13 +93,10 @@ class ProviderFactory:
             from .live_interpreter import LiveInterpreterProvider
 
             endpoint = config.providers.live_interpreter.endpoint
-            api_key = (
-                config.providers.live_interpreter.api_key
-                or config.providers.live_interpreter.key
-            )
+            api_key = config.providers.live_interpreter.api_key
 
             if not endpoint or not api_key:
-                raise ValueError("Live Interpreter endpoint or key not configured")
+                raise ValueError("Live Interpreter endpoint or api_key not configured")
 
             return LiveInterpreterProvider(
                 endpoint=endpoint,
