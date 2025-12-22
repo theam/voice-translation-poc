@@ -221,9 +221,9 @@ server/
 │   ├── session.py               # Manages one ACS connection
 │   └── session_manager.py       # Tracks active sessions
 ├── providers/
-│   ├── adapter_factory.py       # Factory for creating providers
+│   ├── provider_factory.py      # Factory for creating providers
 │   ├── mock_adapter.py          # Mock provider (testing)
-│   └── voicelive_adapter.py     # VoiceLive bidirectional streaming
+│   └── voice_live/              # VoiceLive bidirectional streaming provider
 ├── gateways/
 │   ├── audit.py                 # Logs all ACS messages
 │   ├── base.py                  # Base classes for gateway handlers
@@ -258,6 +258,7 @@ server/
 6. **Flexibility**: Different providers for different sessions/participants simultaneously
 7. **Efficiency**: Default shared mode avoids overhead when isolation not needed
 8. **Easy Testing**: Mock provider with no external calls
+9. **Extensible Providers**: Add new translation providers (VoiceLive provider, LiveInterpreter, etc.)
 
 ## Migration from Old Architecture
 
@@ -269,7 +270,7 @@ The new architecture replaces:
 
 Unchanged (reused as-is):
 - ✅ All gateways (audit, ACS inbound, provider_result)
-- ✅ Provider implementations (VoiceLiveAdapter, MockAdapter)
+- ✅ Provider implementations (VoiceLive provider, MockAdapter)
 - ✅ Models (Envelope, AudioRequest, TranslationResponse)
 - ✅ Services (AudioDurationCalculator)
 - ✅ Config, EventBus, Queues

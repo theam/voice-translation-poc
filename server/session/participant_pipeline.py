@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from ..providers.adapter_factory import AdapterFactory, TranslationAdapter
+from ..providers.provider_factory import ProviderFactory, TranslationProvider
 from ..config import Config
 from ..models.envelope import Envelope
 from ..core.event_bus import EventBus, HandlerConfig
@@ -52,7 +52,7 @@ class ParticipantPipeline:
         self.acs_outbound_bus = EventBus(f"acs_out_{pipeline_id}")
 
         # Provider adapter (per-participant)
-        self.provider_adapter: Optional[TranslationAdapter] = None
+        self.provider_adapter: Optional[TranslationProvider] = None
 
         # Handlers (per-participant instances)
         self._translation_handler: Optional[AcsInboundMessageHandler] = None
@@ -60,7 +60,7 @@ class ParticipantPipeline:
     async def start(self):
         """Start participant pipeline: create provider and register handlers."""
         # Create provider adapter
-        self.provider_adapter = AdapterFactory.create_adapter(
+        self.provider_adapter = ProviderFactory.create_adapter(
             config=self.config,
             provider_type=self.provider_type,
             outbound_bus=self.provider_outbound_bus,
