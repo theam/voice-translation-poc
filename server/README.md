@@ -222,7 +222,7 @@ server/
 │   └── session_manager.py       # Tracks active sessions
 ├── providers/
 │   ├── provider_factory.py      # Factory for creating providers
-│   ├── mock_adapter.py          # Mock provider (testing)
+│   ├── mock_provider.py         # Mock provider (testing)
 │   └── voice_live/              # VoiceLive bidirectional streaming provider
 ├── gateways/
 │   ├── audit.py                 # Logs all ACS messages
@@ -270,7 +270,7 @@ The new architecture replaces:
 
 Unchanged (reused as-is):
 - ✅ All gateways (audit, ACS inbound, provider_result)
-- ✅ Provider implementations (VoiceLive provider, MockAdapter)
+- ✅ Provider implementations (VoiceLive provider, MockProvider)
 - ✅ Models (Envelope, AudioRequest, TranslationResponse)
 - ✅ Services (AudioDurationCalculator)
 - ✅ Config, EventBus, Queues

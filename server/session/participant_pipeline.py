@@ -60,11 +60,12 @@ class ParticipantPipeline:
     async def start(self):
         """Start participant pipeline: create provider and register handlers."""
         # Create provider adapter
-        self.provider_adapter = ProviderFactory.create_adapter(
+        self.provider_adapter = ProviderFactory.create_provider(
             config=self.config,
             provider_type=self.provider_type,
             outbound_bus=self.provider_outbound_bus,
-            inbound_bus=self.provider_inbound_bus
+            inbound_bus=self.provider_inbound_bus,
+            session_metadata=self.metadata,
         )
 
         # Start provider

@@ -204,7 +204,7 @@ class ParticipantPipeline:
     async def start(self):
         """Start participant pipeline: create provider and register handlers."""
         # Create provider
-        self.provider_adapter = ProviderFactory.create_adapter(
+        self.provider_adapter = ProviderFactory.create_provider(
             config=self.config,
             provider_type=self.provider_type,
             outbound_bus=self.provider_outbound_bus,
@@ -658,7 +658,7 @@ class Session:
 ```python
 class ProviderFactory:
     @staticmethod
-    def create_adapter(
+    def create_provider(
         config: Config,
         provider_type: str,  # Now passed per-session
         outbound_bus: EventBus,
@@ -668,7 +668,7 @@ class ProviderFactory:
         logger.info(f"Creating provider: type={provider_type}")
 
         if provider_type == "mock":
-            return MockAdapter(
+            return MockProvider(
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
                 delay_ms=50
@@ -678,6 +678,8 @@ class ProviderFactory:
             return VoiceLiveProvider(
                 endpoint=config.providers.voicelive.endpoint,
                 api_key=config.providers.voicelive.api_key,
+                region=config.providers.voicelive.region,
+                resource=config.providers.voicelive.resource,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus
             )
@@ -1019,7 +1021,7 @@ When using per-participant routing, you can specify different providers per part
 
 **Result**:
 - user-123 → VoiceLiveProvider
-- user-456 → MockAdapter
+- user-456 → MockProvider
 - user-789 → LiveInterpreterAdapter (when implemented)
 
 ## Provider Selection Strategies
@@ -1167,7 +1169,7 @@ async with websockets.connect("ws://localhost:8080") as ws:
 If migrating from current code:
 
 1. Keep existing gateways (they work per-session)
-2. Keep existing providers (VoiceLiveProvider, MockAdapter)
+2. Keep existing providers (VoiceLiveProvider, MockProvider)
 3. Keep existing models (Envelope, AudioRequest, TranslationResponse)
 4. Replace: `service.py` → `acs_server.py` + `session.py` + `session_manager.py`
 5. Remove: `providers/ingress.py`, `providers/egress.py` (no longer needed)

@@ -22,7 +22,11 @@ providers:
   voicelive:
     endpoint: https://voicelive.example.com
     api_key: ${VOICELIVE_KEY}
+    region: eastus
+    resource: voicelive-resource-name
   live_interpreter:
     endpoint: https://live-interpreter.example.com
-    key: ${LIVEINTERPRETER_KEY}
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    region: eastus
+    resource: live-interpreter-resource-name
   mock: {}
