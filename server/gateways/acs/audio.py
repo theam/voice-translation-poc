@@ -43,10 +43,25 @@ class AudioMessageHandler:
         self._participant_state: Dict[AudioKey, ParticipantState] = defaultdict(ParticipantState)
         self._lock = asyncio.Lock()
 
-    async def handle(self, envelope: GatewayInputEvent) -> None:
+    def can_handle(self, event: GatewayInputEvent) -> bool:
+        payload = event.payload or {}
+        if not isinstance(payload, dict):
+            return False
+
+        return payload.get("kind") == "audiodata"
+
+    async def handle(self, event: GatewayInputEvent) -> None:
         """Handle audio envelope."""
-        key: AudioKey = (envelope.session_id, envelope.participant_id)
-        chunk_b64 = envelope.payload.get("data") or envelope.payload.get("audio_b64")
+        payload = event.payload or {}
+        audio_data = payload.get("audiodata") or {}
+        participant_id = None
+        if isinstance(audio_data, dict):
+            participant_id = audio_data.get("participantrawid")
+
+        key: AudioKey = (event.session_id, participant_id)
+        chunk_b64 = None
+        if isinstance(audio_data, dict):
+            chunk_b64 = audio_data.get("data") or audio_data.get("audio_b64")
 
         if not chunk_b64:
             logger.debug("Skipping audio envelope without audio_b64 payload")
@@ -90,11 +105,11 @@ class AudioMessageHandler:
             async with self._lock:
                 state = self._participant_state[key]
                 state.idle_timer_task = asyncio.create_task(
-                    self._idle_timeout_worker(envelope, key),
-                    name=f"idle-timer-{envelope.session_id}-{envelope.participant_id}"
+                    self._idle_timeout_worker(event, key),
+                    name=f"idle-timer-{event.session_id}-{participant_id}"
                 )
 
-    async def _idle_timeout_worker(self, envelope: GatewayInputEvent, key: AudioKey) -> None:
+    async def _idle_timeout_worker(self, event: GatewayInputEvent, key: AudioKey) -> None:
         """Worker task that commits buffer after idle timeout."""
         try:
             idle_timeout_sec = self._batching_config.idle_timeout_ms / 1000
@@ -109,7 +124,7 @@ class AudioMessageHandler:
                         self._batching_config.idle_timeout_ms
                     )
 
-            await self._flush_commit(envelope, key)
+            await self._flush_commit(event, key)
 
         except asyncio.CancelledError:
             logger.debug("Idle timer cancelled for %s", key)
@@ -117,7 +132,7 @@ class AudioMessageHandler:
         except Exception:
             logger.exception("Idle timeout worker failed for %s", key)
 
-    async def _flush_commit(self, envelope: GatewayInputEvent, key: AudioKey) -> None:
+    async def _flush_commit(self, event: GatewayInputEvent, key: AudioKey) -> None:
         async with self._lock:
             # Cancel idle timer if running
             state = self._participant_state.get(key)
@@ -138,12 +153,19 @@ class AudioMessageHandler:
         commit_id = str(uuid.uuid4())
 
         # Create AudioRequest and publish to provider_outbound_bus
+        payload = event.payload or {}
+        audio_data = payload.get("audiodata") or {}
+        participant_id = None
+        timestamp_utc = event.received_at_utc
+        if isinstance(audio_data, dict):
+            participant_id = audio_data.get("participantrawid")
+            timestamp_utc = audio_data.get("timestamp") or timestamp_utc
         request = AudioRequest(
             commit_id=commit_id,
-            session_id=envelope.session_id,
-            participant_id=envelope.participant_id,
+            session_id=event.session_id,
+            participant_id=participant_id,
             audio_data=audio_chunks,
-            metadata={"timestamp_utc": envelope.timestamp_utc, "message_id": envelope.event_id},
+            metadata={"timestamp_utc": timestamp_utc, "message_id": event.event_id},
         )
 
         logger.info("Publishing audio request to provider: commit=%s bytes=%s", commit_id, len(audio_chunks))

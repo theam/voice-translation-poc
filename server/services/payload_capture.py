@@ -17,23 +17,21 @@ class PayloadCapture:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
 
-    async def capture(self, envelope: GatewayInputEvent) -> None:
+    async def capture(self, event: GatewayInputEvent) -> None:
         async with self._lock:
-            path = self.output_dir / f"{envelope.event_id}.json"
+            path = self.output_dir / f"{event.event_id}.json"
+            payload = event.payload
             data = {
                 "metadata": {
-                    "session_id": envelope.session_id,
-                    "participant_id": envelope.participant_id,
-                    "type": envelope.event_type,
-                    "timestamp_utc": envelope.timestamp_utc,
-                    "source": envelope.source,
+                    "session_id": event.session_id,
+                    "received_at_utc": event.received_at_utc,
+                    "source": event.source,
                 },
             }
             if self.mode == "full":
-                data["payload"] = envelope.payload
-                data["raw"] = envelope.raw_frame
+                data["payload"] = payload
             try:
                 path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                logger.debug("Captured payload for %s at %s", envelope.event_id, path)
+                logger.debug("Captured payload for %s at %s", event.event_id, path)
             except Exception:
-                logger.exception("Failed to capture payload for %s", envelope.event_id)
+                logger.exception("Failed to capture payload for %s", event.event_id)

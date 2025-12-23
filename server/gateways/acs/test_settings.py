@@ -14,18 +14,23 @@ class TestSettingsHandler:
         self.translation_settings = translation_settings
         self.session_metadata = session_metadata
 
-    async def handle(self, envelope: GatewayInputEvent) -> None:
+    def can_handle(self, event: GatewayInputEvent) -> bool:
+        payload = event.payload or {}
+        if not isinstance(payload, dict):
+            return False
+        return payload.get("type") == "control.test.settings"
+
+    async def handle(self, event: GatewayInputEvent) -> None:
         """Handle control envelope."""
-        logger.info("Control event received: %s", envelope.event_id)
+        logger.info("Control event received: %s", event.event_id)
 
-        if envelope.event_type == "control.test.settings":
-            self._apply_settings(envelope)
+        self._apply_settings(event)
 
-    def _apply_settings(self, envelope: GatewayInputEvent) -> None:
+    def _apply_settings(self, event: GatewayInputEvent) -> None:
         """Store translation settings for the session."""
-        settings = envelope.payload.get("settings") if isinstance(envelope.payload, dict) else None
+        settings = event.payload.get("settings") if isinstance(event.payload, dict) else None
         if not isinstance(settings, dict):
-            logger.debug("Ignoring control.test.settings without settings dict: %s", envelope.payload)
+            logger.debug("Ignoring control.test.settings without settings dict: %s", event.payload)
             return
 
         self.translation_settings.update(settings)
