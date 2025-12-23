@@ -11,7 +11,7 @@ from ..models.envelope import Envelope
 from ..core.event_bus import EventBus, HandlerConfig
 from ..gateways.audit import AuditHandler
 from ..gateways.base import HandlerSettings
-from ..gateways.provider_result import ProviderResultHandler
+from ..gateways.provider import ProviderOutputHandler
 from ..gateways.acs.inbound_handler import AcsInboundMessageHandler
 from ..core.queues import OverflowPolicy
 
@@ -125,17 +125,17 @@ class ParticipantPipeline:
             self._translation_handler
         )
 
-        # 3. Provider result handler
+        # 3. Provider output handler
         await self.provider_inbound_bus.register_handler(
             HandlerConfig(
-                name="provider_result",
+                name="provider_output",
                 queue_max=self.config.buffering.egress_queue_max,
                 overflow_policy=overflow_policy,
                 concurrency=1
             ),
-            ProviderResultHandler(
+            ProviderOutputHandler(
                 HandlerSettings(
-                    name="provider_result",
+                    name="provider_output",
                     queue_max=self.config.buffering.egress_queue_max,
                     overflow_policy=str(self.config.buffering.overflow_policy)
                 ),

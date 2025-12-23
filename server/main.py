@@ -30,8 +30,8 @@ async def async_main(config_paths: list[str] | None = None, host: str = "0.0.0.0
     if config_paths:
         path_objects = [Path(p) for p in config_paths]
     else:
-        # Default to config.yaml in the server directory
-        default_config_path = Path(__file__).parent / "config.yaml"
+        # Default to .config.yml in the server directory
+        default_config_path = Path(__file__).parent / ".config.yml"
         path_objects = [default_config_path]
 
     config = Config.from_yaml(path_objects)
