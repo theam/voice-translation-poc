@@ -132,7 +132,7 @@ class VoiceLiveProvider:
 
         self._outbound_handler = VoiceLiveOutboundHandler(self._ws)
 
-        await self._create_session()
+        await self._update_session()
         await self._register_outbound_handler()
 
         self._ingress_task = asyncio.create_task(
@@ -140,6 +140,19 @@ class VoiceLiveProvider:
             name="voicelive-ingress-loop",
         )
         logger.info("VoiceLive ingress loop started")
+
+    def _build_websocket_url(self) -> str:
+        """Build WebSocket URL with deployment and api-version query parameters."""
+        # Get deployment and api_version from settings, with defaults
+        deployment = self.settings.get("deployment", "gpt-realtime-mini")
+        api_version = self.settings.get("api_version", "2024-10-01-preview")
+
+        # Build URL with query parameters
+        base_url = self.endpoint.rstrip("/")
+        url = f"{base_url}?deployment={deployment}&api-version={api_version}"
+
+        logger.debug("Built WebSocket URL: %s", url)
+        return url
 
     async def _connect(self) -> None:
         """Establish WebSocket connection to VoiceLive."""
@@ -155,16 +168,19 @@ class VoiceLiveProvider:
             "OpenAI-Beta": "realtime=v1",
         }
 
+        # Build WebSocket URL with query parameters
+        ws_url = self._build_websocket_url()
+
         try:
             self._ws = await websockets.connect(
-                self.endpoint,
+                ws_url,
                 extra_headers=headers,
                 ping_interval=20,
                 ping_timeout=10,
             )
             logger.info(
                 "VoiceLive WebSocket connected to %s (region=%s, resource=%s)",
-                self.endpoint,
+                ws_url,
                 self.region,
                 self.resource,
             )
@@ -172,20 +188,20 @@ class VoiceLiveProvider:
             logger.exception("Failed to connect to VoiceLive: %s", exc)
             raise
 
-    async def _create_session(self) -> None:
-        """Send session.create with configuration and prompt to VoiceLive."""
+    async def _update_session(self) -> None:
+        """Send session.update with configuration and prompt to VoiceLive."""
         if not self._ws:
             raise RuntimeError("VoiceLive WebSocket is not connected")
 
         session_options = self._build_session_options()
         payload = {
-            "type": "session.create",
+            "type": "session.update",
             "session": session_options,
         }
 
         try:
             await self._ws.send(json.dumps(payload))
-            logger.info("VoiceLive session.create dispatched with options: %s", session_options)
+            logger.info("VoiceLive session.update dispatched with options: %s", session_options)
         except Exception as exc:
             logger.exception("Failed to create VoiceLive session: %s", exc)
             raise
@@ -234,9 +250,9 @@ class VoiceLiveProvider:
         # Deep copy defaults to avoid mutation across sessions
         session_options: Dict[str, Any] = copy.deepcopy(DEFAULT_SESSION_OPTIONS)
 
-        # Apply provider-level settings overrides
-        if self.settings:
-            session_options = deep_merge(session_options, self.settings)
+        # Apply provider-level settings overrides from nested session_options
+        if self.settings and "session_options" in self.settings:
+            session_options = deep_merge(session_options, self.settings["session_options"])
 
         # Apply per-session overrides (e.g., languages from ACS metadata)
         metadata_overrides = self._session_overrides_from_metadata()

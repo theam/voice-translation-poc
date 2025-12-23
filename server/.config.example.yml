@@ -26,12 +26,25 @@ providers:
     region: eastus
     resource: voicelive-resource-name
     settings:
-      # Optional: override defaults sent in the Voice Live session.create payload.
-      # instructions: |
-      #   Custom prompt to use for the session.
-      # voice: alloy
-      # input_audio_transcription:
-      #   language: en-US
+      model: gpt-realtime-mini
+      api_version: 2024-10-01-preview
+      deployment: gpt-realtime-mini
+      # Optional: override defaults sent in the Voice Live session.create payload
+      session_options:
+        # instructions: |
+        #   Custom prompt to use for the session.
+        # voice: alloy
+        # temperature: 0.8
+        # modalities: ["text", "audio"]
+        # input_audio_format: pcm16
+        # output_audio_format: pcm16
+        # input_audio_transcription:
+        #   language: en-US
+        # turn_detection:
+        #   type: server_vad
+        #   threshold: 0.5
+        #   prefix_padding_ms: 300
+        #   silence_duration_ms: 600
   live_interpreter:
     type: live_interpreter
     endpoint: https://live-interpreter.example.com

@@ -15,6 +15,7 @@ from ..models.gateway_input_event import ConnectionContext, GatewayInputEvent
 from ..core.event_bus import HandlerConfig
 from ..gateways.base import Handler, HandlerSettings
 from ..core.queues import OverflowPolicy
+from ..utils.dict_utils import normalize_keys
 from .participant_pipeline import ParticipantPipeline
 
 logger = logging.getLogger(__name__)
@@ -94,8 +95,9 @@ class Session:
         try:
             async for raw_message in self.websocket:
                 try:
+                    # Parse and normalize keys to lowercase for case-insensitive handling
                     data = json.loads(raw_message)
-                    self._apply_settings_from_frame(data)
+                    data = normalize_keys(data)
 
                     # First message: extract metadata and initialize
                     if not self._initialized:
@@ -308,24 +310,6 @@ class Session:
                 )
             )
         )
-
-    def _apply_settings_from_frame(self, data: Dict[str, Any]) -> None:
-        """Extract and store translation settings from inbound ACS frame."""
-        settings = None
-        if isinstance(data, dict):
-            if isinstance(data.get("settings"), dict):
-                settings = data.get("settings")
-            elif isinstance(data.get("payload"), dict) and isinstance(data["payload"].get("settings"), dict):
-                settings = data["payload"].get("settings")
-
-        if not settings:
-            return
-
-        self.translation_settings.update(settings)
-        # Preserve settings in metadata for downstream components that only see metadata
-        metadata_settings = self.metadata.setdefault("translation_settings", {})
-        if isinstance(metadata_settings, dict):
-            metadata_settings.update(settings)
 
     async def cleanup(self):
         """Cleanup session resources."""
