@@ -12,7 +12,6 @@ from .inbound_handlers import (
     ResponseErrorHandler,
     ResponseOutputTextDeltaHandler,
     ResponseOutputTextDoneHandler,
-    UnknownMessageHandler,
     VoiceLiveMessageHandler,
 )
 
@@ -44,7 +43,7 @@ class VoiceLiveInboundHandler:
             "session.created": LoggingOnlyHandler("session.created"),
             "session.updated": LoggingOnlyHandler("session.updated"),
         }
-        self._default_handler: VoiceLiveMessageHandler = UnknownMessageHandler()
+        self._default_handler: VoiceLiveMessageHandler = LoggingOnlyHandler("unknown")
 
     async def handle(self, message: Dict[str, Any]) -> None:
         """Dispatch to a handler and publish any resulting translation."""
