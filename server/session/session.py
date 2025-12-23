@@ -11,7 +11,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 
 from ..config import Config
-from ..models.envelope import Envelope
+from ..models.gateway_input_event import ConnectionContext, GatewayInputEvent
 from ..core.event_bus import HandlerConfig
 from ..gateways.base import Handler, HandlerSettings
 from ..core.queues import OverflowPolicy
@@ -34,11 +34,14 @@ class Session:
         self,
         session_id: str,
         websocket: WebSocketServerProtocol,
-        config: Config
+        config: Config,
+        connection_ctx: ConnectionContext,
     ):
         self.session_id = session_id
         self.websocket = websocket
         self.config = config
+        self.connection_ctx = connection_ctx
+        self.canonical_session_id = connection_ctx.call_connection_id or connection_ctx.ingress_ws_id
 
         # Session state
         self.routing_strategy: Optional[str] = None  # "shared" or "per_participant"
@@ -54,6 +57,9 @@ class Session:
 
         # Initialization flag
         self._initialized = False
+
+        # Frame sequencing
+        self._sequence = 0
 
         # Background tasks
         self._receive_task: Optional[asyncio.Task] = None
@@ -95,11 +101,12 @@ class Session:
                     if not self._initialized:
                         await self._initialize_from_first_message(data)
 
-                    # Convert to Envelope
-                    envelope = Envelope.from_acs_frame(
+                    # Convert to GatewayInputEvent
+                    self._sequence += 1
+                    envelope = GatewayInputEvent.from_acs_frame(
                         data,
-                        sequence=0,
-                        ingress_ws_id=self.session_id
+                        sequence=self._sequence,
+                        ctx=self.connection_ctx,
                     )
 
                     # Route based on strategy
@@ -114,7 +121,7 @@ class Session:
         except Exception as e:
             logger.exception(f"Session {self.session_id} receive loop error: {e}")
 
-    async def _route_message(self, envelope: Envelope):
+    async def _route_message(self, envelope: GatewayInputEvent):
         """Route message to appropriate pipeline(s)."""
         if self.routing_strategy == "shared":
             # All participants share one pipeline
@@ -162,7 +169,7 @@ class Session:
             provider_name = self._select_provider(self.metadata, participant_id)
 
             self.shared_pipeline = ParticipantPipeline(
-                session_id=self.session_id,
+                session_id=self.canonical_session_id,
                 participant_id=participant_id,
                 config=self.config,
                 provider_name=provider_name,
@@ -238,7 +245,7 @@ class Session:
     async def _create_participant_pipeline(
         self,
         participant_id: str,
-        envelope: Envelope
+        envelope: GatewayInputEvent
     ) -> ParticipantPipeline:
         """Create pipeline for a new participant (per_participant mode)."""
         # Determine provider for this participant
@@ -251,7 +258,7 @@ class Session:
 
         # Create pipeline
         pipeline = ParticipantPipeline(
-            session_id=self.session_id,
+            session_id=self.canonical_session_id,
             participant_id=participant_id,
             config=self.config,
             provider_name=provider_type,
