@@ -14,6 +14,7 @@ from ..config import Config
 from ..models.gateway_input_event import ConnectionContext, GatewayInputEvent
 from ..core.event_bus import HandlerConfig
 from ..gateways.base import Handler, HandlerSettings
+from ..gateways.acs.acs_input_mapper import AcsInputMapper
 from ..core.queues import OverflowPolicy
 from ..utils.dict_utils import normalize_keys
 from .participant_pipeline import ParticipantPipeline
@@ -66,6 +67,9 @@ class Session:
         self._receive_task: Optional[asyncio.Task] = None
         self._send_task: Optional[asyncio.Task] = None
 
+        # Mappers
+        self._acs_input_mapper = AcsInputMapper(connection_ctx)
+
     async def run(self):
         """Run session: process messages until disconnect."""
         logger.info(f"Session {self.session_id} started")
@@ -105,14 +109,10 @@ class Session:
 
                     # Convert to GatewayInputEvent
                     self._sequence += 1
-                    envelope = GatewayInputEvent.from_acs_frame(
-                        data,
-                        sequence=self._sequence,
-                        ctx=self.connection_ctx,
-                    )
+                    acs_input = self._acs_input_mapper.from_frame(data, sequence=self._sequence)
 
                     # Route based on strategy
-                    await self._route_message(envelope)
+                    await self._route_message(acs_input)
 
                 except json.JSONDecodeError as e:
                     logger.warning(f"Session {self.session_id} invalid JSON: {e}")

@@ -358,17 +358,15 @@ class Session:
             async for raw_message in self.websocket:
                 try:
                     data = json.loads(raw_message)
+                    data = normalize_keys(data)
 
                     # First message: extract metadata and initialize
                     if not self._initialized:
                         await self._initialize_from_first_message(data)
 
                     # Convert to GatewayInputEvent
-                    event = GatewayInputEvent.from_acs_frame(
-                        data,
-                        sequence=self._sequence,
-                        ctx=self.connection_ctx,
-                    )
+                    self._sequence += 1
+                    event = self._acs_input_mapper.from_frame(data, sequence=self._sequence)
 
                     # Route based on strategy
                     await self._route_message(event)
