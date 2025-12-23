@@ -1,4 +1,4 @@
-.PHONY: build build_release up down restart
+.PHONY: build build_release up down restart poc
 .PHONY: bash bash_server
 .PHONY: logs logs_server logs_all
 .PHONY: evaluations run_test
@@ -119,6 +119,11 @@ restart:
 	@echo "Restarting services..."
 	@docker compose restart
 	@echo "✓ Services restarted"
+
+poc:
+	@echo "Starting WebSocket server...."
+	@poetry run speech-poc serve --host 0.0.0.0 --port 8765 --from-language en-US --to-language es --voice alloy --testing
+	@echo "  View logs: make logs"
 
 logs:
 	@docker compose logs -f vt-app

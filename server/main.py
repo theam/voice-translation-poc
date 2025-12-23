@@ -7,17 +7,17 @@ import asyncio
 import logging
 from pathlib import Path
 
-from .config import Config, DEFAULT_CONFIG
+from .config import Config
 from .core import ACSServer
 
 logger = logging.getLogger(__name__)
 
 
-async def async_main(config_path: str | None = None, host: str = "0.0.0.0", port: int = 8080):
+async def async_main(config_paths: list[str] | None = None, host: str = "0.0.0.0", port: int = 8080):
     """Start ACS translation server (async).
 
     Args:
-        config_path: Optional path to YAML config file
+        config_paths: Optional list of paths to YAML config files (merged left-to-right)
         host: Host to listen on (default: 0.0.0.0)
         port: Port to listen on (default: 8080)
     """
@@ -27,12 +27,16 @@ async def async_main(config_path: str | None = None, host: str = "0.0.0.0", port
     )
 
     # Load config
-    config = DEFAULT_CONFIG
-    if config_path:
-        config = Config.from_yaml(Path(config_path))
-        logger.info(f"Loaded config from {config_path}")
+    if config_paths:
+        path_objects = [Path(p) for p in config_paths]
     else:
-        logger.info("Using default config")
+        # Default to config.yaml in the server directory
+        default_config_path = Path(__file__).parent / "config.yaml"
+        path_objects = [default_config_path]
+
+    config = Config.from_yaml(path_objects)
+    if config_paths:
+        logger.info(f"Loaded and merged {len(config_paths)} config file(s): {', '.join(config_paths)}")
 
     # Create and start server
     server = ACSServer(
@@ -52,13 +56,13 @@ async def async_main(config_path: str | None = None, host: str = "0.0.0.0", port
 def main():
     """Main entry point (synchronous wrapper for poetry script)."""
     parser = argparse.ArgumentParser(description="Run ACS translation server")
-    parser.add_argument("--config", help="Path to YAML config", required=False)
+    parser.add_argument("--config", help="Path to YAML config (can be specified multiple times)", required=False, action="append")
     parser.add_argument("--host", help="Host to listen on", default="0.0.0.0")
     parser.add_argument("--port", help="Port to listen on", type=int, default=8080)
     args = parser.parse_args()
 
     asyncio.run(async_main(
-        config_path=args.config,
+        config_paths=args.config,
         host=args.host,
         port=args.port
     ))

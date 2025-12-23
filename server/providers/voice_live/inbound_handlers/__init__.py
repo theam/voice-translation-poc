@@ -6,7 +6,6 @@ from .response_completed_handler import ResponseCompletedHandler
 from .response_error_handler import ResponseErrorHandler
 from .response_output_text_delta_handler import ResponseOutputTextDeltaHandler
 from .response_output_text_done_handler import ResponseOutputTextDoneHandler
-from .unknown_message_handler import UnknownMessageHandler
 
 __all__ = [
     "AudioTranscriptDeltaHandler",
@@ -16,7 +15,6 @@ __all__ = [
     "ResponseErrorHandler",
     "ResponseOutputTextDeltaHandler",
     "ResponseOutputTextDoneHandler",
-    "UnknownMessageHandler",
     "VoiceLiveMessageHandler",
     "extract_context",
 ]

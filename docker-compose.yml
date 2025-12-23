@@ -47,7 +47,7 @@ services:
       - vt-network
 
     # Keep container running for interactive testing
-    command: make server
+    command: make poc
 
   # Translation Server (new server architecture)
   vt-server:

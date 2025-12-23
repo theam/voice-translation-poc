@@ -702,8 +702,11 @@ async def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
 
-    # Load config
-    config = Config.from_yaml(Path("config.yaml"))
+    # Load config (single file)
+    config = Config.from_yaml([Path("config.yaml")])
+
+    # Or load and merge multiple configs
+    config = Config.from_yaml([Path("base.yaml"), Path("overrides.yaml")])
 
     # Create and start server
     server = ACSServer(
