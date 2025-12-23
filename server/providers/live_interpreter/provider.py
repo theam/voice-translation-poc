@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import time
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import azure.cognitiveservices.speech as speechsdk
 
 from ...core.event_bus import EventBus, HandlerConfig
 from ...core.queues import OverflowPolicy
-from ...models.messages import AudioRequest, TranslationResponse
+from ...models.messages import AudioRequest, ProviderOutputEvent
 from .inbound_handlers import (
     CanceledHandler,
     RecognizedHandler,
@@ -26,7 +27,7 @@ class LiveInterpreterProvider:
     The provider:
     - Uses a PushAudioInputStream for continuous audio ingestion
     - Hooks Speech SDK recognizing/recognized events to emit partial/final text
-    - Publishes TranslationResponse objects to the inbound bus
+    - Publishes ProviderOutputEvent objects to the inbound bus
     """
 
     DEFAULT_AUTO_DETECT: Tuple[str, str] = ("en-US", "es-ES")
@@ -284,12 +285,15 @@ class LiveInterpreterProvider:
             logger.debug("Event loop not set; skipping publish")
             return
 
-        response = TranslationResponse(
+        response = ProviderOutputEvent(
             commit_id=self._last_commit_id,
             session_id=self._session_id or "unknown",
             participant_id=self._participant_id,
-            text=text,
-            partial=partial,
+            event_type="transcript.delta" if partial else "transcript.done",
+            payload={"text": text, "final": not partial, "role": "translation"},
+            provider="live_interpreter",
+            stream_id=self._last_commit_id,
+            timestamp_ms=int(time.time() * 1000),
         )
         asyncio.run_coroutine_threadsafe(self.inbound_bus.publish(response), self._loop)  # type: ignore[arg-type]
 
