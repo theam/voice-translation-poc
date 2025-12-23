@@ -2,33 +2,35 @@ import base64
 import unittest
 from datetime import datetime
 
-from server.models.gateway_input_event import ConnectionContext, GatewayInputEvent
+from server.gateways.acs.acs_input_mapper import AcsInputMapper
+from server.models.gateway_input_event import ConnectionContext
 
 
-class TestGatewayInputEvent(unittest.TestCase):
+class TestAcsInputMapper(unittest.TestCase):
     def setUp(self) -> None:
         self.ctx = ConnectionContext(
             ingress_ws_id="ingress-1",
             call_connection_id="call-123",
             call_correlation_id="corr-456",
         )
+        self.mapper = AcsInputMapper(self.ctx)
 
     def test_audio_metadata_mapping(self):
         frame = {
             "kind": "AudioMetadata",
-            "audioMetadata": {
-                "subscriptionId": "89e8cb59-b991-48b0-b154-1db84f16a077",
+            "audiometadata": {
+                "subscriptionid": "89e8cb59-b991-48b0-b154-1db84f16a077",
                 "encoding": "PCM",
-                "sampleRate": 16000,
+                "samplerate": 16000,
                 "channels": 1,
                 "length": 640,
             },
         }
 
-        event = GatewayInputEvent.from_acs_frame(frame, sequence=5, ctx=self.ctx)
+        event = self.mapper.from_frame(frame, sequence=5)
 
         self.assertEqual("acs.audio.metadata", event.event_type)
-        self.assertEqual(frame["audioMetadata"], event.payload)
+        self.assertEqual(frame["audiometadata"], event.payload)
         self.assertEqual("call-123", event.session_id)
         self.assertEqual("corr-456", event.trace.call_correlation_id)
         self.assertEqual(5, event.trace.sequence)
@@ -44,13 +46,13 @@ class TestGatewayInputEvent(unittest.TestCase):
     def test_audio_data_mapping(self):
         audio_data = {
             "timestamp": "2024-11-15T19:16:12.925Z",
-            "participantRawID": "8:acs:participant",
+            "participantrawid": "8:acs:participant",
             "data": base64.b64encode(b"abc").decode("ascii"),
             "silent": False,
         }
-        frame = {"kind": "AudioData", "audioData": audio_data}
+        frame = {"kind": "AudioData", "audiodata": audio_data}
 
-        event = GatewayInputEvent.from_acs_frame(frame, sequence=1, ctx=self.ctx)
+        event = self.mapper.from_frame(frame, sequence=1)
 
         self.assertEqual("acs.audio.data", event.event_type)
         self.assertEqual(audio_data, event.payload)
@@ -61,7 +63,7 @@ class TestGatewayInputEvent(unittest.TestCase):
         self.assertEqual("call-123", event.session_id)
 
     def test_unknown_kind(self):
-        event = GatewayInputEvent.from_acs_frame({}, sequence=99, ctx=self.ctx)
+        event = self.mapper.from_frame({}, sequence=99)
         self.assertEqual("acs.unknown", event.event_type)
         self.assertEqual({}, event.payload)
         self.assertEqual({}, event.raw_frame)
@@ -70,11 +72,26 @@ class TestGatewayInputEvent(unittest.TestCase):
     def test_invalid_base64_raises(self):
         frame = {
             "kind": "AudioData",
-            "audioData": {"data": "!!!notbase64!!!"},
+            "audiodata": {"data": "!!!notbase64!!!"},
         }
 
         with self.assertRaises(ValueError):
-            GatewayInputEvent.from_acs_frame(frame, sequence=3, ctx=self.ctx)
+            self.mapper.from_frame(frame, sequence=3)
+
+    def test_control_type_mapping(self):
+        frame = {
+            "type": "control.test.settings",
+            "settings": {"language": "en-US"},
+        }
+
+        event = self.mapper.from_frame(frame, sequence=2)
+
+        self.assertEqual("control.test.settings", event.event_type)
+        self.assertEqual(frame, event.payload)
+        self.assertEqual("call-123", event.session_id)
+        self.assertEqual("corr-456", event.trace.call_correlation_id)
+        self.assertEqual(2, event.trace.sequence)
+        datetime.fromisoformat(event.timestamp_utc)
 
 
 if __name__ == "__main__":
