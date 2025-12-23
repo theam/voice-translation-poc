@@ -30,16 +30,23 @@ class AudioMetadataHandler:
     def __init__(self, session_metadata: Dict[str, Any]):
         self.session_metadata = session_metadata
 
-    async def handle(self, envelope: GatewayInputEvent) -> None:
-        logger.info("Handling AudioMetadata: %s (session=%s)", envelope.event_id, envelope.session_id)
+    def can_handle(self, event: GatewayInputEvent) -> bool:
+        payload = event.payload or {}
+        if not isinstance(payload, dict):
+            return False
 
-        meta = envelope.payload or {}
+        return payload.get("kind") == "audiometadata"
+
+    async def handle(self, event: GatewayInputEvent) -> None:
+        logger.info("Handling AudioMetadata: %s (session=%s)", event.event_id, event.session_id)
+
+        payload = event.payload or {}
+        meta = payload.get("audiometadata") or {}
 
         if not isinstance(meta, dict) or not meta:
             logger.warning(
-                "Expected audioMetadata dict payload (event_id=%s, type=%s)",
-                envelope.event_id,
-                envelope.event_type,
+                "Expected audioMetadata dict payload (event_id=%s)",
+                event.event_id,
             )
             return
 
@@ -58,12 +65,12 @@ class AudioMetadataHandler:
         state = self.session_metadata.setdefault(self.SESSION_KEY, {})
         state["format"] = stream_format
         state["audio_ready"] = True
-        state["metadata_message_id"] = envelope.event_id
-        state["metadata_received_at_utc"] = envelope.timestamp_utc
+        state["metadata_message_id"] = event.event_id
+        state["metadata_received_at_utc"] = event.received_at_utc
 
         logger.info(
             "Stored ACS audio metadata (session=%s): sub=%s enc=%s sr=%s ch=%s frame_bytes=%s",
-            envelope.session_id,
+            event.session_id,
             stream_format.get("subscription_id"),
             stream_format.get("encoding"),
             stream_format.get("sample_rate_hz"),
