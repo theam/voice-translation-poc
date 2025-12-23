@@ -205,8 +205,7 @@ Structured logs show the full pipeline:
 2025-12-20 10:30:00 [INFO] acs_server: ACS server listening on 0.0.0.0:8080
 2025-12-20 10:30:01 [INFO] acs_server: New ACS connection from 192.168.1.100:54321
 2025-12-20 10:30:01 [INFO] session: Created session abc-123
-2025-12-20 10:30:01 [INFO] session: Session abc-123 routing: shared
-2025-12-20 10:30:01 [INFO] participant_pipeline: Participant shared provider started: mock
+2025-12-20 10:30:01 [INFO] session_pipeline: Session abc-123 provider started: mock
 2025-12-20 10:30:02 [INFO] translation: Auto-commit triggered for ('sess-abc', 'part-001'): duration_threshold (220.5ms >= 200ms)
 2025-12-20 10:30:02 [INFO] provider_result: Provider result partial=False session=sess-abc participant=part-001 text=Hello translated
 ```
@@ -217,7 +216,7 @@ Structured logs show the full pipeline:
 server/
 ├── session/
 │   ├── __init__.py
-│   ├── participant_pipeline.py  # Translation pipeline per participant
+│   ├── session_pipeline.py      # Session-scoped translation pipeline
 │   ├── session.py               # Manages one ACS connection
 │   └── session_manager.py       # Tracks active sessions
 ├── providers/
@@ -254,7 +253,7 @@ server/
 2. **Dynamic Routing**: Choose shared vs per-participant based on metadata
 3. **Dynamic Provider Selection**: Per-session, per-participant, per-customer
 4. **Complete Isolation**: Sessions and participants don't interfere
-5. **Scalability**: Each session/participant pipeline runs independently
+5. **Scalability**: Each session pipeline runs independently
 6. **Flexibility**: Different providers for different sessions/participants simultaneously
 7. **Efficiency**: Default shared mode avoids overhead when isolation not needed
 8. **Easy Testing**: Mock provider with no external calls
@@ -266,7 +265,7 @@ The new architecture replaces:
 - ❌ `service.py` (client-based) → ✅ `acs_server.py` + `session/` (server-based)
 - ❌ `providers/ingress.py` → ✅ Session receive loop
 - ❌ `providers/egress.py` → ✅ Session send loop
-- ❌ Global event buses → ✅ Per-participant pipelines
+- ❌ Global event buses → ✅ Session-scoped pipeline with participant-aware events
 
 Unchanged (reused as-is):
 - ✅ All gateways (audit, ACS inbound, provider_result)
