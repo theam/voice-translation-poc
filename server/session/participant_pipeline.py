@@ -36,13 +36,15 @@ class ParticipantPipeline:
         participant_id: str,
         config: Config,
         provider_name: str,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        translation_settings: Dict[str, Any],
     ):
         self.session_id = session_id
         self.participant_id = participant_id
         self.config = config
         self.provider_name = provider_name
         self.metadata = metadata
+        self.translation_settings = translation_settings
 
         # Event buses (per-participant)
         pipeline_id = f"{session_id}_{participant_id}"
@@ -109,7 +111,8 @@ class ParticipantPipeline:
             provider_outbound_bus=self.provider_outbound_bus,
             acs_outbound_bus=self.acs_outbound_bus,
             batching_config=self.config.dispatch.batching,
-            session_metadata=self.metadata
+            session_metadata=self.metadata,
+            translation_settings=self.translation_settings,
         )
 
         await self.acs_inbound_bus.register_handler(
@@ -136,7 +139,8 @@ class ParticipantPipeline:
                     queue_max=self.config.buffering.egress_queue_max,
                     overflow_policy=str(self.config.buffering.overflow_policy)
                 ),
-                acs_outbound_bus=self.acs_outbound_bus
+                acs_outbound_bus=self.acs_outbound_bus,
+                translation_settings=self.translation_settings,
             )
         )
 
