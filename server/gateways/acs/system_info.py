@@ -19,9 +19,15 @@ class SystemInfoMessageHandler:
     def __init__(self, acs_outbound_bus: EventBus):
         self.acs_outbound_bus = acs_outbound_bus
 
-    async def handle(self, envelope: GatewayInputEvent) -> None:
+    def can_handle(self, event: GatewayInputEvent) -> bool:
+        payload = event.payload or {}
+        if not isinstance(payload, dict):
+            return False
+        return payload.get("type") == "control.test.request.system_info"
+
+    async def handle(self, event: GatewayInputEvent) -> None:
         """Process system info request and send response."""
-        logger.info("Handling system info request: %s", envelope.event_id)
+        logger.info("Handling system info request: %s", event.event_id)
 
         # Construct response payload
         # Note: This is a minimal implementation based on requirements.
@@ -50,4 +56,4 @@ class SystemInfoMessageHandler:
         # Create response envelope
         # We need to target the same session/participant
         await self.acs_outbound_bus.publish(response_payload)
-        logger.info("Sent system info response for %s", envelope.event_id)
+        logger.info("Sent system info response for %s", event.event_id)

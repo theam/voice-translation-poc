@@ -32,21 +32,21 @@ class AcsInboundMessageHandler(Handler):
         self.control_handler = TestSettingsHandler(translation_settings, session_metadata)
         self.system_info_handler = SystemInfoMessageHandler(acs_outbound_bus)
         self.audio_metadata_handler = AudioMetadataHandler(session_metadata)
+        self._handlers = [
+            self.audio_handler,
+            self.audio_metadata_handler,
+            self.control_handler,
+            self.system_info_handler,
+        ]
 
-    async def handle(self, envelope: GatewayInputEvent) -> None:
-        """Dispatch envelope to appropriate handler based on type."""
-        if envelope.event_type == "acs.audio.data":
-            await self.audio_handler.handle(envelope)
-        elif envelope.event_type == "acs.audio.metadata":
-            await self.audio_metadata_handler.handle(envelope)
-        elif envelope.event_type == "control":
-            await self.control_handler.handle(envelope)
-        elif envelope.event_type == "control.test.settings":
-            await self.control_handler.handle(envelope)
-        elif envelope.event_type == "control.test.request.system_info":
-            await self.system_info_handler.handle(envelope)
-        else:
-            logger.debug("Ignoring unsupported envelope type: %s", envelope.event_type)
+    async def handle(self, event: GatewayInputEvent) -> None:
+        """Dispatch envelope to appropriate handler based on payload contents."""
+        for handler in self._handlers:
+            if handler.can_handle(event):
+                await handler.handle(event)
+                return
+
+        logger.debug("Ignoring unsupported ACS envelope: %s", event.payload)
 
     async def shutdown(self) -> None:
         """Shutdown child handlers."""

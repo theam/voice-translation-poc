@@ -15,14 +15,16 @@ class TestAudioMetadataHandler(unittest.TestCase):
         envelope = MagicMock(spec=GatewayInputEvent)
         envelope.event_id = "test-msg-id"
         envelope.session_id = "session-1"
-        envelope.timestamp_utc = "2024-01-01T00:00:00Z"
-        envelope.event_type = "acs.audio.metadata"
+        envelope.received_at_utc = "2024-01-01T00:00:00Z"
         envelope.payload = {
-            "subscriptionId": "sub-123",
-            "encoding": "PCM",
-            "sampleRate": 24000,
-            "channels": 1,
-            "length": 640,
+            "kind": "audiometadata",
+            "audiometadata": {
+                "subscriptionId": "sub-123",
+                "encoding": "PCM",
+                "sampleRate": 24000,
+                "channels": 1,
+                "length": 640,
+            },
         }
 
         asyncio.run(self.handler.handle(envelope))
@@ -38,10 +40,9 @@ class TestAudioMetadataHandler(unittest.TestCase):
         envelope = MagicMock(spec=GatewayInputEvent)
         envelope.event_id = "test-msg-id-3"
         envelope.session_id = "session-1"
-        envelope.timestamp_utc = "2024-01-01T00:00:00Z"
-        envelope.event_type = "acs.audio.metadata"
+        envelope.received_at_utc = "2024-01-01T00:00:00Z"
         envelope.payload = {}
-        
+
         self.session_metadata = {} # Reset
         self.handler = AudioMetadataHandler(self.session_metadata)
 

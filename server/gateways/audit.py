@@ -19,13 +19,12 @@ class AuditHandler(Handler):
         super().__init__(settings)
         self.payload_capture = payload_capture
 
-    async def handle(self, envelope: GatewayInputEvent) -> None:
+    async def handle(self, event: GatewayInputEvent) -> None:
         logger.info(
-            "Audit event %s type=%s session=%s participant=%s",
-            envelope.event_id,
-            envelope.event_type,
-            envelope.session_id,
-            envelope.participant_id,
+            "Audit event %s session=%s source=%s",
+            event.event_id,
+            event.session_id,
+            event.source,
         )
         if self.payload_capture:
-            await self.payload_capture.capture(envelope)
+            await self.payload_capture.capture(event)
