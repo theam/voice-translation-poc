@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from ..models.envelope import Envelope
-
 
 @dataclass
 class HandlerSettings:
@@ -20,9 +18,8 @@ class Handler:
     def __init__(self, settings: HandlerSettings):
         self.settings = settings
 
-    async def __call__(self, envelope: Envelope) -> None:  # pragma: no cover - interface
+    async def __call__(self, envelope: object) -> None:  # pragma: no cover - interface
         await self.handle(envelope)
 
-    async def handle(self, envelope: Envelope) -> None:  # pragma: no cover - to be implemented
+    async def handle(self, envelope: object) -> None:  # pragma: no cover - to be implemented
         raise NotImplementedError
-

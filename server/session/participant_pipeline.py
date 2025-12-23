@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 from ..providers.provider_factory import ProviderFactory, TranslationProvider
 from ..config import Config
-from ..models.envelope import Envelope
+from ..models.gateway_input_event import GatewayInputEvent
 from ..core.event_bus import EventBus, HandlerConfig
 from ..gateways.audit import AuditHandler
 from ..gateways.base import HandlerSettings
@@ -147,7 +147,7 @@ class ParticipantPipeline:
 
         logger.info(f"Participant {self.participant_id} handlers registered")
 
-    async def process_message(self, envelope: Envelope):
+    async def process_message(self, envelope: GatewayInputEvent):
         """Process message from ACS for this participant."""
         await self.acs_inbound_bus.publish(envelope)
 

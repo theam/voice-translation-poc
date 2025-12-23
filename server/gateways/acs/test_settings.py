@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from ...models.envelope import Envelope
+from ...models.gateway_input_event import GatewayInputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +14,14 @@ class TestSettingsHandler:
         self.translation_settings = translation_settings
         self.session_metadata = session_metadata
 
-    async def handle(self, envelope: Envelope) -> None:
+    async def handle(self, envelope: GatewayInputEvent) -> None:
         """Handle control envelope."""
-        logger.info("Control event received: %s", envelope.message_id)
+        logger.info("Control event received: %s", envelope.event_id)
 
-        if envelope.type == "control.test.settings":
+        if envelope.event_type == "control.test.settings":
             self._apply_settings(envelope)
 
-    def _apply_settings(self, envelope: Envelope) -> None:
+    def _apply_settings(self, envelope: GatewayInputEvent) -> None:
         """Store translation settings for the session."""
         settings = envelope.payload.get("settings") if isinstance(envelope.payload, dict) else None
         if not isinstance(settings, dict):

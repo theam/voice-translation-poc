@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 import websockets
 from websockets.server import WebSocketServerProtocol
 
 from ..config import Config
+from ..models.gateway_input_event import ConnectionContext
 from ..session.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -61,8 +63,14 @@ class ACSServer:
         client_addr = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         logger.info(f"New ACS connection from {client_addr}")
 
+        connection_ctx = ConnectionContext(
+            ingress_ws_id=str(uuid.uuid4()),
+            call_connection_id=websocket.request_headers.get("x-ms-call-connection-id"),
+            call_correlation_id=websocket.request_headers.get("x-ms-call-correlation-id"),
+        )
+
         # Create session
-        session = await self.session_manager.create_session(websocket)
+        session = await self.session_manager.create_session(websocket, connection_ctx)
 
         try:
             # Run session (blocks until disconnect)

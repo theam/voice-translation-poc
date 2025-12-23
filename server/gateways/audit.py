@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from ..models.envelope import Envelope
+from ..models.gateway_input_event import GatewayInputEvent
 from ..services.payload_capture import PayloadCapture
 from .base import Handler, HandlerSettings
 
@@ -19,15 +19,13 @@ class AuditHandler(Handler):
         super().__init__(settings)
         self.payload_capture = payload_capture
 
-    async def handle(self, envelope: Envelope) -> None:
+    async def handle(self, envelope: GatewayInputEvent) -> None:
         logger.info(
-            "Audit event %s type=%s session=%s participant=%s commit=%s",
-            envelope.message_id,
-            envelope.type,
+            "Audit event %s type=%s session=%s participant=%s",
+            envelope.event_id,
+            envelope.event_type,
             envelope.session_id,
             envelope.participant_id,
-            envelope.commit_id,
         )
         if self.payload_capture:
             await self.payload_capture.capture(envelope)
-

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from ...models.envelope import Envelope
+from ...models.gateway_input_event import GatewayInputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +14,11 @@ class AudioMetadataHandler:
 
     Expected ACS payload in envelope.payload:
       {
-        "audioMetadata": {
-          "subscriptionId": "...",
-          "encoding": "PCM",
-          "sampleRate": 16000,
-          "channels": 1,
-          "length": 640
-        }
+        "subscriptionId": "...",
+        "encoding": "PCM",
+        "sampleRate": 16000,
+        "channels": 1,
+        "length": 640
       }
 
     Stores a canonical format record in session_metadata for later use
@@ -32,18 +30,16 @@ class AudioMetadataHandler:
     def __init__(self, session_metadata: Dict[str, Any]):
         self.session_metadata = session_metadata
 
-    async def handle(self, envelope: Envelope) -> None:
-        logger.info("Handling AudioMetadata: %s (session=%s)", envelope.message_id, envelope.session_id)
+    async def handle(self, envelope: GatewayInputEvent) -> None:
+        logger.info("Handling AudioMetadata: %s (session=%s)", envelope.event_id, envelope.session_id)
 
-        payload = envelope.payload or {}
-        meta = payload.get("audioMetadata")
+        meta = envelope.payload or {}
 
-        if not isinstance(meta, dict):
+        if not isinstance(meta, dict) or not meta:
             logger.warning(
-                "Expected payload.audioMetadata dict not found (message_id=%s, type=%s, keys=%s)",
-                envelope.message_id,
-                envelope.type,
-                list(payload.keys()),
+                "Expected audioMetadata dict payload (event_id=%s, type=%s)",
+                envelope.event_id,
+                envelope.event_type,
             )
             return
 
@@ -62,7 +58,7 @@ class AudioMetadataHandler:
         state = self.session_metadata.setdefault(self.SESSION_KEY, {})
         state["format"] = stream_format
         state["audio_ready"] = True
-        state["metadata_message_id"] = envelope.message_id
+        state["metadata_message_id"] = envelope.event_id
         state["metadata_received_at_utc"] = envelope.timestamp_utc
 
         logger.info(
