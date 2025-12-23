@@ -34,8 +34,6 @@ class AudioRequest:
 class ProviderOutputEvent:
     """
     Normalized provider output event consumed by ACS outbound handler.
-
-    Mirrors the Provider → ACS mapping spec (v0.1).
     """
 
     commit_id: str
@@ -62,28 +60,4 @@ class ProviderOutputEvent:
             "provider_response_id": self.provider_response_id,
             "provider_item_id": self.provider_item_id,
             "timestamp_ms": self.timestamp_ms,
-        }
-
-
-@dataclass
-class TranslationResponse:
-    """
-    Translation response received from translation provider.
-    Published to provider_inbound_bus when translation arrives.
-    """
-
-    commit_id: str
-    session_id: str
-    participant_id: Optional[str]
-    text: str
-    partial: bool  # True for partial/intermediate results, False for final
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "commit_id": self.commit_id,
-            "session_id": self.session_id,
-            "participant_id": self.participant_id,
-            "text": self.text,
-            "partial": self.partial,
         }

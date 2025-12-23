@@ -1178,7 +1178,7 @@ If migrating from current code:
 
 1. Keep existing gateways (they work per-session)
 2. Keep existing providers (VoiceLiveProvider, MockProvider)
-3. Keep existing models (Envelope, AudioRequest, ProviderOutputEvent, TranslationResponse)
+3. Keep existing models (Envelope, AudioRequest, ProviderOutputEvent)
 4. Replace: `service.py` → `acs_server.py` + `session.py` + `session_manager.py`
 5. Remove: `providers/ingress.py`, `providers/egress.py` (no longer needed)
 6. Update: `provider_factory.py` to take `provider_type` parameter

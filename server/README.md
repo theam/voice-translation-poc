@@ -230,7 +230,7 @@ server/
 │   ├── provider_result.py       # Formats provider responses
 │   └── acs/                     # ACS inbound gateway handlers
 ├── models/
-│   └── messages.py              # AudioRequest, ProviderOutputEvent, TranslationResponse
+│   └── messages.py              # AudioRequest, ProviderOutputEvent
 ├── services/
 │   └── audio_duration.py        # Audio duration calculator
 ├── acs_server.py                # WebSocket server (main component)
@@ -271,7 +271,7 @@ The new architecture replaces:
 Unchanged (reused as-is):
 - ✅ All gateways (audit, ACS inbound, provider_result)
 - ✅ Provider implementations (VoiceLive provider, MockProvider)
-- ✅ Models (Envelope, AudioRequest, ProviderOutputEvent, TranslationResponse)
+- ✅ Models (Envelope, AudioRequest, ProviderOutputEvent)
 - ✅ Services (AudioDurationCalculator)
 - ✅ Config, EventBus, Queues
 
