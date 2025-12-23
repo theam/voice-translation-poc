@@ -1,4 +1,4 @@
-"""Participant pipeline: independent translation pipeline for a single participant."""
+"""Session pipeline: translation pipeline shared across participants in a session."""
 
 from __future__ import annotations
 
@@ -18,40 +18,29 @@ from ..core.queues import OverflowPolicy
 logger = logging.getLogger(__name__)
 
 
-class ParticipantPipeline:
-    """Independent translation pipeline for a single participant.
-
-    Each pipeline has its own:
-    - Event buses (4)
-    - Handlers (4 instances)
-    - Provider adapter
-    - Auto-commit state
-
-    This enables complete isolation between participants.
-    """
+class SessionPipeline:
+    """Translation pipeline shared across all participants in an ACS session."""
 
     def __init__(
         self,
         session_id: str,
-        participant_id: str,
         config: Config,
         provider_name: str,
         metadata: Dict[str, Any],
         translation_settings: Dict[str, Any],
     ):
         self.session_id = session_id
-        self.participant_id = participant_id
         self.config = config
         self.provider_name = provider_name
         self.metadata = metadata
         self.translation_settings = translation_settings
+        self.pipeline_id = f"{session_id}"
 
-        # Event buses (per-participant)
-        pipeline_id = f"{session_id}_{participant_id}"
-        self.acs_inbound_bus = EventBus(f"acs_in_{pipeline_id}")
-        self.provider_outbound_bus = EventBus(f"prov_out_{pipeline_id}")
-        self.provider_inbound_bus = EventBus(f"prov_in_{pipeline_id}")
-        self.acs_outbound_bus = EventBus(f"acs_out_{pipeline_id}")
+        # Event buses (scoped to the session)
+        self.acs_inbound_bus = EventBus(f"acs_in_{self.pipeline_id}")
+        self.provider_outbound_bus = EventBus(f"prov_out_{self.pipeline_id}")
+        self.provider_inbound_bus = EventBus(f"prov_in_{self.pipeline_id}")
+        self.acs_outbound_bus = EventBus(f"acs_out_{self.pipeline_id}")
 
         # Provider adapter (per-participant)
         self.provider_adapter: Optional[TranslationProvider] = None
@@ -60,7 +49,7 @@ class ParticipantPipeline:
         self._translation_handler: Optional[AcsInboundMessageHandler] = None
 
     async def start(self):
-        """Start participant pipeline: create provider and register handlers."""
+        """Start session pipeline: create provider and register handlers."""
         # Create provider adapter
         self.provider_adapter = ProviderFactory.create_provider(
             config=self.config,
@@ -73,31 +62,33 @@ class ParticipantPipeline:
         # Start provider
         await self.provider_adapter.start()
         logger.info(
-            f"Participant {self.participant_id} provider started: {self.provider_name}"
+            "Session %s provider started: %s",
+            self.session_id,
+            self.provider_name,
         )
 
         # Register handlers
         await self._register_handlers()
 
     async def _register_handlers(self):
-        """Register handlers on participant's event buses."""
+        """Register handlers on session event buses."""
         overflow_policy = OverflowPolicy(self.config.buffering.overflow_policy)
 
         # 1. Audit handler
         await self.acs_inbound_bus.register_handler(
             HandlerConfig(
-                name="audit",
+                name=f"audit_{self.session_id}",
                 queue_max=500,
                 overflow_policy=overflow_policy,
                 concurrency=1
             ),
             AuditHandler(
                 HandlerSettings(
-                    name="audit",
+                    name=f"audit_{self.session_id}",
                     queue_max=500,
                     overflow_policy=str(overflow_policy)
                 ),
-                payload_capture=None  # Could be per-participant
+                payload_capture=None
             )
         )
 
@@ -117,7 +108,7 @@ class ParticipantPipeline:
 
         await self.acs_inbound_bus.register_handler(
             HandlerConfig(
-                name="translation",
+                name=f"translation_{self.session_id}",
                 queue_max=self.config.buffering.ingress_queue_max,
                 overflow_policy=overflow_policy,
                 concurrency=1
@@ -128,14 +119,14 @@ class ParticipantPipeline:
         # 3. Provider output handler
         await self.provider_inbound_bus.register_handler(
             HandlerConfig(
-                name="provider_output",
+                name=f"provider_output_{self.session_id}",
                 queue_max=self.config.buffering.egress_queue_max,
                 overflow_policy=overflow_policy,
                 concurrency=1
             ),
             ProviderOutputHandler(
                 HandlerSettings(
-                    name="provider_output",
+                    name=f"provider_output_{self.session_id}",
                     queue_max=self.config.buffering.egress_queue_max,
                     overflow_policy=str(self.config.buffering.overflow_policy)
                 ),
@@ -145,14 +136,14 @@ class ParticipantPipeline:
             )
         )
 
-        logger.info(f"Participant {self.participant_id} handlers registered")
+        logger.info("Session %s handlers registered", self.session_id)
 
     async def process_message(self, envelope: GatewayInputEvent):
-        """Process message from ACS for this participant."""
+        """Process message from ACS for this session."""
         await self.acs_inbound_bus.publish(envelope)
 
     async def cleanup(self):
-        """Cleanup participant pipeline."""
+        """Cleanup session pipeline."""
         # Shutdown translation handler
         if self._translation_handler:
             await self._translation_handler.shutdown()
@@ -167,4 +158,4 @@ class ParticipantPipeline:
         await self.provider_inbound_bus.shutdown()
         await self.acs_outbound_bus.shutdown()
 
-        logger.info(f"Participant {self.participant_id} pipeline cleaned up")
+        logger.info("Session %s pipeline cleaned up", self.session_id)

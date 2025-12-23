@@ -166,143 +166,54 @@ class SessionManager:
 - Thread-safe session tracking
 - Handles cleanup on disconnect
 
-### 3. Participant Pipeline (`participant_pipeline.py`)
+### 3. Session Pipeline (`session_pipeline.py`)
 
-**Responsibility**: Manages translation pipeline for ONE participant within a session.
+**Responsibility**: Manages translation pipeline for ONE ACS session and accepts events from all participants.
 
 ```python
-class ParticipantPipeline:
-    """Independent translation pipeline for a single participant."""
+class SessionPipeline:
+    """Translation pipeline shared across all participants in an ACS session."""
 
     def __init__(
         self,
         session_id: str,
-        participant_id: str,
         config: Config,
-        provider_type: str,
-        metadata: Dict[str, Any]
+        provider_name: str,
+        metadata: Dict[str, Any],
+        translation_settings: Dict[str, Any],
     ):
         self.session_id = session_id
-        self.participant_id = participant_id
         self.config = config
-        self.provider_type = provider_type
+        self.provider_name = provider_name
         self.metadata = metadata
+        self.translation_settings = translation_settings
 
-        # Event buses (per-participant)
-        pipeline_id = f"{session_id}_{participant_id}"
-        self.acs_inbound_bus = EventBus(f"acs_in_{pipeline_id}")
-        self.provider_outbound_bus = EventBus(f"prov_out_{pipeline_id}")
-        self.provider_inbound_bus = EventBus(f"prov_in_{pipeline_id}")
-        self.acs_outbound_bus = EventBus(f"acs_out_{pipeline_id}")
-
-        # Provider (per-participant)
-        self.provider_adapter: Optional[TranslationProvider] = None
-
-        # Gateways (per-participant instances)
-        self._translation_handler: Optional[TranslationDispatchHandler] = None
+        self.acs_inbound_bus = EventBus(f"acs_in_{session_id}")
+        self.provider_outbound_bus = EventBus(f"prov_out_{session_id}")
+        self.provider_inbound_bus = EventBus(f"prov_in_{session_id}")
+        self.acs_outbound_bus = EventBus(f"acs_out_{session_id}")
 
     async def start(self):
-        """Start participant pipeline: create provider and register handlers."""
-        # Create provider
+        """Start session pipeline: create provider and register handlers."""
         self.provider_adapter = ProviderFactory.create_provider(
             config=self.config,
-            provider_type=self.provider_type,
+            provider_name=self.provider_name,
             outbound_bus=self.provider_outbound_bus,
-            inbound_bus=self.provider_inbound_bus
+            inbound_bus=self.provider_inbound_bus,
+            session_metadata=self.metadata,
         )
-
-        # Start provider
         await self.provider_adapter.start()
-        logger.info(
-            f"Participant {self.participant_id} provider started: {self.provider_type}"
-        )
-
-        # Register handlers
         await self._register_handlers()
-
-    async def _register_handlers(self):
-        """Register handlers on participant's event buses."""
-        overflow_policy = OverflowPolicy(self.config.buffering.overflow_policy)
-
-        # 1. Audit handler
-        await self.acs_inbound_bus.register_handler(
-            HandlerConfig(name="audit", queue_max=500, overflow_policy=overflow_policy),
-            AuditHandler(
-                HandlerSettings(name="audit", queue_max=500),
-                payload_capture=None
-            )
-        )
-
-        # 2. Translation dispatch handler
-        self._translation_handler = TranslationDispatchHandler(
-            HandlerSettings(
-                name="translation",
-                queue_max=self.config.buffering.ingress_queue_max
-            ),
-            provider_outbound_bus=self.provider_outbound_bus,
-            batching_config=self.config.dispatch.batching
-        )
-
-        await self.acs_inbound_bus.register_handler(
-            HandlerConfig(
-                name="translation",
-                queue_max=self.config.buffering.ingress_queue_max,
-                overflow_policy=overflow_policy
-            ),
-            self._translation_handler
-        )
-
-        # 3. Provider result handler
-        await self.provider_inbound_bus.register_handler(
-            HandlerConfig(
-                name="provider_result",
-                queue_max=self.config.buffering.egress_queue_max,
-                overflow_policy=overflow_policy
-            ),
-            ProviderResultHandler(
-                HandlerSettings(
-                    name="provider_result",
-                    queue_max=self.config.buffering.egress_queue_max
-                ),
-                acs_outbound_bus=self.acs_outbound_bus
-            )
-        )
-
-        logger.info(f"Participant {self.participant_id} handlers registered")
-
-    async def process_message(self, envelope: GatewayInputEvent):
-        """Process message from ACS for this participant."""
-        await self.acs_inbound_bus.publish(envelope)
-
-    async def cleanup(self):
-        """Cleanup participant pipeline."""
-        # Shutdown translation handler
-        if self._translation_handler:
-            await self._translation_handler.shutdown()
-
-        # Shutdown provider
-        if self.provider_adapter:
-            await self.provider_adapter.close()
-
-        # Shutdown buses
-        await self.acs_inbound_bus.shutdown()
-        await self.provider_outbound_bus.shutdown()
-        await self.provider_inbound_bus.shutdown()
-        await self.acs_outbound_bus.shutdown()
-
-        logger.info(f"Participant {self.participant_id} pipeline cleaned up")
 ```
 
 **Key Points**:
-- One pipeline per participant_id
-- Complete isolation from other participants
-- Own provider instance (can be different type)
-- Own event buses and gateways
-- Independent auto-commit state
+- Single pipeline per ACS session
+- Event buses are scoped to the session
+- Provider instance is shared by all participants in the session
 
 ### 4. Session (`session.py`)
 
-**Responsibility**: Manages one ACS connection, routes messages to participant pipelines.
+**Responsibility**: Manages one ACS connection, initializes a single session-scoped pipeline, and forwards all inbound events to it.
 
 ```python
 class Session:
@@ -310,388 +221,98 @@ class Session:
         self,
         session_id: str,
         websocket: WebSocketServerProtocol,
-        config: Config
+        config: Config,
+        connection_ctx: ConnectionContext,
     ):
         self.session_id = session_id
         self.websocket = websocket
         self.config = config
+        self.connection_ctx = connection_ctx
+        self.canonical_session_id = connection_ctx.call_connection_id or connection_ctx.ingress_ws_id
 
-        # Session state
-        self.routing_strategy: Optional[str] = None  # "shared" or "per_participant"
         self.metadata: Dict[str, Any] = {}
+        self.translation_settings: Dict[str, Any] = {}
+        self.pipeline: Optional[SessionPipeline] = None
 
-        # Routing modes
-        # Mode 1: Shared pipeline (all participants share)
-        self.shared_pipeline: Optional[ParticipantPipeline] = None
-
-        # Mode 2: Per-participant pipelines
-        self.participant_pipelines: Dict[str, ParticipantPipeline] = {}
-
-        # Initialization flag
         self._initialized = False
-
-        # Background tasks
+        self._sequence = 0
         self._receive_task: Optional[asyncio.Task] = None
         self._send_task: Optional[asyncio.Task] = None
 
-    async def run(self):
-        """Run session: process messages until disconnect."""
-        logger.info(f"Session {self.session_id} started")
-
-        # Start ACS receive/send loops
-        self._receive_task = asyncio.create_task(self._acs_receive_loop())
-        self._send_task = asyncio.create_task(self._acs_send_loop())
-
-        try:
-            # Wait for both tasks
-            await asyncio.gather(
-                self._receive_task,
-                self._send_task,
-                return_exceptions=True
-            )
-        finally:
-            await self.cleanup()
-
     async def _acs_receive_loop(self):
-        """Receive messages from ACS WebSocket and route to pipelines."""
-        try:
-            async for raw_message in self.websocket:
-                try:
-                    data = json.loads(raw_message)
+        """Receive messages from ACS WebSocket and route to pipeline."""
+        async for raw_message in self.websocket:
+            data = json.loads(raw_message)
+            if not self._initialized:
+                await self._initialize_from_first_message(data)
 
-                    # First message: extract metadata and initialize
-                    if not self._initialized:
-                        await self._initialize_from_first_message(data)
-
-                    # Convert to GatewayInputEvent
-                    event = GatewayInputEvent.from_acs_frame(
-                        data,
-                        sequence=self._sequence,
-                        ctx=self.connection_ctx,
-                    )
-
-                    # Route based on strategy
-                    await self._route_message(event)
-
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Invalid JSON from ACS: {e}")
-                except Exception as e:
-                    logger.exception(f"Error processing ACS message: {e}")
-        except websockets.ConnectionClosed:
-            logger.info(f"Session {self.session_id} ACS disconnected")
+            self._sequence += 1
+            event = GatewayInputEvent.from_acs_frame(
+                data,
+                sequence=self._sequence,
+                ctx=self.connection_ctx,
+            )
+            await self._route_message(event)
 
     async def _route_message(self, envelope: GatewayInputEvent):
-        """Route message to appropriate pipeline(s)."""
-        if self.routing_strategy == "shared":
-            # All participants share one pipeline
-            await self.shared_pipeline.process_message(envelope)
-
-        elif self.routing_strategy == "per_participant":
-            # Get or create pipeline for this participant
-            participant_id = envelope.participant_id or "default"
-
-            if participant_id not in self.participant_pipelines:
-                # Create new pipeline for this participant
-                pipeline = await self._create_participant_pipeline(
-                    participant_id,
-                    envelope
-                )
-                self.participant_pipelines[participant_id] = pipeline
-
-            # Route to participant's pipeline
-            await self.participant_pipelines[participant_id].process_message(envelope)
-
-    async def _acs_send_loop(self):
-        """Consume from acs_outbound_bus and send to ACS WebSocket."""
-        # Register a handler that sends directly to WebSocket
-        async def send_to_acs(payload: Dict[str, Any]):
-            try:
-                await self.websocket.send(json.dumps(payload))
-                logger.debug(f"Sent to ACS: {payload.get('type')}")
-            except Exception as e:
-                logger.exception(f"Failed to send to ACS: {e}")
-
-        await self.acs_outbound_bus.register_handler(
-            HandlerConfig(
-                name="acs_websocket_send",
-                queue_max=1000,
-                overflow_policy=OverflowPolicy.DROP_OLDEST,
-                concurrency=1
-            ),
-            # Create inline handler
-            type('ACSWebSocketSender', (Handler,), {
-                'handle': lambda self, payload: send_to_acs(payload)
-            })(HandlerSettings(name="acs_websocket_send", queue_max=1000))
-        )
-
-        # Keep task alive
-        await asyncio.Future()
+        if self.pipeline is None:
+            return
+        await self.pipeline.process_message(envelope)
 
     async def _initialize_from_first_message(self, data: Dict[str, Any]):
-        """Extract metadata and initialize routing strategy from first message."""
         self.metadata = data.get("metadata", {})
+        provider_name = self._select_provider(self.metadata)
 
-        # Determine routing strategy
-        self.routing_strategy = self._select_routing_strategy(self.metadata)
-
-        logger.info(
-            f"Session {self.session_id} routing: {self.routing_strategy}"
+        self.pipeline = SessionPipeline(
+            session_id=self.canonical_session_id,
+            config=self.config,
+            provider_name=provider_name,
+            metadata=self.metadata,
+            translation_settings=self.translation_settings,
         )
-
-        if self.routing_strategy == "shared":
-            # Create single shared pipeline
-            participant_id = "shared"
-            provider_type = self._select_provider(self.metadata, participant_id)
-
-            self.shared_pipeline = ParticipantPipeline(
-                session_id=self.session_id,
-                participant_id=participant_id,
-                config=self.config,
-                provider_type=provider_type,
-                metadata=self.metadata
-            )
-            await self.shared_pipeline.start()
-
-            # Subscribe to its outbound bus
-            await self._subscribe_to_pipeline_output(self.shared_pipeline)
-
-        elif self.routing_strategy == "per_participant":
-            # Pipelines created on-demand when participants send messages
-            # (see _route_message and _create_participant_pipeline)
-            pass
-
+        await self.pipeline.start()
+        await self._subscribe_to_pipeline_output(self.pipeline)
         self._initialized = True
 
-    def _select_routing_strategy(self, metadata: Dict[str, Any]) -> str:
-        """Select routing strategy based on ACS metadata."""
-        # Strategy 1: Explicit routing in metadata
-        if "routing" in metadata:
-            routing = metadata["routing"]
-            if routing in ["shared", "per_participant"]:
-                return routing
-
-        # Strategy 2: Feature flag
-        if metadata.get("feature_flags", {}).get("per_participant_pipelines"):
-            return "per_participant"
-
-        # Strategy 3: Provider-specific requirements
-        # Some providers might require per-participant isolation
-        provider = metadata.get("provider", self.config.dispatch.provider)
-        if provider in ["provider_requiring_isolation"]:
-            return "per_participant"
-
-        # Default: shared pipeline (more efficient)
-        return "shared"
-
-    def _select_provider(
-        self,
-        metadata: Dict[str, Any],
-        participant_id: str
-    ) -> str:
-        """Select provider based on ACS metadata and participant."""
-        # Strategy 1: Per-participant provider override
-        participant_providers = metadata.get("participant_providers", {})
-        if participant_id in participant_providers:
-            return participant_providers[participant_id]
-
-        # Strategy 2: Explicit provider in metadata
-        if "provider" in metadata:
-            return metadata["provider"]
-
-        # Strategy 3: Customer/tenant-based routing
-        if "customer_id" in metadata:
-            # Could have per-customer provider mapping
-            pass
-
-        # Strategy 4: Feature flags
-        if metadata.get("feature_flags", {}).get("use_voicelive"):
-            return "voicelive"
-
-        # Default: use config
-        return self.config.dispatch.provider
-
-    async def _create_participant_pipeline(
-        self,
-        participant_id: str,
-        envelope: GatewayInputEvent
-    ) -> ParticipantPipeline:
-        """Create pipeline for a new participant (per_participant mode)."""
-        # Determine provider for this participant
-        provider_type = self._select_provider(self.metadata, participant_id)
-
-        logger.info(
-            f"Creating pipeline for participant {participant_id}: "
-            f"provider={provider_type}"
-        )
-
-        # Create pipeline
-        pipeline = ParticipantPipeline(
-            session_id=self.session_id,
-            participant_id=participant_id,
-            config=self.config,
-            provider_type=provider_type,
-            metadata=self.metadata
-        )
-
-        # Start pipeline
-        await pipeline.start()
-
-        # Subscribe to its outbound bus
-        await self._subscribe_to_pipeline_output(pipeline)
-
-        return pipeline
-
-    async def _subscribe_to_pipeline_output(self, pipeline: ParticipantPipeline):
-        """Subscribe to pipeline's acs_outbound_bus to forward to ACS."""
+    async def _subscribe_to_pipeline_output(self, pipeline: SessionPipeline):
         async def send_to_acs(payload: Dict[str, Any]):
-            try:
-                await self.websocket.send(json.dumps(payload))
-                logger.debug(f"Sent to ACS: {payload.get('type')}")
-            except Exception as e:
-                logger.exception(f"Failed to send to ACS: {e}")
+            await self.websocket.send(json.dumps(payload))
 
-        # Register handler on pipeline's outbound bus
+        class ACSWebSocketSender(Handler):
+            async def handle(self, payload: Dict[str, Any]):
+                await send_to_acs(payload)
+
         await pipeline.acs_outbound_bus.register_handler(
             HandlerConfig(
-                name="acs_websocket_send",
+                name=f"acs_websocket_send_{pipeline.pipeline_id}",
                 queue_max=1000,
                 overflow_policy=OverflowPolicy.DROP_OLDEST,
                 concurrency=1
             ),
-            type('ACSWebSocketSender', (Handler,), {
-                'handle': lambda self, payload: send_to_acs(payload)
-            })(HandlerSettings(name="acs_websocket_send", queue_max=1000))
-        )
-
-    async def _register_handlers(self):
-        """Register all handlers on event buses."""
-        overflow_policy = OverflowPolicy(self.config.buffering.overflow_policy)
-
-        # 1. Audit handler
-        await self.acs_inbound_bus.register_handler(
-            HandlerConfig(
-                name="audit",
-                queue_max=500,
-                overflow_policy=overflow_policy,
-                concurrency=1
-            ),
-            AuditHandler(
-                HandlerSettings(name="audit", queue_max=500),
-                payload_capture=None  # Could be per-session
-            )
-        )
-
-        # 2. Translation dispatch handler
-        await self.acs_inbound_bus.register_handler(
-            HandlerConfig(
-                name="translation",
-                queue_max=self.config.buffering.ingress_queue_max,
-                overflow_policy=overflow_policy,
-                concurrency=1
-            ),
-            TranslationDispatchHandler(
+            ACSWebSocketSender(
                 HandlerSettings(
-                    name="translation",
-                    queue_max=self.config.buffering.ingress_queue_max
-                ),
-                provider_outbound_bus=self.provider_outbound_bus,
-                batching_config=self.config.dispatch.batching
+                    name=f"acs_websocket_send_{pipeline.pipeline_id}",
+                    queue_max=1000,
+                    overflow_policy="DROP_OLDEST"
+                )
             )
         )
-
-        # 3. Provider result handler
-        await self.provider_inbound_bus.register_handler(
-            HandlerConfig(
-                name="provider_result",
-                queue_max=self.config.buffering.egress_queue_max,
-                overflow_policy=overflow_policy,
-                concurrency=1
-            ),
-            ProviderResultHandler(
-                HandlerSettings(
-                    name="provider_result",
-                    queue_max=self.config.buffering.egress_queue_max
-                ),
-                acs_outbound_bus=self.acs_outbound_bus
-            )
-        )
-
-        logger.info(f"Session {self.session_id} handlers registered")
 
     async def cleanup(self):
-        """Cleanup session resources."""
-        logger.info(f"Session {self.session_id} cleanup started")
-
-        # Cancel tasks
-        if self._receive_task and not self._receive_task.done():
+        if self._receive_task:
             self._receive_task.cancel()
-        if self._send_task and not self._send_task.done():
+        if self._send_task:
             self._send_task.cancel()
-
-        # Cleanup pipelines based on routing strategy
-        if self.routing_strategy == "shared":
-            if self.shared_pipeline:
-                await self.shared_pipeline.cleanup()
-
-        elif self.routing_strategy == "per_participant":
-            for pipeline in self.participant_pipelines.values():
-                await pipeline.cleanup()
-
-        # Close WebSocket
-        if not self.websocket.closed:
-            await self.websocket.close()
-
-        logger.info(f"Session {self.session_id} cleanup complete")
+        if self.pipeline:
+            await self.pipeline.cleanup()
+        await self.websocket.close()
 ```
 
 **Key Points**:
-- One session = one ACS connection
-- Supports two routing strategies (shared or per_participant)
-- Strategy selected dynamically from first message metadata
-- Pipelines created on-demand
-- Lifecycle: initialize → route → cleanup
-
-### 4. Provider Factory (`provider_factory.py`)
-
-**Updated to support per-session provider selection**:
-
-```python
-class ProviderFactory:
-    @staticmethod
-    def create_provider(
-        config: Config,
-        provider_name: str,  # Now passed per-session
-        outbound_bus: EventBus,
-        inbound_bus: EventBus,
-    ) -> TranslationProvider:
-        """Create provider based on session-specific provider type."""
-        provider_config = config.providers.get(provider_name)
-        logger.info(
-            "Creating provider: name=%s type=%s",
-            provider_name,
-            provider_config.type,
-        )
-
-        if provider_config.type == "mock":
-            return MockProvider(
-                outbound_bus=outbound_bus,
-                inbound_bus=inbound_bus,
-                delay_ms=50
-            )
-
-        elif provider_config.type == "voice_live":
-            return VoiceLiveProvider(
-                endpoint=provider_config.endpoint,
-                api_key=provider_config.api_key,
-                region=provider_config.region,
-                resource=provider_config.resource,
-                outbound_bus=outbound_bus,
-                inbound_bus=inbound_bus
-            )
-
-        else:
-            raise ValueError(f"Unknown provider type: {provider_config.type}")
-```
+- Exactly one pipeline per ACS WebSocket session
+- Participant identity is preserved on envelopes; the pipeline reads it from the event payloads
+- Outbound ACS messaging uses the pipeline's `acs_outbound_bus` with a single WebSocket sender subscription
+- Cleanup covers the session tasks, the session pipeline, and the WebSocket connection
 
 ### 5. Main Entry Point (`main.py`)
 
@@ -759,49 +380,35 @@ Resources: 1 pipeline, 1 provider connection, 4 event buses
 - No isolation if one participant causes issues
 - Shared auto-commit buffers (may not be ideal for all scenarios)
 
-#### Per-Participant Pipeline Mode
+#### Session Pipeline Mode
 
 ```
 First message metadata: {
-  "routing": "per_participant",
-  "participant_providers": {
-    "user-123": "voicelive",
-    "user-456": "mock"
-  }
+  "routing": "shared" // routing hints are ignored; one pipeline per session
 }
 
-Session creates pipelines on-demand:
-  ├── Pipeline for Participant A (user-123)
-  │   ├── Event buses (4)
-  │   ├── Handlers (4)
-  │   └── Provider: VoiceLive
-  ├── Pipeline for Participant B (user-456)
-  │   ├── Event buses (4)
-  │   ├── Handlers (4)
-  │   └── Provider: Mock
-  └── Pipeline for Participant C (user-789)
+Session constructs one pipeline and all participants share it:
+  └── Session Pipeline
       ├── Event buses (4)
       ├── Handlers (4)
-      └── Provider: VoiceLive (default)
+      └── Provider: VoiceLive
 
 Message flow:
-  Participant A audio → Pipeline A → VoiceLive connection A
-  Participant B audio → Pipeline B → Mock provider B
-  Participant C audio → Pipeline C → VoiceLive connection C
+  Participant A audio → Session Pipeline → VoiceLive
+  Participant B audio → Session Pipeline → VoiceLive
+  Participant C audio → Session Pipeline → VoiceLive
 
-Resources: 3 pipelines, 3 provider connections, 12 event buses
+Resources: 1 pipeline, 1 provider connection, 4 event buses
 ```
 
 **Pros**:
-- Complete isolation per participant
-- Different providers per participant
-- Independent failure domains
-- Independent auto-commit strategies
+- Minimal overhead while supporting multiple participants
+- Simple state management; participant_id stays on the envelope
+- Outbound ACS wiring stays centralized
 
-**Cons**:
-- Higher overhead (3x resources)
-- More complex state management
-- Multiple provider connections
+**Cons / Notes**:
+- Provider choice is made once per session (config/metadata driven)
+- Provider fan-out to multiple downstream clients is handled separately
 
 ## Message Flow Examples
 
@@ -821,40 +428,35 @@ Resources: 3 pipelines, 3 provider connections, 12 event buses
 
 **Flow**:
 1. Session receives message
-2. Detects routing: "shared"
-3. Creates ONE shared pipeline with VoiceLive provider
-4. All subsequent messages (any participant) → shared pipeline
-5. Single VoiceLive connection handles all participants
+2. Initializes the session pipeline with VoiceLive provider (from metadata)
+3. All subsequent messages (any participant) → session pipeline
+4. Single VoiceLive connection handles all participants
 
-### Example 2: Per-Participant Pipeline Flow
+### Example 2: Multi-Participant Session Flow
 
-**First Message**:
+**First Message** (participant A):
 ```json
 {
   "kind": "AudioData",
-  "metadata": {
-    "routing": "per_participant",
-    "participant_providers": {
-      "user-123": "voicelive",
-      "user-456": "mock"
-    }
-  },
-  "audioData": {
-    "participantRawID": "user-123",
-    "data": "UklGR..."
-  }
+  "metadata": {"provider": "voicelive"},
+  "audioData": {"participantRawID": "user-123", "data": "UklGR..."}
+}
+```
+
+**Second Message** (participant B):
+```json
+{
+  "kind": "AudioData",
+  "metadata": {"provider": "voicelive"},
+  "audioData": {"participantRawID": "user-456", "data": "UklGR..."}
 }
 ```
 
 **Flow**:
-1. Session receives message from user-123
-2. Detects routing: "per_participant"
-3. Creates pipeline for user-123 with VoiceLive provider
-4. Message routed to user-123's pipeline
-5. Later: user-456 sends message
-6. Creates pipeline for user-456 with Mock provider
-7. Message routed to user-456's pipeline
-8. Two independent pipelines, two provider connections
+1. Session receives first message and starts one session pipeline with VoiceLive provider
+2. user-123 audio routed to the pipeline; participant_id stays on the envelope
+3. user-456 message arrives later; routed to the same pipeline
+4. Provider receives both participants' audio streams on a single connection
 
 ### Example 3: Complete End-to-End Flow
 
@@ -946,91 +548,14 @@ buffering:
   overflow_policy: "DROP_OLDEST"
 ```
 
-## Routing Strategy Selection
+## Routing Strategy
 
-The routing strategy determines how participants are handled within a session. This is selected from the **first ACS message metadata**.
+The server now uses a single session-scoped pipeline for every ACS WebSocket connection. Incoming events from any participant are forwarded to that one pipeline. Metadata routing hints (e.g., `routing: per_participant`) are ignored; participant isolation is handled inside the pipeline by reading `participant_id` on each `GatewayInputEvent`.
 
-### Strategy 1: Shared Pipeline (Default)
-
-**Use Case**: Most sessions where all participants can share resources.
-
-**Metadata**:
-```json
-{
-  "metadata": {"routing": "shared"},
-  "audioData": {...}
-}
-```
-
-**Behavior**:
-- One pipeline for all participants
-- Most efficient (less overhead)
-- All participants use same provider
-- Shared auto-commit buffers
-
-### Strategy 2: Per-Participant Pipelines
-
-**Use Cases**:
-- Providers that only support single participant streams
-- Different providers per participant
-- Experimentation (A/B testing per participant)
-- Complete isolation requirements
-
-**Metadata**:
-```json
-{
-  "metadata": {"routing": "per_participant"},
-  "audioData": {...}
-}
-```
-
-**Behavior**:
-- Each participant gets own pipeline
-- Independent providers, buffers, gateways
-- Participants don't interfere with each other
-- Created on-demand as participants send messages
-
-### Strategy 3: Feature Flag Trigger
-
-```json
-{
-  "metadata": {
-    "feature_flags": {"per_participant_pipelines": true}
-  }
-}
-```
-
-### Strategy 4: Provider-Specific Requirements
-
-Some providers automatically trigger per-participant mode:
-
-```python
-# In _select_routing_strategy()
-if provider in ["provider_requiring_isolation"]:
-    return "per_participant"
-```
-
-### Per-Participant Provider Override
-
-When using per-participant routing, you can specify different providers per participant:
-
-```json
-{
-  "metadata": {
-    "routing": "per_participant",
-    "participant_providers": {
-      "user-123": "voicelive",
-      "user-456": "mock",
-      "user-789": "live_interpreter"
-    }
-  }
-}
-```
-
-**Result**:
-- user-123 → VoiceLiveProvider
-- user-456 → MockProvider
-- user-789 → LiveInterpreterAdapter (when implemented)
+**Implications**:
+- Only one pipeline (and one provider connection) exists per session
+- Participant-specific behavior should be driven by event payloads instead of pipeline creation
+- Downstream provider fan-out to multiple clients is handled separately from session routing
 
 ## Provider Selection Strategies
 
@@ -1044,11 +569,10 @@ Provider selection works **within** the chosen routing strategy.
 ```
 All participants use VoiceLive.
 
-### 2. Per-Participant Override
+### 2. Participant Overrides (Legacy)
 ```json
 {
   "metadata": {
-    "routing": "per_participant",
     "participant_providers": {
       "user-123": "voicelive",
       "user-456": "mock"
@@ -1056,7 +580,7 @@ All participants use VoiceLive.
   }
 }
 ```
-Different provider per participant (requires per_participant routing).
+These hints are ignored in the current single-pipeline flow; the provider is selected once per session.
 
 ### 3. Customer-Based Routing
 ```json

@@ -1,4 +1,4 @@
-"""Session: manages one ACS WebSocket connection with dynamic routing."""
+"""Session: manages one ACS WebSocket connection with a session-scoped pipeline."""
 
 from __future__ import annotations
 
@@ -16,20 +16,13 @@ from ..core.event_bus import HandlerConfig
 from ..gateways.base import Handler, HandlerSettings
 from ..core.queues import OverflowPolicy
 from ..utils.dict_utils import normalize_keys
-from .participant_pipeline import ParticipantPipeline
+from .session_pipeline import SessionPipeline
 
 logger = logging.getLogger(__name__)
 
 
 class Session:
-    """Manages one ACS WebSocket connection with dynamic routing strategies.
-
-    Routing Strategies:
-    - "shared": All participants share one pipeline (default, efficient)
-    - "per_participant": Each participant gets own pipeline (isolated)
-
-    Strategy determined from first message metadata.
-    """
+    """Manages one ACS WebSocket connection with a single translation pipeline."""
 
     def __init__(
         self,
@@ -45,16 +38,11 @@ class Session:
         self.canonical_session_id = connection_ctx.call_connection_id or connection_ctx.ingress_ws_id
 
         # Session state
-        self.routing_strategy: Optional[str] = None  # "shared" or "per_participant"
         self.metadata: Dict[str, Any] = {}
         self.translation_settings: Dict[str, Any] = {}
 
-        # Routing modes
-        # Mode 1: Shared pipeline (all participants share)
-        self.shared_pipeline: Optional[ParticipantPipeline] = None
-
-        # Mode 2: Per-participant pipelines
-        self.participant_pipelines: Dict[str, ParticipantPipeline] = {}
+        # Single session-scoped pipeline
+        self.pipeline: Optional[SessionPipeline] = None
 
         # Initialization flag
         self._initialized = False
@@ -91,7 +79,7 @@ class Session:
             await self.cleanup()
 
     async def _acs_receive_loop(self):
-        """Receive messages from ACS WebSocket and route to pipelines."""
+        """Receive messages from ACS WebSocket and route to the session pipeline."""
         try:
             async for raw_message in self.websocket:
                 try:
@@ -111,7 +99,7 @@ class Session:
                         ctx=self.connection_ctx,
                     )
 
-                    # Route based on strategy
+                    # Route to the session pipeline
                     await self._route_message(envelope)
 
                 except json.JSONDecodeError as e:
@@ -124,26 +112,12 @@ class Session:
             logger.exception(f"Session {self.session_id} receive loop error: {e}")
 
     async def _route_message(self, envelope: GatewayInputEvent):
-        """Route message to appropriate pipeline(s)."""
-        if self.routing_strategy == "shared":
-            # All participants share one pipeline
-            if self.shared_pipeline:
-                await self.shared_pipeline.process_message(envelope)
+        """Route message to the session pipeline."""
+        if self.pipeline is None:
+            logger.warning("Session %s received message before pipeline initialization", self.session_id)
+            return
 
-        elif self.routing_strategy == "per_participant":
-            # Get or create pipeline for this participant
-            participant_id = envelope.participant_id or "default"
-
-            if participant_id not in self.participant_pipelines:
-                # Create new pipeline for this participant
-                pipeline = await self._create_participant_pipeline(
-                    participant_id,
-                    envelope
-                )
-                self.participant_pipelines[participant_id] = pipeline
-
-            # Route to participant's pipeline
-            await self.participant_pipelines[participant_id].process_message(envelope)
+        await self.pipeline.process_message(envelope)
 
     async def _acs_send_loop(self):
         """Keep send task alive (pipelines send directly to WebSocket)."""
@@ -155,128 +129,54 @@ class Session:
             logger.debug(f"Session {self.session_id} send loop cancelled")
 
     async def _initialize_from_first_message(self, data: Dict[str, Any]):
-        """Extract metadata and initialize routing strategy from first message."""
+        """Extract metadata and initialize session pipeline from first message."""
         self.metadata = data.get("metadata", {})
 
-        # Determine routing strategy
-        self.routing_strategy = self._select_routing_strategy(self.metadata)
+        provider_name = self._select_provider(self.metadata)
 
-        logger.info(
-            f"Session {self.session_id} routing: {self.routing_strategy}"
+        # Create single session-scoped pipeline
+        self.pipeline = SessionPipeline(
+            session_id=self.canonical_session_id,
+            config=self.config,
+            provider_name=provider_name,
+            metadata=self.metadata,
+            translation_settings=self.translation_settings
         )
+        await self.pipeline.start()
 
-        if self.routing_strategy == "shared":
-            # Create single shared pipeline
-            participant_id = "shared"
-            provider_name = self._select_provider(self.metadata, participant_id)
-
-            self.shared_pipeline = ParticipantPipeline(
-                session_id=self.canonical_session_id,
-                participant_id=participant_id,
-                config=self.config,
-                provider_name=provider_name,
-                metadata=self.metadata,
-                translation_settings=self.translation_settings
-            )
-            await self.shared_pipeline.start()
-
-            # Subscribe to its outbound bus
-            await self._subscribe_to_pipeline_output(self.shared_pipeline)
-
-        elif self.routing_strategy == "per_participant":
-            # Pipelines created on-demand when participants send messages
-            # (see _route_message and _create_participant_pipeline)
-            pass
+        # Subscribe to its outbound bus
+        await self._subscribe_to_pipeline_output(self.pipeline)
 
         self._initialized = True
 
-    def _select_routing_strategy(self, metadata: Dict[str, Any]) -> str:
-        """Select routing strategy based on ACS metadata."""
-        # Strategy 1: Explicit routing in metadata
-        if "routing" in metadata:
-            routing = metadata["routing"]
-            if routing in ["shared", "per_participant"]:
-                return routing
-
-        # Strategy 2: Feature flag
-        if metadata.get("feature_flags", {}).get("per_participant_pipelines"):
-            return "per_participant"
-
-        # Strategy 3: Provider-specific requirements
-        # Some providers might require per-participant isolation
-        provider = metadata.get("provider", self.config.dispatch.provider)
-        if provider in ["provider_requiring_isolation"]:
-            return "per_participant"
-
-        # Default: shared pipeline (more efficient)
-        return "shared"
-
     def _select_provider(
         self,
-        metadata: Dict[str, Any],
-        participant_id: str
+        metadata: Dict[str, Any]
     ) -> str:
         """Select provider based on ACS metadata and participant."""
         # Strategy 0: Test control settings override
         settings_provider = self.translation_settings.get("provider")
         if isinstance(settings_provider, str) and settings_provider:
             return settings_provider
-        # Strategy 1: Per-participant provider override
-        participant_providers = metadata.get("participant_providers", {})
-        if participant_id in participant_providers:
-            return participant_providers[participant_id]
-
-        # Strategy 2: Explicit provider in metadata
+        # Strategy 1: Explicit provider in metadata
         if "provider" in metadata:
             return metadata["provider"]
 
-        # Strategy 3: Customer/tenant-based routing
+        # Strategy 2: Customer/tenant-based routing
         if "customer_id" in metadata:
             # Could have per-customer provider mapping
             # customer_provider_map = self.config.customer_providers
             # return customer_provider_map.get(metadata["customer_id"], self.config.dispatch.provider)
             pass
 
-        # Strategy 4: Feature flags
+        # Strategy 3: Feature flags
         if metadata.get("feature_flags", {}).get("use_voicelive"):
             return "voicelive"
 
         # Default: use config
         return self.config.dispatch.provider
 
-    async def _create_participant_pipeline(
-        self,
-        participant_id: str,
-        envelope: GatewayInputEvent
-    ) -> ParticipantPipeline:
-        """Create pipeline for a new participant (per_participant mode)."""
-        # Determine provider for this participant
-        provider_type = self._select_provider(self.metadata, participant_id)
-
-        logger.info(
-            f"Session {self.session_id} creating pipeline for participant {participant_id}: "
-            f"provider={provider_type}"
-        )
-
-        # Create pipeline
-        pipeline = ParticipantPipeline(
-            session_id=self.canonical_session_id,
-            participant_id=participant_id,
-            config=self.config,
-            provider_name=provider_type,
-            metadata=self.metadata,
-            translation_settings=self.translation_settings
-        )
-
-        # Start pipeline
-        await pipeline.start()
-
-        # Subscribe to its outbound bus
-        await self._subscribe_to_pipeline_output(pipeline)
-
-        return pipeline
-
-    async def _subscribe_to_pipeline_output(self, pipeline: ParticipantPipeline):
+    async def _subscribe_to_pipeline_output(self, pipeline: SessionPipeline):
         """Subscribe to pipeline's acs_outbound_bus to forward to ACS."""
         async def send_to_acs(payload: Dict[str, Any]):
             try:
@@ -297,14 +197,14 @@ class Session:
         # Register handler on pipeline's outbound bus
         await pipeline.acs_outbound_bus.register_handler(
             HandlerConfig(
-                name=f"acs_websocket_send_{pipeline.participant_id}",
+                name=f"acs_websocket_send_{pipeline.pipeline_id}",
                 queue_max=1000,
                 overflow_policy=OverflowPolicy.DROP_OLDEST,
                 concurrency=1
             ),
             ACSWebSocketSender(
                 HandlerSettings(
-                    name=f"acs_websocket_send_{pipeline.participant_id}",
+                    name=f"acs_websocket_send_{pipeline.pipeline_id}",
                     queue_max=1000,
                     overflow_policy="DROP_OLDEST"
                 )
@@ -321,14 +221,9 @@ class Session:
         if self._send_task and not self._send_task.done():
             self._send_task.cancel()
 
-        # Cleanup pipelines based on routing strategy
-        if self.routing_strategy == "shared":
-            if self.shared_pipeline:
-                await self.shared_pipeline.cleanup()
-
-        elif self.routing_strategy == "per_participant":
-            for pipeline in self.participant_pipelines.values():
-                await pipeline.cleanup()
+        # Cleanup pipeline
+        if self.pipeline:
+            await self.pipeline.cleanup()
 
         # Close WebSocket
         if not self.websocket.closed:

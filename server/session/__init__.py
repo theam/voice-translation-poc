@@ -1,7 +1,7 @@
 """Session management for ACS WebSocket connections."""
 
-from .participant_pipeline import ParticipantPipeline
 from .session import Session
 from .session_manager import SessionManager
+from .session_pipeline import SessionPipeline
 
-__all__ = ["ParticipantPipeline", "Session", "SessionManager"]
+__all__ = ["SessionPipeline", "Session", "SessionManager"]
