@@ -141,6 +141,7 @@ class ParticipantPipeline:
                 ),
                 acs_outbound_bus=self.acs_outbound_bus,
                 translation_settings=self.translation_settings,
+                session_metadata=self.metadata,
             )
         )
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from ....models.messages import TranslationResponse
+from ....models.messages import ProviderOutputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,6 @@ class LoggingOnlyHandler:
     def __init__(self, name: str):
         self.name = name
 
-    async def handle(self, message: Dict[str, Any]) -> Optional[TranslationResponse]:
+    async def handle(self, message: Dict[str, Any]) -> Optional[ProviderOutputEvent]:
         logger.debug("VoiceLive handler '%s' received payload with no action: %s", self.name, message)
         return None

@@ -118,7 +118,7 @@ class VoiceLiveProvider:
         self._ingress_task: Optional[asyncio.Task] = None
         self._closed = False
 
-        self._inbound_handler = VoiceLiveInboundHandler(inbound_bus)
+        self._inbound_handler = VoiceLiveInboundHandler(inbound_bus, session_metadata=self.session_metadata)
         self._outbound_handler: Optional[VoiceLiveOutboundHandler] = None
 
     async def start(self) -> None:

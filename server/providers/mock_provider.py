@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 
 from ..core.event_bus import EventBus
-from ..models.messages import AudioRequest, TranslationResponse
+from ..models.messages import AudioRequest, ProviderOutputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class MockProvider:
     Simulates translation by:
     - Consuming AudioRequest from outbound_bus
     - Generating fake partial and final translations
-    - Publishing TranslationResponse to inbound_bus
+    - Publishing ProviderOutputEvent to inbound_bus
 
     No external service calls are made.
     """
@@ -36,7 +36,7 @@ class MockProvider:
 
         Args:
             outbound_bus: Bus to consume AudioRequest messages from
-            inbound_bus: Bus to publish TranslationResponse messages to
+            inbound_bus: Bus to publish ProviderOutputEvent messages to
             delay_ms: Simulated processing delay in milliseconds
         """
         self.outbound_bus = outbound_bus
@@ -101,12 +101,14 @@ class MockProvider:
             await asyncio.sleep(self.delay_ms / 1000 / 2)
 
             # Generate partial translation
-            partial_response = TranslationResponse(
+            partial_response = ProviderOutputEvent(
                 commit_id=request.commit_id,
                 session_id=request.session_id,
                 participant_id=request.participant_id,
-                text=f"[mock partial] processing commit {request.commit_id[:8]}...",
-                partial=True,
+                event_type="transcript.delta",
+                payload={"text": f"[mock partial] processing commit {request.commit_id[:8]}...", "final": False},
+                provider="mock",
+                stream_id=request.commit_id,
             )
             await self.inbound_bus.publish(partial_response)
             logger.debug("Published mock partial translation: commit=%s", request.commit_id)
@@ -115,12 +117,17 @@ class MockProvider:
             await asyncio.sleep(self.delay_ms / 1000 / 2)
 
             # Generate final translation
-            final_response = TranslationResponse(
+            final_response = ProviderOutputEvent(
                 commit_id=request.commit_id,
                 session_id=request.session_id,
                 participant_id=request.participant_id,
-                text=f"[mock final] translated audio for commit {request.commit_id[:8]}",
-                partial=False,
+                event_type="transcript.done",
+                payload={
+                    "text": f"[mock final] translated audio for commit {request.commit_id[:8]}",
+                    "final": True,
+                },
+                provider="mock",
+                stream_id=request.commit_id,
             )
             await self.inbound_bus.publish(final_response)
             logger.info("Published mock final translation: commit=%s", request.commit_id)
