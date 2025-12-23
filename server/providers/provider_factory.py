@@ -55,7 +55,7 @@ class ProviderFactory:
             config: Service configuration
             provider_name: Provider name in configuration (e.g., "mock", "demo-voicelive")
             outbound_bus: Bus to consume AudioRequest from
-            inbound_bus: Bus to publish TranslationResponse to
+            inbound_bus: Bus to publish ProviderOutputEvent to
             session_metadata: Session-level metadata (e.g., languages, audio format)
 
         Returns:

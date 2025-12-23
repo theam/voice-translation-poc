@@ -888,9 +888,9 @@ Resources: 3 pipelines, 3 provider connections, 12 event buses
     ↓
 12. VoiceLiveProvider egress loop consumes, sends to VoiceLive WebSocket
     ↓
-13. VoiceLive responds with translation
+13. VoiceLive responds with translation/audio deltas
     ↓
-14. VoiceLiveProvider ingress loop receives, publishes TranslationResponse
+14. VoiceLiveProvider ingress loop receives, publishes ProviderOutputEvent
     ↓
 15. ProviderResultHandler consumes, converts to ACS format
     ↓
@@ -1178,7 +1178,7 @@ If migrating from current code:
 
 1. Keep existing gateways (they work per-session)
 2. Keep existing providers (VoiceLiveProvider, MockProvider)
-3. Keep existing models (Envelope, AudioRequest, TranslationResponse)
+3. Keep existing models (Envelope, AudioRequest, ProviderOutputEvent, TranslationResponse)
 4. Replace: `service.py` → `acs_server.py` + `session.py` + `session_manager.py`
 5. Remove: `providers/ingress.py`, `providers/egress.py` (no longer needed)
 6. Update: `provider_factory.py` to take `provider_type` parameter

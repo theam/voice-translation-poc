@@ -13,38 +13,34 @@ class TestAudioMetadataHandler(unittest.TestCase):
     def test_handle_audio_metadata(self):
         envelope = MagicMock(spec=Envelope)
         envelope.message_id = "test-msg-id"
+        envelope.session_id = "session-1"
+        envelope.timestamp_utc = "2024-01-01T00:00:00Z"
+        envelope.type = "audio_metadata"
         envelope.payload = {
-            "encoding": "PCM",
-            "sampleRate": 24000,
-            "channels": 1,
-            "sampleWidth": 2
+            "audioMetadata": {
+                "subscriptionId": "sub-123",
+                "encoding": "PCM",
+                "sampleRate": 24000,
+                "channels": 1,
+                "length": 640,
+            }
         }
 
         asyncio.run(self.handler.handle(envelope))
 
-        self.assertIn("audio_format", self.session_metadata)
-        self.assertEqual(self.session_metadata["audio_format"]["encoding"], "PCM")
-        self.assertEqual(self.session_metadata["audio_format"]["sample_rate"], 24000)
-        self.assertEqual(self.session_metadata["audio_format"]["channels"], 1)
-        self.assertEqual(self.session_metadata["audio_format"]["sample_width"], 2)
-
-    def test_handle_audio_metadata_alt_keys(self):
-        envelope = MagicMock(spec=Envelope)
-        envelope.message_id = "test-msg-id-2"
-        envelope.payload = {
-            "sample_rate": 16000,
-            "bitsPerSample": 16
-        }
-
-        asyncio.run(self.handler.handle(envelope))
-
-        self.assertIn("audio_format", self.session_metadata)
-        self.assertEqual(self.session_metadata["audio_format"]["sample_rate"], 16000)
-        self.assertEqual(self.session_metadata["audio_format"]["sample_width"], 2)
+        self.assertIn("acs_audio", self.session_metadata)
+        fmt = self.session_metadata["acs_audio"]["format"]
+        self.assertEqual(fmt["encoding"], "PCM")
+        self.assertEqual(fmt["sample_rate_hz"], 24000)
+        self.assertEqual(fmt["channels"], 1)
+        self.assertEqual(fmt["frame_bytes"], 640)
 
     def test_handle_empty_payload(self):
         envelope = MagicMock(spec=Envelope)
         envelope.message_id = "test-msg-id-3"
+        envelope.session_id = "session-1"
+        envelope.timestamp_utc = "2024-01-01T00:00:00Z"
+        envelope.type = "audio_metadata"
         envelope.payload = {}
         
         self.session_metadata = {} # Reset
@@ -52,7 +48,7 @@ class TestAudioMetadataHandler(unittest.TestCase):
 
         asyncio.run(self.handler.handle(envelope))
 
-        self.assertNotIn("audio_format", self.session_metadata)
+        self.assertNotIn("acs_audio", self.session_metadata)
 
 if __name__ == '__main__':
     unittest.main()
