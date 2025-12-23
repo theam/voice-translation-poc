@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict
 
 from ...config import BatchingConfig
-from ...models.envelope import Envelope
+from ...models.gateway_input_event import GatewayInputEvent
 from ...core.event_bus import EventBus
 from ..base import Handler, HandlerSettings
 from .audio import AudioMessageHandler
@@ -33,20 +33,20 @@ class AcsInboundMessageHandler(Handler):
         self.system_info_handler = SystemInfoMessageHandler(acs_outbound_bus)
         self.audio_metadata_handler = AudioMetadataHandler(session_metadata)
 
-    async def handle(self, envelope: Envelope) -> None:
+    async def handle(self, envelope: GatewayInputEvent) -> None:
         """Dispatch envelope to appropriate handler based on type."""
-        if envelope.type.startswith("audio"):
+        if envelope.event_type == "acs.audio.data":
             await self.audio_handler.handle(envelope)
-        elif envelope.type == "audio_metadata":
+        elif envelope.event_type == "acs.audio.metadata":
             await self.audio_metadata_handler.handle(envelope)
-        elif envelope.type == "control":
+        elif envelope.event_type == "control":
             await self.control_handler.handle(envelope)
-        elif envelope.type == "control.test.settings":
+        elif envelope.event_type == "control.test.settings":
             await self.control_handler.handle(envelope)
-        elif envelope.type == "control.test.request.system_info":
+        elif envelope.event_type == "control.test.request.system_info":
             await self.system_info_handler.handle(envelope)
         else:
-            logger.debug("Ignoring unsupported envelope type: %s", envelope.type)
+            logger.debug("Ignoring unsupported envelope type: %s", envelope.event_type)
 
     async def shutdown(self) -> None:
         """Shutdown child handlers."""

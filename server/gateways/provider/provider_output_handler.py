@@ -49,6 +49,26 @@ class ProviderOutputHandler(Handler):
             acs_outbound_bus=acs_outbound_bus
         )
 
+    async def _handle_transcript_done(self, event: ProviderOutputEvent) -> None:
+        payload = event.payload or {}
+        text = payload.get("text")
+        if not text:
+            logger.debug("Transcript done event missing text: %s", payload)
+            return
+
+        translation_payload = {
+            "type": "translation.result",
+            "session_id": event.session_id,
+            "participant_id": event.participant_id,
+            "commit_id": event.commit_id,
+            "stream_id": event.stream_id,
+            "provider": event.provider,
+            "partial": False,
+            "text": text,
+        }
+
+        await self.acs_outbound_bus.publish(translation_payload)
+
     async def handle(self, event: ProviderOutputEvent) -> None:
         """Route event to appropriate specialized handler."""
         logger.info(
@@ -67,5 +87,7 @@ class ProviderOutputHandler(Handler):
             await self.control_handler.handle(event)
         elif event.event_type == "transcript.delta":
             await self.transcript_delta_handler.handle(event)
+        elif event.event_type == "transcript.done":
+            await self._handle_transcript_done(event)
         else:
             logger.debug("Ignoring unsupported provider output event: %s", event.event_type)

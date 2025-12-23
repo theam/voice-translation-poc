@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from ...config import BatchingConfig
-from ...models.envelope import Envelope
+from ...models.gateway_input_event import GatewayInputEvent
 from ...core.event_bus import EventBus
 from ...models.messages import AudioRequest
 from ...services.audio_duration import AudioDurationCalculator
@@ -43,10 +43,10 @@ class AudioMessageHandler:
         self._participant_state: Dict[AudioKey, ParticipantState] = defaultdict(ParticipantState)
         self._lock = asyncio.Lock()
 
-    async def handle(self, envelope: Envelope) -> None:
+    async def handle(self, envelope: GatewayInputEvent) -> None:
         """Handle audio envelope."""
         key: AudioKey = (envelope.session_id, envelope.participant_id)
-        chunk_b64 = envelope.payload.get("audio_b64")
+        chunk_b64 = envelope.payload.get("data") or envelope.payload.get("audio_b64")
 
         if not chunk_b64:
             logger.debug("Skipping audio envelope without audio_b64 payload")
@@ -94,7 +94,7 @@ class AudioMessageHandler:
                     name=f"idle-timer-{envelope.session_id}-{envelope.participant_id}"
                 )
 
-    async def _idle_timeout_worker(self, envelope: Envelope, key: AudioKey) -> None:
+    async def _idle_timeout_worker(self, envelope: GatewayInputEvent, key: AudioKey) -> None:
         """Worker task that commits buffer after idle timeout."""
         try:
             idle_timeout_sec = self._batching_config.idle_timeout_ms / 1000
@@ -117,7 +117,7 @@ class AudioMessageHandler:
         except Exception:
             logger.exception("Idle timeout worker failed for %s", key)
 
-    async def _flush_commit(self, envelope: Envelope, key: AudioKey) -> None:
+    async def _flush_commit(self, envelope: GatewayInputEvent, key: AudioKey) -> None:
         async with self._lock:
             # Cancel idle timer if running
             state = self._participant_state.get(key)
@@ -134,8 +134,8 @@ class AudioMessageHandler:
             logger.debug("Skipping empty commit for %s", key)
             return
 
-        # Generate commit_id if not present
-        commit_id = envelope.commit_id or str(uuid.uuid4())
+        # Generate commit_id
+        commit_id = str(uuid.uuid4())
 
         # Create AudioRequest and publish to provider_outbound_bus
         request = AudioRequest(
@@ -143,7 +143,7 @@ class AudioMessageHandler:
             session_id=envelope.session_id,
             participant_id=envelope.participant_id,
             audio_data=audio_chunks,
-            metadata={"timestamp_utc": envelope.timestamp_utc, "message_id": envelope.message_id},
+            metadata={"timestamp_utc": envelope.timestamp_utc, "message_id": envelope.event_id},
         )
 
         logger.info("Publishing audio request to provider: commit=%s bytes=%s", commit_id, len(audio_chunks))

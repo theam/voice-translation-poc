@@ -270,7 +270,7 @@ class ParticipantPipeline:
 
         logger.info(f"Participant {self.participant_id} handlers registered")
 
-    async def process_message(self, envelope: Envelope):
+    async def process_message(self, envelope: GatewayInputEvent):
         """Process message from ACS for this participant."""
         await self.acs_inbound_bus.publish(envelope)
 
@@ -363,15 +363,15 @@ class Session:
                     if not self._initialized:
                         await self._initialize_from_first_message(data)
 
-                    # Convert to Envelope
-                    envelope = Envelope.from_acs_frame(
+                    # Convert to GatewayInputEvent
+                    event = GatewayInputEvent.from_acs_frame(
                         data,
-                        sequence=0,
-                        ingress_ws_id=self.session_id
+                        sequence=self._sequence,
+                        ctx=self.connection_ctx,
                     )
 
                     # Route based on strategy
-                    await self._route_message(envelope)
+                    await self._route_message(event)
 
                 except json.JSONDecodeError as e:
                     logger.warning(f"Invalid JSON from ACS: {e}")
@@ -380,7 +380,7 @@ class Session:
         except websockets.ConnectionClosed:
             logger.info(f"Session {self.session_id} ACS disconnected")
 
-    async def _route_message(self, envelope: Envelope):
+    async def _route_message(self, envelope: GatewayInputEvent):
         """Route message to appropriate pipeline(s)."""
         if self.routing_strategy == "shared":
             # All participants share one pipeline
@@ -513,7 +513,7 @@ class Session:
     async def _create_participant_pipeline(
         self,
         participant_id: str,
-        envelope: Envelope
+        envelope: GatewayInputEvent
     ) -> ParticipantPipeline:
         """Create pipeline for a new participant (per_participant mode)."""
         # Determine provider for this participant
@@ -876,7 +876,7 @@ Resources: 3 pipelines, 3 provider connections, 12 event buses
    ↓
 6. Handlers registered on session buses
    ↓
-7. Message converted to Envelope, published to acs_inbound_bus
+7. Message converted to GatewayInputEvent, published to acs_inbound_bus
    ↓
 8. AuditHandler logs it
    ↓
@@ -1178,7 +1178,7 @@ If migrating from current code:
 
 1. Keep existing gateways (they work per-session)
 2. Keep existing providers (VoiceLiveProvider, MockProvider)
-3. Keep existing models (Envelope, AudioRequest, ProviderOutputEvent)
+3. Keep existing models (GatewayInputEvent, AudioRequest, ProviderOutputEvent)
 4. Replace: `service.py` → `acs_server.py` + `session.py` + `session_manager.py`
 5. Remove: `providers/ingress.py`, `providers/egress.py` (no longer needed)
 6. Update: `provider_factory.py` to take `provider_type` parameter

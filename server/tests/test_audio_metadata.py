@@ -1,8 +1,9 @@
 import asyncio
 import unittest
 from unittest.mock import MagicMock
+
 from server.gateways.acs.audio_metadata import AudioMetadataHandler
-from server.models.envelope import Envelope
+from server.models.gateway_input_event import GatewayInputEvent
 
 class TestAudioMetadataHandler(unittest.TestCase):
 
@@ -11,19 +12,17 @@ class TestAudioMetadataHandler(unittest.TestCase):
         self.handler = AudioMetadataHandler(self.session_metadata)
 
     def test_handle_audio_metadata(self):
-        envelope = MagicMock(spec=Envelope)
-        envelope.message_id = "test-msg-id"
+        envelope = MagicMock(spec=GatewayInputEvent)
+        envelope.event_id = "test-msg-id"
         envelope.session_id = "session-1"
         envelope.timestamp_utc = "2024-01-01T00:00:00Z"
-        envelope.type = "audio_metadata"
+        envelope.event_type = "acs.audio.metadata"
         envelope.payload = {
-            "audioMetadata": {
-                "subscriptionId": "sub-123",
-                "encoding": "PCM",
-                "sampleRate": 24000,
-                "channels": 1,
-                "length": 640,
-            }
+            "subscriptionId": "sub-123",
+            "encoding": "PCM",
+            "sampleRate": 24000,
+            "channels": 1,
+            "length": 640,
         }
 
         asyncio.run(self.handler.handle(envelope))
@@ -36,11 +35,11 @@ class TestAudioMetadataHandler(unittest.TestCase):
         self.assertEqual(fmt["frame_bytes"], 640)
 
     def test_handle_empty_payload(self):
-        envelope = MagicMock(spec=Envelope)
-        envelope.message_id = "test-msg-id-3"
+        envelope = MagicMock(spec=GatewayInputEvent)
+        envelope.event_id = "test-msg-id-3"
         envelope.session_id = "session-1"
         envelope.timestamp_utc = "2024-01-01T00:00:00Z"
-        envelope.type = "audio_metadata"
+        envelope.event_type = "acs.audio.metadata"
         envelope.payload = {}
         
         self.session_metadata = {} # Reset

@@ -271,7 +271,7 @@ The new architecture replaces:
 Unchanged (reused as-is):
 - ✅ All gateways (audit, ACS inbound, provider_result)
 - ✅ Provider implementations (VoiceLive provider, MockProvider)
-- ✅ Models (Envelope, AudioRequest, ProviderOutputEvent)
+- ✅ Models (GatewayInputEvent, AudioRequest, ProviderOutputEvent)
 - ✅ Services (AudioDurationCalculator)
 - ✅ Config, EventBus, Queues
 
