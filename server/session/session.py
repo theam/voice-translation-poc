@@ -43,6 +43,7 @@ class Session:
         # Session state
         self.routing_strategy: Optional[str] = None  # "shared" or "per_participant"
         self.metadata: Dict[str, Any] = {}
+        self.translation_settings: Dict[str, Any] = {}
 
         # Routing modes
         # Mode 1: Shared pipeline (all participants share)
@@ -88,6 +89,7 @@ class Session:
             async for raw_message in self.websocket:
                 try:
                     data = json.loads(raw_message)
+                    self._apply_settings_from_frame(data)
 
                     # First message: extract metadata and initialize
                     if not self._initialized:
@@ -164,7 +166,8 @@ class Session:
                 participant_id=participant_id,
                 config=self.config,
                 provider_name=provider_name,
-                metadata=self.metadata
+                metadata=self.metadata,
+                translation_settings=self.translation_settings
             )
             await self.shared_pipeline.start()
 
@@ -205,6 +208,10 @@ class Session:
         participant_id: str
     ) -> str:
         """Select provider based on ACS metadata and participant."""
+        # Strategy 0: Test control settings override
+        settings_provider = self.translation_settings.get("provider")
+        if isinstance(settings_provider, str) and settings_provider:
+            return settings_provider
         # Strategy 1: Per-participant provider override
         participant_providers = metadata.get("participant_providers", {})
         if participant_id in participant_providers:
@@ -248,7 +255,8 @@ class Session:
             participant_id=participant_id,
             config=self.config,
             provider_name=provider_type,
-            metadata=self.metadata
+            metadata=self.metadata,
+            translation_settings=self.translation_settings
         )
 
         # Start pipeline
@@ -293,6 +301,24 @@ class Session:
                 )
             )
         )
+
+    def _apply_settings_from_frame(self, data: Dict[str, Any]) -> None:
+        """Extract and store translation settings from inbound ACS frame."""
+        settings = None
+        if isinstance(data, dict):
+            if isinstance(data.get("settings"), dict):
+                settings = data.get("settings")
+            elif isinstance(data.get("payload"), dict) and isinstance(data["payload"].get("settings"), dict):
+                settings = data["payload"].get("settings")
+
+        if not settings:
+            return
+
+        self.translation_settings.update(settings)
+        # Preserve settings in metadata for downstream components that only see metadata
+        metadata_settings = self.metadata.setdefault("translation_settings", {})
+        if isinstance(metadata_settings, dict):
+            metadata_settings.update(settings)
 
     async def cleanup(self):
         """Cleanup session resources."""
