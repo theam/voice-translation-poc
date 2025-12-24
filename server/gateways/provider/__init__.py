@@ -3,6 +3,7 @@ from .audio_done_handler import AudioDoneHandler
 from .control_handler import ControlHandler
 from .provider_output_handler import ProviderOutputHandler
 from .transcript_delta_handler import TranscriptDeltaHandler
+from .transcript_done_handler import TranscriptDoneHandler
 
 __all__ = [
     "AudioDeltaHandler",
@@ -10,4 +11,5 @@ __all__ = [
     "ControlHandler",
     "ProviderOutputHandler",
     "TranscriptDeltaHandler",
+    "TranscriptDoneHandler",
 ]

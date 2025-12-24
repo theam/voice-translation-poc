@@ -17,6 +17,10 @@ class AudioDoneHandler:
     def __init__(self, audio_delta_handler: AudioDeltaHandler):
         self.audio_delta_handler = audio_delta_handler
 
+    def can_handle(self, event: ProviderOutputEvent) -> bool:
+        """Check if this handler can process the event."""
+        return event.event_type == "audio.done"
+
     async def handle(self, event: ProviderOutputEvent) -> None:
         """Handle audio done event by flushing remaining frames and cleaning up."""
         frame_bytes, format_info = self.audio_delta_handler._frame_config(event)
