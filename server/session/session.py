@@ -54,6 +54,10 @@ class Session:
         self._receive_task: Optional[asyncio.Task] = None
         self._send_task: Optional[asyncio.Task] = None
 
+        # Shutdown coordination
+        self._shutdown_event = asyncio.Event()
+        self._cleanup_started = False
+
     async def run(self):
         """Run session: process messages until disconnect."""
         logger.info(f"Session {self.session_id} started")
@@ -110,6 +114,8 @@ class Session:
             logger.info(f"Session {self.session_id} ACS disconnected")
         except Exception as e:
             logger.exception(f"Session {self.session_id} receive loop error: {e}")
+        finally:
+            await self._initiate_shutdown("ACS websocket disconnected")
 
     async def _route_message(self, envelope: GatewayInputEvent):
         """Route message to the session pipeline."""
@@ -122,11 +128,18 @@ class Session:
     async def _acs_send_loop(self):
         """Keep send task alive (pipelines send directly to WebSocket)."""
         try:
-            # This task just needs to stay alive
-            # Actual sending is done by handlers subscribed to pipeline outbound buses
-            await asyncio.Future()
+            # Wait until shutdown is triggered
+            await self._shutdown_event.wait()
         except asyncio.CancelledError:
             logger.debug(f"Session {self.session_id} send loop cancelled")
+
+    async def _initiate_shutdown(self, reason: str):
+        """Trigger session shutdown once when ACS disconnects or errors."""
+        if self._shutdown_event.is_set():
+            return
+
+        logger.info("Session %s initiating shutdown: %s", self.session_id, reason)
+        self._shutdown_event.set()
 
     async def _initialize_from_first_message(self, data: Dict[str, Any]):
         """Extract metadata and initialize session pipeline from first message."""
@@ -216,20 +229,39 @@ class Session:
 
     async def cleanup(self):
         """Cleanup session resources."""
+        if self._cleanup_started:
+            return
+
+        self._cleanup_started = True
+        self._shutdown_event.set()
         logger.info(f"Session {self.session_id} cleanup started")
 
+        # Close WebSocket to unblock receive loop quickly
+        if not self.websocket.closed:
+            try:
+                await self.websocket.close()
+            except Exception as e:
+                logger.exception("Session %s failed to close WebSocket: %s", self.session_id, e)
+
         # Cancel tasks
+        tasks_to_cancel = []
         if self._receive_task and not self._receive_task.done():
             self._receive_task.cancel()
+            tasks_to_cancel.append(self._receive_task)
         if self._send_task and not self._send_task.done():
             self._send_task.cancel()
+            tasks_to_cancel.append(self._send_task)
+
+        for task in tasks_to_cancel:
+            try:
+                await task
+            except asyncio.CancelledError:
+                logger.debug("Session %s task %s cancelled", self.session_id, task.get_name())
+            except Exception as e:
+                logger.exception("Session %s task %s error during cancellation: %s", self.session_id, task.get_name(), e)
 
         # Cleanup pipeline
         if self.pipeline:
             await self.pipeline.cleanup()
-
-        # Close WebSocket
-        if not self.websocket.closed:
-            await self.websocket.close()
 
         logger.info(f"Session {self.session_id} cleanup complete")
