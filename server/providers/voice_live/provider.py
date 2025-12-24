@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import uuid
-import copy
 from typing import Any, Dict, Optional
 
 import websockets
@@ -12,6 +12,8 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from ...core.event_bus import EventBus, HandlerConfig
 from ...core.queues import OverflowPolicy
+from ...core.websocket_server import WebSocketServer
+from ...core.wire_log_sink import WireLogSink
 from ...utils.dict_utils import deep_merge
 from .inbound_handler import VoiceLiveInboundHandler
 from .outbound_handler import VoiceLiveOutboundHandler
@@ -104,6 +106,7 @@ class VoiceLiveProvider:
         inbound_bus: EventBus,
         settings: Optional[Dict[str, Any]] = None,
         session_metadata: Optional[Dict[str, Any]] = None,
+        log_wire: bool = False,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
@@ -113,8 +116,9 @@ class VoiceLiveProvider:
         self.inbound_bus = inbound_bus
         self.settings = settings or {}
         self.session_metadata = session_metadata or {}
-
-        self._ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.log_wire = log_wire
+        self._connection_name = self._build_connection_name()
+        self._ws: Optional[WebSocketServer] = None
         self._ingress_task: Optional[asyncio.Task] = None
         self._closed = False
 
@@ -172,11 +176,18 @@ class VoiceLiveProvider:
         ws_url = self._build_websocket_url()
 
         try:
-            self._ws = await websockets.connect(
+            raw_ws = await websockets.connect(
                 ws_url,
                 extra_headers=headers,
                 ping_interval=20,
                 ping_timeout=10,
+            )
+            log_sink = WireLogSink(f"{self._connection_name}.jsonl") if self.log_wire else None
+            self._ws = WebSocketServer(
+                websocket=raw_ws,
+                name=self._connection_name,
+                debug_wire=self.log_wire,
+                log_sink=log_sink,
             )
             logger.info(
                 "VoiceLive WebSocket connected to %s (region=%s, resource=%s)",
@@ -329,3 +340,15 @@ class VoiceLiveProvider:
         if self._ws and not self._ws.closed and not self._closed:
             return "ok"
         return "degraded"
+
+    def _build_connection_name(self) -> str:
+        """Create a deterministic-ish name for wire logging."""
+        parts = ["voice_live"]
+        if isinstance(self.session_metadata, dict):
+            for key in ("session_id", "call_connection_id", "call_correlation_id"):
+                value = self.session_metadata.get(key)
+                if value:
+                    parts.append(str(value))
+                    break
+        parts.append(uuid.uuid4().hex)
+        return "_".join(parts)

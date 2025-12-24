@@ -7,10 +7,9 @@ import logging
 import uuid
 from typing import Dict
 
-from websockets.server import WebSocketServerProtocol
-
 from ..config import Config
 from ..models.gateway_input_event import ConnectionContext
+from ..core.websocket_server import WebSocketServer
 from .session import Session
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,7 @@ class SessionManager:
 
     async def create_session(
         self,
-        websocket: WebSocketServerProtocol,
+        websocket: WebSocketServer,
         connection_ctx: ConnectionContext
     ) -> Session:
         """Create new session for ACS connection."""

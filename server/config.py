@@ -133,11 +133,13 @@ class PayloadCaptureConfig:
 class SystemConfig:
     log_level: str = "INFO"
     payload_capture: PayloadCaptureConfig = field(default_factory=PayloadCaptureConfig)
+    log_wire: bool = False
 
     def to_dict(self) -> Dict:
         return {
             "log_level": self.log_level,
             "payload_capture": self.payload_capture.to_dict(),
+            "log_wire": self.log_wire,
         }
 
 
@@ -204,6 +206,7 @@ class Config:
             system=SystemConfig(
                 log_level=system.get("log_level", "INFO"),
                 payload_capture=PayloadCaptureConfig(**system.get("payload_capture", {})),
+                log_wire=system.get("log_wire", False),
             ),
             buffering=BufferingConfig(**buffering),
             dispatch=DispatchConfig(

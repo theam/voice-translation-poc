@@ -8,13 +8,13 @@ import logging
 from typing import Any, Dict, Optional
 
 import websockets
-from websockets.server import WebSocketServerProtocol
 
 from ..config import Config
 from ..models.gateway_input_event import ConnectionContext, GatewayInputEvent
 from ..core.event_bus import HandlerConfig
 from ..gateways.base import Handler, HandlerSettings
 from ..core.queues import OverflowPolicy
+from ..core.websocket_server import WebSocketServer
 from ..utils.dict_utils import normalize_keys
 from .session_pipeline import SessionPipeline
 
@@ -27,7 +27,7 @@ class Session:
     def __init__(
         self,
         session_id: str,
-        websocket: WebSocketServerProtocol,
+        websocket: WebSocketServer,
         config: Config,
         connection_ctx: ConnectionContext,
     ):
