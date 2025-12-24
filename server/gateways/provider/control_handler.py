@@ -23,6 +23,10 @@ class ControlHandler:
         self.acs_outbound_bus = acs_outbound_bus
         self.audio_delta_handler = audio_delta_handler
 
+    def can_handle(self, event: ProviderOutputEvent) -> bool:
+        """Check if this handler can process the event."""
+        return event.event_type == "control"
+
     async def handle(self, event: ProviderOutputEvent) -> None:
         """Handle control event."""
         payload = event.payload or {}

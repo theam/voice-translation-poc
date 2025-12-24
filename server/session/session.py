@@ -191,6 +191,9 @@ class Session:
 
         # Create inline handler for sending to WebSocket
         class ACSWebSocketSender(Handler):
+            def __init__(self, settings: HandlerSettings):
+                super().__init__(settings)
+
             async def handle(self, payload: Dict[str, Any]):
                 await send_to_acs(payload)
 

@@ -24,12 +24,16 @@ class AudioDeltaHandler:
         self._audio_buffers: Dict[str, bytearray] = defaultdict(bytearray)
         self._outgoing_seq: Dict[str, int] = defaultdict(int)
 
+    def can_handle(self, event: ProviderOutputEvent) -> bool:
+        """Check if this handler can process the event."""
+        return event.event_type == "audio.delta"
+
     async def handle(self, event: ProviderOutputEvent) -> None:
         """Handle audio delta event by buffering and flushing frames."""
         payload = event.payload or {}
         audio_b64 = payload.get("audio_b64")
         if not audio_b64:
-            logger.warn("Audio delta missing payload.audio_b64: %s", payload)
+            logger.warning("Audio delta missing payload.audio_b64: %s", payload)
             return
 
         buffer_key = self._buffer_key(event)
@@ -68,20 +72,25 @@ class AudioDeltaHandler:
         while len(buffer) >= frame_bytes or (drain and buffer):
             frame = bytes(buffer[:frame_bytes])
             del buffer[:frame_bytes]
-            outgoing_seq = self._next_outgoing_seq(buffer_key)
 
+            # ACS outbound audio frame (canonical format per spec)
             acs_payload = {
-                "type": "audio.out",
-                "session_id": event.session_id,
-                "participant_id": event.participant_id,
-                "commit_id": event.commit_id,
-                "stream_id": event.stream_id,
-                "provider": event.provider,
-                "seq": outgoing_seq,
-                "format": format_info,
-                "audio_b64": base64.b64encode(frame).decode("ascii"),
+                "kind": "audioData",
+                "audioData": {
+                    "data": base64.b64encode(frame).decode("ascii"),
+                    "timestamp": None,
+                    "participant": None,
+                    "isSilent": False,
+                },
+                "stopAudio": None,
             }
             await self.acs_outbound_bus.publish(acs_payload)
+
+            logger.debug(
+                "Sent audio frame to ACS (buffer=%s bytes=%s)",
+                buffer_key,
+                len(frame)
+            )
 
         self._audio_buffers[buffer_key] = buffer
 
