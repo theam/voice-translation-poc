@@ -34,7 +34,7 @@ class AudioMetadataHandler(MessageHandler):
         Returns:
             True if message has kind="AudioMetadata"
         """
-        return message.get("kind") == "AudioMetadata"
+        return str(message.get("kind", "")).lower() == "audiometadata"
 
     def decode(self, message: Dict[str, Any]) -> ProtocolEvent:
         """Decode AudioMetadata message to ProtocolEvent.

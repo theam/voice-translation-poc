@@ -24,11 +24,14 @@ class AudioDurationCalculator:
         """
         # Decode base64 to get raw byte length
         audio_bytes = base64.b64decode(audio_b64, validate=True)
+        return cls.calculate_duration_ms_from_bytes(audio_bytes)
+
+    @classmethod
+    def calculate_duration_ms_from_bytes(cls, audio_bytes: bytes) -> float:
+        """
+        Calculate duration in milliseconds from raw PCM audio bytes.
+        """
         num_bytes = len(audio_bytes)
-
-        # Calculate number of samples: total_bytes / bytes_per_sample / channels
         num_samples = num_bytes / (cls.BYTES_PER_SAMPLE * cls.CHANNELS)
-
-        # Duration (ms) = (samples / sample_rate) * 1000
         duration_ms = (num_samples / cls.SAMPLE_RATE_HZ) * 1000
         return duration_ms
