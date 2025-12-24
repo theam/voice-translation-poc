@@ -12,6 +12,8 @@ from websockets.server import WebSocketServerProtocol
 from ..config import Config
 from ..models.gateway_input_event import ConnectionContext
 from ..session.session_manager import SessionManager
+from .websocket_server import WebSocketServer
+from .wire_log_sink import WireLogSink
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +71,17 @@ class ACSServer:
             call_correlation_id=websocket.request_headers.get("x-ms-call-correlation-id"),
         )
 
+        websocket_name = f"acs_server_{connection_ctx.ingress_ws_id}"
+        log_sink = WireLogSink(f"{websocket_name}.jsonl") if self.config.system.log_wire else None
+        wrapped_websocket = WebSocketServer(
+            websocket=websocket,
+            name=websocket_name,
+            debug_wire=self.config.system.log_wire,
+            log_sink=log_sink,
+        )
+
         # Create session
-        session = await self.session_manager.create_session(websocket, connection_ctx)
+        session = await self.session_manager.create_session(wrapped_websocket, connection_ctx)
 
         try:
             # Run session (blocks until disconnect)
