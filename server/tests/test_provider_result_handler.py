@@ -55,9 +55,9 @@ class TestProviderResultHandler(unittest.IsolatedAsyncioTestCase):
         await self.handler.handle(event)
         await asyncio.sleep(0.05)
 
-        audio_payloads = [p for p in self.published if p["type"] == "audio.out"]
+        audio_payloads = [p for p in self.published if p.get("kind") == "audioData"]
         self.assertEqual(2, len(audio_payloads))
-        decoded_frames = [base64.b64decode(p["audio_b64"]) for p in audio_payloads]
+        decoded_frames = [base64.b64decode(p["audioData"]["data"]) for p in audio_payloads]
         self.assertIn(b"ab", decoded_frames)
         self.assertIn(b"cd", decoded_frames)
 
@@ -88,9 +88,9 @@ class TestProviderResultHandler(unittest.IsolatedAsyncioTestCase):
         await self.handler.handle(done)
         await asyncio.sleep(0.05)
 
-        audio_payloads = [p for p in self.published if p["type"] == "audio.out"]
+        audio_payloads = [p for p in self.published if p.get("kind") == "audioData"]
         self.assertEqual(2, len(audio_payloads))
-        self.assertEqual(base64.b64decode(audio_payloads[-1]["audio_b64"]), b"c")
+        self.assertEqual(base64.b64decode(audio_payloads[-1]["audioData"]["data"]), b"c")
 
     async def test_transcript_events_emit_translation_payload(self):
         self.published.clear()
@@ -107,11 +107,10 @@ class TestProviderResultHandler(unittest.IsolatedAsyncioTestCase):
         await self.handler.handle(event)
         await asyncio.sleep(0.05)
 
-        translation_msgs = [p for p in self.published if p["type"] == "translation.result"]
+        translation_msgs = [p for p in self.published if p["type"] == "control.test.response.text"]
         self.assertEqual(1, len(translation_msgs))
         translation = translation_msgs[0]
-        self.assertFalse(translation["partial"])
-        self.assertEqual("hola", translation["text"])
+        self.assertEqual("hola", translation["delta"])
 
 
 if __name__ == "__main__":

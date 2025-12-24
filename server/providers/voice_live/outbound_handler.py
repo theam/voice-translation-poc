@@ -4,8 +4,7 @@ import json
 import logging
 from typing import Any, Dict
 
-import websockets
-
+from ...core.websocket_server import WebSocketServer
 from ...models.messages import AudioRequest
 
 logger = logging.getLogger(__name__)
@@ -14,15 +13,15 @@ logger = logging.getLogger(__name__)
 class VoiceLiveOutboundHandler:
     """Handles outbound AudioRequest messages to VoiceLive."""
 
-    def __init__(self, websocket: websockets.WebSocketClientProtocol):
+    def __init__(self, websocket: WebSocketServer):
         self.websocket = websocket
 
     @staticmethod
     def _serialize_request(request: AudioRequest) -> Dict[str, Any]:
         return {
-                 "type": "input_audio_buffer.append",
-                 "audio": request.audio_data.decode("utf-8"),
-                }
+            "type": "input_audio_buffer.append",
+            "audio": request.audio_data.decode("utf-8"),
+        }
 
     async def handle(self, request: AudioRequest) -> None:
         """Send audio payload to VoiceLive over the WebSocket connection."""

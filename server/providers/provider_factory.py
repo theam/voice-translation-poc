@@ -96,6 +96,7 @@ class ProviderFactory:
                 inbound_bus=inbound_bus,
                 settings=provider_config.settings,
                 session_metadata=session_metadata,
+                log_wire=config.system.log_wire,
             )
 
         elif provider_type == "live_interpreter":
