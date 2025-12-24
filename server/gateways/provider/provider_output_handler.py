@@ -90,4 +90,4 @@ class ProviderOutputHandler(Handler):
         elif event.event_type == "transcript.done":
             await self._handle_transcript_done(event)
         else:
-            logger.debug("Ignoring unsupported provider output event: %s", event.event_type)
+            logger.info("Ignoring unsupported provider output event: %s", event.event_type)
