@@ -48,7 +48,7 @@ class AudioMessageHandler:
         if not isinstance(payload, dict):
             return False
 
-        return payload.get("kind") == "audiodata"
+        return payload.get("kind") == "AudioData"
 
     async def handle(self, event: GatewayInputEvent) -> None:
         """Handle audio envelope."""
@@ -99,7 +99,7 @@ class AudioMessageHandler:
 
         if should_commit:
             logger.info("Auto-commit triggered for %s: %s", key, commit_reason)
-            await self._flush_commit(envelope, key)
+            await self._flush_commit(event, key)
         else:
             # Start new idle timer
             async with self._lock:

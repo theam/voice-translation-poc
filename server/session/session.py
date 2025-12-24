@@ -93,14 +93,14 @@ class Session:
 
                     # Convert to GatewayInputEvent
                     self._sequence += 1
-                    envelope = GatewayInputEvent.from_acs_frame(
+                    event = GatewayInputEvent.from_acs_frame(
                         data,
                         sequence=self._sequence,
                         ctx=self.connection_ctx,
                     )
 
                     # Route to the session pipeline
-                    await self._route_message(envelope)
+                    await self._route_message(event)
 
                 except json.JSONDecodeError as e:
                     logger.warning(f"Session {self.session_id} invalid JSON: {e}")

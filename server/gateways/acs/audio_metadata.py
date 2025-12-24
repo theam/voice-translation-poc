@@ -35,7 +35,7 @@ class AudioMetadataHandler:
         if not isinstance(payload, dict):
             return False
 
-        return payload.get("kind") == "audiometadata"
+        return payload.get("kind") == "AudioMetadata"
 
     async def handle(self, event: GatewayInputEvent) -> None:
         logger.info("Handling AudioMetadata: %s (session=%s)", event.event_id, event.session_id)

@@ -20,7 +20,7 @@ class AuditHandler(Handler):
         self.payload_capture = payload_capture
 
     async def handle(self, event: GatewayInputEvent) -> None:
-        logger.info(
+        logger.debug(
             "Audit event %s session=%s source=%s",
             event.event_id,
             event.session_id,

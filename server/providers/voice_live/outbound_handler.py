@@ -20,13 +20,9 @@ class VoiceLiveOutboundHandler:
     @staticmethod
     def _serialize_request(request: AudioRequest) -> Dict[str, Any]:
         return {
-            "type": "translate",
-            "commit_id": request.commit_id,
-            "session_id": request.session_id,
-            "participant_id": request.participant_id,
-            "audio_data": request.audio_data.decode("utf-8"),
-            "metadata": request.metadata,
-        }
+                 "type": "input_audio_buffer.append",
+                 "audio": request.audio_data.decode("utf-8"),
+                }
 
     async def handle(self, request: AudioRequest) -> None:
         """Send audio payload to VoiceLive over the WebSocket connection."""

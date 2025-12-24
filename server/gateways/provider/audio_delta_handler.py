@@ -29,7 +29,7 @@ class AudioDeltaHandler:
         payload = event.payload or {}
         audio_b64 = payload.get("audio_b64")
         if not audio_b64:
-            logger.debug("Audio delta missing payload.audio_b64: %s", payload)
+            logger.warn("Audio delta missing payload.audio_b64: %s", payload)
             return
 
         buffer_key = self._buffer_key(event)

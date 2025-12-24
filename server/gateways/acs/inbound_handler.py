@@ -46,7 +46,7 @@ class AcsInboundMessageHandler(Handler):
                 await handler.handle(event)
                 return
 
-        logger.debug("Ignoring unsupported ACS envelope: %s", event.payload)
+        logger.info("Ignoring unsupported ACS event: %s", event.payload)
 
     async def shutdown(self) -> None:
         """Shutdown child handlers."""
