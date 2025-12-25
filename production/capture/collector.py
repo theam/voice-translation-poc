@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 @dataclass
 class CollectedEvent:
     event_type: str
-    timestamp_ms: int
+    timestamp_ms: float
     participant_id: Optional[str] = None
     source_language: Optional[str] = None
     target_language: Optional[str] = None

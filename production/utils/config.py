@@ -35,6 +35,9 @@ class FrameworkConfig:
     tail_silence_ms: int = field(
         default_factory=lambda: int(os.getenv("TRANSLATION_TAIL_SILENCE_MS", "10000"))
     )
+    playout_initial_buffer_ms: int = field(
+        default_factory=lambda: int(os.getenv("TRANSLATION_PLAYOUT_INITIAL_BUFFER_MS", "80"))
+    )
     calibration_tolerance: float = field(
         default_factory=lambda: float(os.getenv("CALIBRATION_TOLERANCE", "10"))
     )
