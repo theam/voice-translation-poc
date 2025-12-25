@@ -19,7 +19,8 @@ class ProtocolEvent:
     participant_id: Optional[str]
     source_language: Optional[str]
     target_language: Optional[str]
-    timestamp_ms: int
+    timestamp_ms: Optional[float]
+    arrival_ms: Optional[float] = None
     text: Optional[str] = None
     audio_payload: Optional[bytes] = None
     raw: Dict[str, Any] | None = None
