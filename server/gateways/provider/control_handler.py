@@ -38,7 +38,7 @@ class ControlHandler:
 
         # Clear any buffered audio for this stream
         buffer_key = self.audio_delta_handler._buffer_key(event)
-        self.audio_delta_handler.clear_buffer(buffer_key)
+        await self.audio_delta_handler.cancel_stream(buffer_key)
 
         # Publish stop_audio control to ACS
         acs_payload = {

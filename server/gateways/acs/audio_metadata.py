@@ -51,13 +51,24 @@ class AudioMetadataHandler:
             return
 
         # Extract exactly what we need later (no validation here)
+        encoding = meta.get("encoding")
+        encoding_normalized = str(encoding).lower() if encoding is not None else None
+        if encoding_normalized and encoding_normalized.startswith("pcm"):
+            encoding_normalized = "pcm16"
+
+        def _to_int(value: Any) -> int | None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
         stream_format = {
             "source": "acs",
             "subscription_id": meta.get("subscriptionId"),
-            "encoding": meta.get("encoding"),          # e.g., "PCM"
-            "sample_rate_hz": meta.get("sampleRate"),  # e.g., 16000
-            "channels": meta.get("channels"),          # e.g., 1
-            "frame_bytes": meta.get("length"),         # bytes per frame (often 20ms)
+            "encoding": encoding_normalized or "pcm16",          # e.g., "pcm16"
+            "sample_rate_hz": _to_int(meta.get("sampleRate")),   # e.g., 16000
+            "channels": _to_int(meta.get("channels")),           # e.g., 1
+            "frame_bytes": _to_int(meta.get("length")),          # bytes per frame (often 20ms)
             # PCM defaults: keep this as a convenient downstream hint
             "bits_per_sample": 16,
         }

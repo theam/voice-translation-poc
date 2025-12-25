@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ...audio import Base64AudioCodec
 from ...models.provider_events import ProviderOutputEvent
 
 if TYPE_CHECKING:
@@ -23,27 +22,18 @@ class AudioDoneHandler:
         return event.event_type == "audio.done"
 
     async def handle(self, event: ProviderOutputEvent) -> None:
-        """Handle audio done event by emitting buffered audio once, then cleaning up."""
+        """Handle audio done by padding to full frames, draining playout, and publishing done."""
         buffer_key = self.audio_delta_handler._buffer_key(event)
-        buffer = self.audio_delta_handler.get_buffer(event)
+        state = self.audio_delta_handler.ensure_state(buffer_key)
+        buffer = state.buffer
 
-        # Emit aggregated audio for this response
-        chunk_size = self.audio_delta_handler.chunk_size_for(event)
-        if buffer and chunk_size > 0:
-            while buffer:
-                chunk = bytes(buffer[:chunk_size]) if len(buffer) >= chunk_size else bytes(buffer)
-                del buffer[:chunk_size]
-                acs_payload = {
-                    "kind": "audioData",
-                    "audioData": {
-                        "data": Base64AudioCodec.encode(chunk),
-                        "timestamp": None,
-                        "participant": None,
-                        "isSilent": False,
-                    },
-                    "stopAudio": None,
-                }
-                await self.audio_delta_handler.acs_outbound_bus.publish(acs_payload)
+        frame_bytes = state.frame_bytes or self.audio_delta_handler.chunk_size_for(event)
+        if frame_bytes > 0 and buffer and len(buffer) % frame_bytes != 0:
+            pad_len = frame_bytes - (len(buffer) % frame_bytes)
+            buffer.extend(b"\x00" * pad_len)
+
+        await self.audio_delta_handler.mark_done(buffer_key)
+        await self.audio_delta_handler.wait_for_playout(buffer_key)
 
         # Publish audio.done notification
         reason = event.payload.get("reason") if isinstance(event.payload, dict) else None
@@ -55,7 +45,7 @@ class AudioDoneHandler:
         )
 
         # Clear state for this stream
-        self.audio_delta_handler.clear_buffer(buffer_key)
+        self.audio_delta_handler.clear_state(buffer_key)
 
         logger.info(
             "Audio stream completed for session=%s participant=%s commit=%s",
