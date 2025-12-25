@@ -19,7 +19,7 @@ from .audio import (
     ProviderFormatResolver,
     StreamKeyBuilder,
 )
-from ...audio import PcmConverter
+from ...audio import PcmConverter, StreamingPcmResampler
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +79,25 @@ class AudioDeltaHandler:
         state.frame_bytes = frame_bytes
         state.fmt = target_format
         source_format = self.provider_format_resolver.resolve(event, target_format)
+        resampler = None
+        if source_format.sample_rate_hz != target_format.sample_rate_hz:
+            resampler = state.resampler
+            if (
+                resampler is None
+                or resampler.src_rate_hz != source_format.sample_rate_hz
+                or resampler.dst_rate_hz != target_format.sample_rate_hz
+                or resampler.channels != target_format.channels
+            ):
+                resampler = StreamingPcmResampler(
+                    source_format.sample_rate_hz,
+                    target_format.sample_rate_hz,
+                    target_format.channels,
+                )
+                state.resampler = resampler
 
         try:
             audio_bytes = self.decoder.decode(audio_b64)
-            converted = self.transcoder.transcode(audio_bytes, source_format, target_format)
+            converted = self.transcoder.transcode(audio_bytes, source_format, target_format, resampler=resampler)
         except AudioDecodingError as exc:
             logger.exception("Failed to decode audio for stream %s: %s", buffer_key, exc)
             await self.publisher.publish_audio_done(event, reason="error", error=str(exc))

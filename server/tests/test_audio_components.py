@@ -1,9 +1,10 @@
 import asyncio
 import base64
 import json
+import numpy as np
 import pytest
 
-from server.audio import AudioFormat, Base64AudioCodec, PcmConverter, UnsupportedAudioFormatError
+from server.audio import AudioFormat, Base64AudioCodec, PcmConverter, StreamingPcmResampler, UnsupportedAudioFormatError
 from server.core.event_bus import EventBus, HandlerConfig
 from server.core.queues import OverflowPolicy
 from server.gateways.provider.audio_delta_handler import AudioDeltaHandler
@@ -45,9 +46,9 @@ class RecordingConverter(PcmConverter):
         self.calls = []
         self.last_output = None
 
-    def convert(self, pcm, src, dst):
+    def convert(self, pcm, src, dst, resampler=None):
         self.calls.append((src, dst, len(pcm)))
-        self.last_output = super().convert(pcm, src, dst)
+        self.last_output = super().convert(pcm, src, dst, resampler=resampler)
         return self.last_output
 
 
@@ -83,6 +84,28 @@ def test_provider_format_resolver_prefers_provider_defaults():
     fmt = resolver.resolve(_provider_event(), target)
     assert fmt.sample_rate_hz == provider_fmt.sample_rate_hz
     assert fmt.channels == provider_fmt.channels
+
+
+def test_streaming_resampler_preserves_continuity():
+    src_rate = 24000
+    dst_rate = 16000
+    channels = 1
+    chunk_samples = int(src_rate * 0.02)  # 20ms
+
+    def _sine_chunk(start_sample: int) -> bytes:
+        t = (np.arange(chunk_samples) + start_sample) / src_rate
+        wave = 12000 * np.sin(2 * np.pi * 440 * t)
+        return wave.astype("<i2").tobytes()
+
+    resampler = StreamingPcmResampler(src_rate, dst_rate, channels)
+    out1 = resampler.process(_sine_chunk(0))
+    out2 = resampler.process(_sine_chunk(chunk_samples))
+
+    arr1 = np.frombuffer(out1, dtype="<i2")
+    arr2 = np.frombuffer(out2, dtype="<i2")
+    assert arr1.size > 0 and arr2.size > 0
+    boundary_diff = abs(int(arr1[-1]) - int(arr2[0]))
+    assert boundary_diff < 1500
 
 
 @pytest.mark.asyncio
@@ -143,6 +166,73 @@ async def test_audio_delta_handler_resamples_from_provider_format():
     await handler.acs_outbound_bus.shutdown()
 
 
+@pytest.mark.asyncio
+async def test_streaming_resampler_handles_multiple_deltas_without_tail_padding():
+    session_metadata = {"acs_audio": {"format": {"sample_rate_hz": 16000, "channels": 1, "encoding": "pcm16"}}}
+    capabilities = ProviderAudioCapabilities(
+        provider_input_format=AudioFormat(sample_rate_hz=24000, channels=1, sample_format="pcm16"),
+        provider_output_format=AudioFormat(sample_rate_hz=24000, channels=1, sample_format="pcm16"),
+    )
+
+    class _StubPublisher:
+        def __init__(self):
+            self.chunks = []
+
+        async def publish_audio_chunk(self, audio_bytes: bytes) -> None:
+            self.chunks.append(audio_bytes)
+
+        async def publish_audio_done(self, *args, **kwargs) -> None:
+            return None
+
+    class _NoopPlayoutEngine:
+        def __init__(self):
+            self.keys = []
+
+        def ensure_task(self, key, state):
+            self.keys.append(key)
+
+        async def cancel(self, *args, **kwargs):
+            return None
+
+        async def mark_done(self, *args, **kwargs):
+            return None
+
+    handler = AudioDeltaHandler(
+        acs_outbound_bus=EventBus("test_streaming_resampler"),
+        session_metadata=session_metadata,
+        provider_capabilities=capabilities,
+        transcoder=AudioTranscoder(PcmConverter()),
+        publisher=_StubPublisher(),
+        playout_engine=_NoopPlayoutEngine(),
+    )
+
+    audio_bytes = b"\x00\x01" * 480  # 20ms at 24k mono -> 960 bytes
+    events = [
+        _provider_event(
+            payload={"audio_b64": Base64AudioCodec.encode(audio_bytes), "seq": seq, "format": {}},
+            provider="voice_live",
+            stream_id="stream-multi",
+        )
+        for seq in range(3)
+    ]
+
+    for evt in events:
+        await handler.handle(evt)
+
+    buffer_key = handler.stream_key_builder.build(events[0])
+    state = handler.store.get(buffer_key)
+    assert state is not None
+    assert isinstance(state.resampler, StreamingPcmResampler)
+    source_format = capabilities.provider_output_format
+    target_format = handler.target_format
+    total_src_frames = (len(audio_bytes) * len(events)) // source_format.bytes_per_frame()
+    expected_frames = int(round(total_src_frames * (target_format.sample_rate_hz / source_format.sample_rate_hz)))
+    expected_bytes = expected_frames * target_format.bytes_per_frame()
+    assert len(state.buffer) == expected_bytes
+    assert len(state.buffer) % state.frame_bytes == 0
+    await handler.acs_outbound_bus.shutdown()
+
+
 def test_audio_delta_decoder_handles_invalid_base64():
     decoder = AudioDeltaDecoder()
     good = base64.b64encode(b"ab").decode("ascii")
@@ -159,7 +249,7 @@ def test_audio_transcoder_passes_through_and_wraps_errors():
     assert transcoder.transcode(audio, fmt, fmt) == audio
 
     class FailingConverter(PcmConverter):
-        def convert(self, pcm, src, dst):
+        def convert(self, pcm, src, dst, resampler=None):
             raise UnsupportedAudioFormatError("bad")
 
     failing = AudioTranscoder(FailingConverter())

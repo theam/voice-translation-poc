@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Optional
 
-from ....audio import AudioFormat
+from ....audio import AudioFormat, StreamingPcmResampler
 
 
 @dataclass
@@ -15,6 +15,7 @@ class PlayoutState:
     done: bool = False
     task: Optional[asyncio.Task] = None
     data_ready: asyncio.Event = field(default_factory=asyncio.Event)
+    resampler: Optional[StreamingPcmResampler] = None
 
 
 class PlayoutStore:
