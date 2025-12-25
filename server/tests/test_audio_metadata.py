@@ -31,7 +31,7 @@ class TestAudioMetadataHandler(unittest.TestCase):
 
         self.assertIn("acs_audio", self.session_metadata)
         fmt = self.session_metadata["acs_audio"]["format"]
-        self.assertEqual(fmt["encoding"], "PCM")
+        self.assertEqual(fmt["encoding"], "pcm16")
         self.assertEqual(fmt["sample_rate_hz"], 24000)
         self.assertEqual(fmt["channels"], 1)
         self.assertEqual(fmt["frame_bytes"], 640)
