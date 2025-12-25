@@ -12,11 +12,11 @@ class AudioTranscoder:
 
     converter: PcmConverter
 
-    def transcode(self, audio_bytes: bytes, source_format: AudioFormat, target_format: AudioFormat) -> bytes:
+    def transcode(self, audio_bytes: bytes, source_format: AudioFormat, target_format: AudioFormat, resampler=None) -> bytes:
         if source_format == target_format:
             return audio_bytes
         try:
-            return self.converter.convert(audio_bytes, source_format, target_format)
+            return self.converter.convert(audio_bytes, source_format, target_format, resampler=resampler)
         except UnsupportedAudioFormatError as exc:
             raise AudioTranscodingError(str(exc)) from exc
         except Exception as exc:

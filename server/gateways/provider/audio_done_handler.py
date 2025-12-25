@@ -49,6 +49,8 @@ class AudioDoneHandler:
         await self.publisher.publish_audio_done(event, reason=reason or "completed", error=error)
 
         # Clear state for this stream
+        if state.resampler:
+            state.resampler.reset()
         self.store.remove(buffer_key)
 
         logger.info(
