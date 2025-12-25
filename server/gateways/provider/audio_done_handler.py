@@ -35,6 +35,11 @@ class AudioDoneHandler:
         state = self.store.get_or_create(buffer_key, self.audio_delta_handler.target_format, self.audio_delta_handler.frame_bytes)
         buffer = state.buffer
 
+        if state.resampler:
+            drained = state.resampler.flush()
+            if drained:
+                buffer.extend(drained)
+
         frame_bytes = state.frame_bytes or self.audio_delta_handler.frame_bytes
         if frame_bytes > 0 and buffer and len(buffer) % frame_bytes != 0:
             pad_len = frame_bytes - (len(buffer) % frame_bytes)

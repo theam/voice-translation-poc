@@ -46,9 +46,9 @@ class RecordingConverter(PcmConverter):
         self.calls = []
         self.last_output = None
 
-    def convert(self, pcm, src, dst, resampler=None):
+    def convert(self, pcm, src, dst, resampler=None, *, streaming: bool = False):
         self.calls.append((src, dst, len(pcm)))
-        self.last_output = super().convert(pcm, src, dst, resampler=resampler)
+        self.last_output = super().convert(pcm, src, dst, resampler=resampler, streaming=streaming)
         return self.last_output
 
 
@@ -106,6 +106,38 @@ def test_streaming_resampler_preserves_continuity():
     assert arr1.size > 0 and arr2.size > 0
     boundary_diff = abs(int(arr1[-1]) - int(arr2[0]))
     assert boundary_diff < 1500
+
+
+def test_streaming_resampler_matches_full_buffer_on_uneven_deltas():
+    src_fmt = AudioFormat(sample_rate_hz=24000, channels=1, sample_format="pcm16")
+    dst_fmt = AudioFormat(sample_rate_hz=16000, channels=1, sample_format="pcm16")
+
+    duration_seconds = 0.1
+    samples = int(src_fmt.sample_rate_hz * duration_seconds)
+    t = np.arange(samples) / src_fmt.sample_rate_hz
+    sine = (12000 * np.sin(2 * np.pi * 330 * t)).astype("<i2").tobytes()
+
+    chunk_sizes = [1500, 1700]
+    deltas = []
+    cursor = 0
+    for size in chunk_sizes:
+        deltas.append(sine[cursor:cursor + size])
+        cursor += size
+    deltas.append(sine[cursor:])
+
+    converter = PcmConverter()
+    resampler = StreamingPcmResampler(src_fmt.sample_rate_hz, dst_fmt.sample_rate_hz, dst_fmt.channels)
+
+    streaming_parts = [
+        converter.convert(delta, src_fmt, dst_fmt, resampler=resampler, streaming=True) for delta in deltas
+    ]
+    streaming_parts.append(resampler.flush())
+    streaming_out = b"".join(streaming_parts)
+
+    full_out = converter.convert(sine, src_fmt, dst_fmt)
+
+    assert len(streaming_out) == len(full_out)
+    assert streaming_out == full_out
 
 
 @pytest.mark.asyncio
@@ -249,7 +281,7 @@ def test_audio_transcoder_passes_through_and_wraps_errors():
     assert transcoder.transcode(audio, fmt, fmt) == audio
 
     class FailingConverter(PcmConverter):
-        def convert(self, pcm, src, dst, resampler=None):
+        def convert(self, pcm, src, dst, resampler=None, *, streaming: bool = False):
             raise UnsupportedAudioFormatError("bad")
 
     failing = AudioTranscoder(FailingConverter())
