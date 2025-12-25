@@ -4,6 +4,17 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 from ....audio import AudioFormat
+from ....providers.capabilities import ProviderAudioCapabilities
+
+
+def audio_format_from_dict(data: Dict[str, Any]) -> AudioFormat:
+    sample_rate = int(data.get("sample_rate_hz") or data.get("sampleRateHz") or 16000)
+    channels = int(data.get("channels") or 1)
+    raw_sample_format = data.get("encoding") or data.get("sample_format") or "pcm16"
+    sample_format = str(raw_sample_format).lower()
+    if sample_format.startswith("pcm"):
+        sample_format = "pcm16"
+    return AudioFormat(sample_rate_hz=sample_rate, channels=channels, sample_format=sample_format)
 
 
 @dataclass
@@ -13,7 +24,7 @@ class AcsFormatResolver:
     session_metadata: Dict[str, Any]
 
     def get_target_format(self) -> AudioFormat:
-        return self._audio_format_from_dict(self._target_format_dict())
+        return audio_format_from_dict(self._target_format_dict())
 
     def get_frame_bytes(self, fmt: AudioFormat | None = None) -> int:
         target_format = fmt or self.get_target_format()
@@ -44,15 +55,6 @@ class AcsFormatResolver:
     def _frame_ms(self) -> int:
         return 20
 
-    def _audio_format_from_dict(self, data: Dict[str, Any]) -> AudioFormat:
-        sample_rate = int(data.get("sample_rate_hz") or data.get("sampleRateHz") or 16000)
-        channels = int(data.get("channels") or 1)
-        raw_sample_format = data.get("encoding") or data.get("sample_format") or "pcm16"
-        sample_format = str(raw_sample_format).lower()
-        if sample_format.startswith("pcm"):
-            sample_format = "pcm16"
-        return AudioFormat(sample_rate_hz=sample_rate, channels=channels, sample_format=sample_format)
-
     def _sanitize_frame_bytes(self, frame_bytes: Any, fmt: AudioFormat) -> int:
         try:
             value = int(frame_bytes)
@@ -67,8 +69,12 @@ class AcsFormatResolver:
         return value if remainder == 0 else value - remainder
 
 
+@dataclass
 class ProviderFormatResolver:
     """Resolves provider source audio format for a given event."""
+
+    provider_output_format: AudioFormat | None = None
+    provider_capabilities: ProviderAudioCapabilities | None = None
 
     def resolve(self, event: Dict[str, Any], target_format: AudioFormat) -> AudioFormat:
         format_info: Dict[str, Any] = {"encoding": None, "sample_rate_hz": None, "channels": None, "sample_format": None}
@@ -77,6 +83,17 @@ class ProviderFormatResolver:
         if isinstance(payload_format, dict):
             format_info.update({k: v for k, v in payload_format.items() if v is not None})
 
+        provider_fmt = self._provider_output_format()
+        if format_info.get("sample_rate_hz") is None and provider_fmt:
+            format_info["sample_rate_hz"] = provider_fmt.sample_rate_hz
+        if format_info.get("channels") is None and provider_fmt:
+            format_info["channels"] = provider_fmt.channels
+        if format_info.get("encoding") is None and format_info.get("sample_format") is None:
+            if provider_fmt:
+                format_info["sample_format"] = provider_fmt.sample_format
+            else:
+                format_info["encoding"] = target_format.sample_format
+
         if format_info.get("sample_rate_hz") is None:
             format_info["sample_rate_hz"] = target_format.sample_rate_hz
         if format_info.get("channels") is None:
@@ -84,4 +101,11 @@ class ProviderFormatResolver:
         if format_info.get("encoding") is None and format_info.get("sample_format") is None:
             format_info["encoding"] = target_format.sample_format
 
-        return AcsFormatResolver({})._audio_format_from_dict(format_info)
+        return audio_format_from_dict(format_info)
+
+    def _provider_output_format(self) -> AudioFormat | None:
+        if self.provider_output_format:
+            return self.provider_output_format
+        if self.provider_capabilities:
+            return self.provider_capabilities.provider_output_format
+        return None
