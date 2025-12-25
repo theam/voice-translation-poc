@@ -34,7 +34,7 @@ class AudioDataHandler(MessageHandler):
         Returns:
             True if message has kind="AudioData"
         """
-        return message.get("kind") == "AudioData"
+        return str(message.get("kind", "")).lower() == "audiodata"
 
     def decode(self, message: Dict[str, Any]) -> ProtocolEvent:
         """Decode AudioData message to ProtocolEvent.

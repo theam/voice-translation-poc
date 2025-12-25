@@ -81,7 +81,7 @@ class AcsAudioMessage:
         audio_data = payload.get("audioData", {}) if "audioData" in payload else payload
         data_field = audio_data.get("data", "")
         return cls(
-            data=base64.b64decode(data_field),
+            data=base64.b64decode(data_field, validate=False),
             participant_raw_id=audio_data.get("participantRawID"),
             timestamp=audio_data.get("timestamp"),
             silent=bool(audio_data.get("silent", False)),

@@ -1,0 +1,55 @@
+system:
+  log_level: INFO
+  payload_capture:
+    enabled: false
+    mode: metadata_only
+    output_dir: ./artifacts
+
+buffering:
+  ingress_queue_max: 2000
+  egress_queue_max: 2000
+  overflow_policy: DROP_OLDEST
+
+dispatch:
+  provider: mock
+  batching:
+    enabled: true
+    max_batch_ms: 200
+    max_batch_bytes: 65536
+    idle_timeout_ms: 500
+
+providers:
+  voicelive:
+    type: voice_live
+    endpoint: https://voicelive.example.com
+    api_key: ${VOICELIVE_KEY}
+    region: eastus
+    resource: voicelive-resource-name
+    settings:
+      model: gpt-realtime-mini
+      api_version: 2024-10-01-preview
+      deployment: gpt-realtime-mini
+      # Optional: override defaults sent in the Voice Live session.create payload
+      session_options:
+        # instructions: |
+        #   Custom prompt to use for the session.
+        # voice: alloy
+        # temperature: 0.8
+        # modalities: ["text", "audio"]
+        # input_audio_format: pcm16
+        # output_audio_format: pcm16
+        # input_audio_transcription:
+        #   language: en-US
+        # turn_detection:
+        #   type: server_vad
+        #   threshold: 0.5
+        #   prefix_padding_ms: 300
+        #   silence_duration_ms: 600
+  live_interpreter:
+    type: live_interpreter
+    endpoint: https://live-interpreter.example.com
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    region: eastus
+    resource: live-interpreter-resource-name
+  mock:
+    type: mock
