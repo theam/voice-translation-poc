@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from ....models.messages import ProviderOutputEvent
+from ....models.provider_events import ProviderOutputEvent
 
 logger = logging.getLogger(__name__)
 

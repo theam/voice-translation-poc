@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import time
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import azure.cognitiveservices.speech as speechsdk
 
+from ...audio import Base64AudioCodec
 from ...core.event_bus import EventBus, HandlerConfig
 from ...core.queues import OverflowPolicy
-from ...models.messages import AudioRequest, ProviderOutputEvent
+from ...models.provider_events import ProviderInputEvent, ProviderOutputEvent
 from .inbound_handlers import (
     CanceledHandler,
     RecognizedHandler,
@@ -235,7 +235,7 @@ class LiveInterpreterProvider:
         logger.info("Live Interpreter recognition started")
 
     async def _register_audio_handler(self) -> None:
-        """Register handler that consumes AudioRequest and pushes to SDK stream."""
+        """Register handler that consumes ProviderInputEvent and pushes to SDK stream."""
         if not self._push_stream:
             raise RuntimeError("Push stream not initialized")
 
@@ -249,7 +249,7 @@ class LiveInterpreterProvider:
             self._process_audio,
         )
 
-    async def _process_audio(self, request: AudioRequest) -> None:
+    async def _process_audio(self, request: ProviderInputEvent) -> None:
         """Decode base64 PCM audio and forward to the SDK stream."""
         if self._closed:
             logger.debug("Provider closed; skipping audio")
@@ -264,7 +264,7 @@ class LiveInterpreterProvider:
             return
 
         try:
-            audio_bytes = base64.b64decode(request.audio_data, validate=False)
+            audio_bytes = Base64AudioCodec.decode(request.b64_audio_string)
         except Exception as exc:
             logger.exception("Failed to decode audio for commit=%s: %s", request.commit_id, exc)
             return

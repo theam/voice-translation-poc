@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import base64
+from ..audio import AudioChunk, AudioFormat, Base64AudioCodec
 
 
 class AudioDurationCalculator:
     """Calculates audio duration for 16kHz mono 16-bit PCM audio."""
 
-    # Hardcoded audio format constants
-    SAMPLE_RATE_HZ = 16_000
-    CHANNELS = 1
-    BYTES_PER_SAMPLE = 2  # 16-bit = 2 bytes
+    PCM16_MONO_16K = AudioFormat(sample_rate_hz=16_000, channels=1, sample_format="pcm16")
 
     @classmethod
     def calculate_duration_ms(cls, audio_b64: str) -> float:
@@ -23,7 +20,7 @@ class AudioDurationCalculator:
             Duration in milliseconds
         """
         # Decode base64 to get raw byte length
-        audio_bytes = base64.b64decode(audio_b64, validate=True)
+        audio_bytes = Base64AudioCodec.decode(audio_b64)
         return cls.calculate_duration_ms_from_bytes(audio_bytes)
 
     @classmethod
@@ -31,7 +28,5 @@ class AudioDurationCalculator:
         """
         Calculate duration in milliseconds from raw PCM audio bytes.
         """
-        num_bytes = len(audio_bytes)
-        num_samples = num_bytes / (cls.BYTES_PER_SAMPLE * cls.CHANNELS)
-        duration_ms = (num_samples / cls.SAMPLE_RATE_HZ) * 1000
-        return duration_ms
+        chunk = AudioChunk(pcm=audio_bytes, fmt=cls.PCM16_MONO_16K)
+        return float(chunk.duration_ms())

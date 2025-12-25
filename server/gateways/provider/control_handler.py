@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict
 
 from ...core.event_bus import EventBus
-from ...models.messages import ProviderOutputEvent
+from ...models.provider_events import ProviderOutputEvent
 
 if TYPE_CHECKING:
     from .audio_delta_handler import AudioDeltaHandler

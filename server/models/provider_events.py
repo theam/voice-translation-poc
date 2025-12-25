@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 
 @dataclass
-class AudioRequest:
+class ProviderInputEvent:
     """
     Audio request to send to translation provider.
     Published to provider_outbound_bus when audio is committed.
@@ -16,7 +16,7 @@ class AudioRequest:
     commit_id: str
     session_id: str
     participant_id: Optional[str]
-    audio_data: bytes  # base64-encoded PCM audio
+    b64_audio_string: str  # base64-encoded PCM audio (string)
     metadata: Dict[str, Any]
 
     def to_dict(self) -> Dict[str, Any]:
@@ -25,7 +25,7 @@ class AudioRequest:
             "commit_id": self.commit_id,
             "session_id": self.session_id,
             "participant_id": self.participant_id,
-            "audio_data": self.audio_data.decode('utf-8'),
+            "b64_audio_string": self.b64_audio_string,
             "metadata": self.metadata,
         }
 

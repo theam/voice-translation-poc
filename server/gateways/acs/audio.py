@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import time
 import uuid
@@ -10,9 +9,10 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from ...config import BatchingConfig
+from ...audio import Base64AudioCodec
 from ...models.gateway_input_event import GatewayInputEvent
 from ...core.event_bus import EventBus
-from ...models.messages import AudioRequest
+from ...models.provider_events import ProviderInputEvent
 from ...services.audio_duration import AudioDurationCalculator
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ class AudioMessageHandler:
 
         # Decode incoming base64 to raw PCM bytes
         try:
-            chunk_pcm = base64.b64decode(chunk_b64, validate=False)
+            chunk_pcm = Base64AudioCodec.decode(chunk_b64)
         except Exception as exc:
             logger.warning("Skipping audio chunk with invalid base64: %s", exc)
             return
@@ -167,16 +167,16 @@ class AudioMessageHandler:
         if isinstance(audio_data, dict):
             participant_id = audio_data.get("participantrawid")
             timestamp_utc = audio_data.get("timestamp") or timestamp_utc
-        audio_b64 = base64.b64encode(raw_audio)
-        request = AudioRequest(
+        audio_b64 = Base64AudioCodec.encode(raw_audio)
+        request = ProviderInputEvent(
             commit_id=commit_id,
             session_id=event.session_id,
             participant_id=participant_id,
-            audio_data=audio_b64,
+            b64_audio_string=audio_b64,
             metadata={"timestamp_utc": timestamp_utc, "message_id": event.event_id},
         )
 
-        logger.info("Publishing audio request to provider: commit=%s bytes=%s", commit_id, len(audio_b64))
+        logger.info("Publishing audio request to provider: commit=%s bytes=%s", commit_id, len(raw_audio))
         await self._provider_outbound_bus.publish(request)
 
     async def shutdown(self) -> None:

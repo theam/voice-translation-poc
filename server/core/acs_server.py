@@ -72,7 +72,7 @@ class ACSServer:
         )
 
         websocket_name = f"acs_server_{connection_ctx.ingress_ws_id}"
-        log_sink = WireLogSink(f"{websocket_name}.jsonl") if self.config.system.log_wire else None
+        log_sink = WireLogSink(websocket_name) if self.config.system.log_wire else None
         wrapped_websocket = WebSocketServer(
             websocket=websocket,
             name=websocket_name,

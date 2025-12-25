@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 
 from ..core.event_bus import EventBus
-from ..models.messages import AudioRequest, ProviderOutputEvent
+from ..models.provider_events import ProviderInputEvent, ProviderOutputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ class MockProvider:
     Mock translation adapter for testing.
 
     Simulates translation by:
-    - Consuming AudioRequest from outbound_bus
+    - Consuming ProviderInputEvent from outbound_bus
     - Generating fake partial and final translations
     - Publishing ProviderOutputEvent to inbound_bus
 
@@ -35,7 +35,7 @@ class MockProvider:
         Initialize Mock adapter.
 
         Args:
-            outbound_bus: Bus to consume AudioRequest messages from
+            outbound_bus: Bus to consume ProviderInputEvent messages from
             inbound_bus: Bus to publish ProviderOutputEvent messages to
             delay_ms: Simulated processing delay in milliseconds
         """
@@ -60,7 +60,7 @@ class MockProvider:
 
     async def _egress_loop(self) -> None:
         """
-        Egress loop: consume AudioRequest and generate mock translations.
+        Egress loop: consume ProviderInputEvent and generate mock translations.
         """
         try:
             logger.info("Mock adapter egress loop starting")
@@ -84,7 +84,7 @@ class MockProvider:
         except Exception as e:
             logger.exception("Mock adapter egress loop failed: %s", e)
 
-    async def _process_audio(self, request: AudioRequest) -> None:
+    async def _process_audio(self, request: ProviderInputEvent) -> None:
         """
         Process audio request and generate mock translation responses.
         Simulates partial and final translation results.
@@ -94,7 +94,7 @@ class MockProvider:
                 "Mock adapter processing audio: commit=%s session=%s bytes=%s",
                 request.commit_id,
                 request.session_id,
-                len(request.audio_data)
+                len(request.b64_audio_string)
             )
 
             # Simulate processing delay
