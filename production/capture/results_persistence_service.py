@@ -89,7 +89,8 @@ class ResultsPersistenceService:
         audio_sink.write_audio_events(audio_events)
 
         logger.debug("Writing call mix audio")
-        audio_sink.write_call_mix(tape)
+        call_mix_path = audio_sink.audio_dir / "call_mix.wav"
+        tape.write_wav(call_mix_path)
 
         # Persist transcripts
         transcript_sink = TranscriptSink(self.output_root)
