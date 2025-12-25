@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from ....models.messages import ProviderOutputEvent
+from ....models.provider_events import ProviderOutputEvent
 from .base import VoiceLiveContext, extract_context
 
 logger = logging.getLogger(__name__)

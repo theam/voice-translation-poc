@@ -182,7 +182,7 @@ class VoiceLiveProvider:
                 ping_interval=20,
                 ping_timeout=10,
             )
-            log_sink = WireLogSink(f"{self._connection_name}.jsonl") if self.log_wire else None
+            log_sink = WireLogSink(self._connection_name) if self.log_wire else None
             self._ws = WebSocketServer(
                 websocket=raw_ws,
                 name=self._connection_name,

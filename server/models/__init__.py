@@ -2,12 +2,12 @@
 
 from .gateway_input_event import ConnectionContext, GatewayInputEvent, Trace
 
-from .messages import AudioRequest, ProviderOutputEvent
+from .provider_events import ProviderInputEvent, ProviderOutputEvent
 
 __all__ = [
     "ConnectionContext",
     "GatewayInputEvent",
     "Trace",
-    "AudioRequest",
+    "ProviderInputEvent",
     "ProviderOutputEvent",
 ]

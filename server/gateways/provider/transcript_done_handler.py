@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 from ...core.event_bus import EventBus
-from ...models.messages import ProviderOutputEvent
+from ...models.provider_events import ProviderOutputEvent
 
 logger = logging.getLogger(__name__)
 

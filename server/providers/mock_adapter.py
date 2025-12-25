@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 
 from ..core.event_bus import EventBus
-from ..models.messages import AudioRequest, ProviderOutputEvent
+from ..models.provider_events import ProviderInputEvent, ProviderOutputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ class MockAdapter:
         except Exception as e:
             logger.exception("Mock adapter egress loop failed: %s", e)
 
-    async def _process_audio(self, request: AudioRequest) -> None:
+    async def _process_audio(self, request: ProviderInputEvent) -> None:
         """
         Process audio request and generate mock translation responses.
         Simulates partial and final translation results.
@@ -94,7 +94,7 @@ class MockAdapter:
                 "Mock adapter processing audio: commit=%s session=%s bytes=%s",
                 request.commit_id,
                 request.session_id,
-                len(request.audio_data)
+                len(request.b64_audio_string)
             )
 
             # Simulate processing delay

@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict
 
 from ...core.event_bus import EventBus
-from ...models.messages import ProviderOutputEvent
+from ...models.provider_events import ProviderOutputEvent
 from ..base import Handler, HandlerSettings
 from .audio_delta_handler import AudioDeltaHandler
 from .audio_done_handler import AudioDoneHandler
