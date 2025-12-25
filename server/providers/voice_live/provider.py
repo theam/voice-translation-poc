@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
+from ..capabilities import ProviderAudioCapabilities, get_provider_capabilities
+from ...gateways.provider.audio import AcsFormatResolver
 from ...core.event_bus import EventBus, HandlerConfig
 from ...core.queues import OverflowPolicy
 from ...core.websocket_server import WebSocketServer
@@ -107,6 +109,7 @@ class VoiceLiveProvider:
         settings: Optional[Dict[str, Any]] = None,
         session_metadata: Optional[Dict[str, Any]] = None,
         log_wire: bool = False,
+        capabilities: Optional[ProviderAudioCapabilities] = None,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
@@ -117,12 +120,15 @@ class VoiceLiveProvider:
         self.settings = settings or {}
         self.session_metadata = session_metadata or {}
         self.log_wire = log_wire
+        self.capabilities = capabilities or get_provider_capabilities("voice_live")
         self._connection_name = self._build_connection_name()
         self._ws: Optional[WebSocketServer] = None
         self._ingress_task: Optional[asyncio.Task] = None
         self._closed = False
 
-        self._inbound_handler = VoiceLiveInboundHandler(inbound_bus, session_metadata=self.session_metadata)
+        self._inbound_handler = VoiceLiveInboundHandler(
+            inbound_bus, session_metadata=self.session_metadata, capabilities=self.capabilities
+        )
         self._outbound_handler: Optional[VoiceLiveOutboundHandler] = None
 
     async def start(self) -> None:
@@ -134,9 +140,14 @@ class VoiceLiveProvider:
         if not self._ws:
             raise RuntimeError("VoiceLive WebSocket is not connected")
 
-        self._outbound_handler = VoiceLiveOutboundHandler(self._ws)
+        self._outbound_handler = VoiceLiveOutboundHandler(
+            self._ws,
+            session_metadata=self.session_metadata,
+            capabilities=self.capabilities,
+        )
 
         await self._update_session()
+        self._log_audio_formats()
         await self._register_outbound_handler()
 
         self._ingress_task = asyncio.create_task(
@@ -344,6 +355,7 @@ class VoiceLiveProvider:
     def _build_connection_name(self) -> str:
         """Create a deterministic-ish name for wire logging."""
         parts = ["voice_live"]
+        value = None
         if isinstance(self.session_metadata, dict):
             for key in ("session_id", "call_connection_id", "call_correlation_id"):
                 value = self.session_metadata.get(key)
@@ -352,3 +364,13 @@ class VoiceLiveProvider:
                     break
         parts.append(uuid.uuid4().hex)
         return "_".join(parts)
+
+    def _log_audio_formats(self) -> None:
+        acs_format = AcsFormatResolver(self.session_metadata).get_target_format()
+        logger.info(
+            "Audio formats (session=%s): acs=%s provider_input=%s provider_output=%s",
+            self.session_metadata.get("session_id") or self._connection_name,
+            acs_format,
+            self.capabilities.provider_input_format,
+            self.capabilities.provider_output_format,
+        )
