@@ -12,7 +12,7 @@ from .types import AudioFormat, UnsupportedAudioFormatError
 class PcmConverter:
     """PCM16 conversion utilities (mono/stereo + resample)."""
 
-    def convert(self, pcm: bytes, src: AudioFormat, dst: AudioFormat) -> bytes:
+    def convert(self, pcm: bytes, src: AudioFormat, dst: AudioFormat, resampler=None) -> bytes:
         """
         Convert PCM audio from src format to dst format.
         Supports:
@@ -33,7 +33,10 @@ class PcmConverter:
             working = self._trim_to_frame_boundary(working, AudioFormat(src.sample_rate_hz, dst.channels, src.sample_format))
 
         if src.sample_rate_hz != dst.sample_rate_hz:
-            working = self.resample_pcm16(working, src.sample_rate_hz, dst.sample_rate_hz, dst.channels)
+            if resampler:
+                working = resampler.process(working)
+            else:
+                working = self.resample_pcm16(working, src.sample_rate_hz, dst.sample_rate_hz, dst.channels)
 
         return self._trim_to_frame_boundary(working, dst)
 
@@ -69,19 +72,8 @@ class PcmConverter:
         if not trimmed:
             return b""
 
-        samples = np.frombuffer(trimmed, dtype="<i2").reshape(-1, channels)
-        src_length = samples.shape[0]
-        target_length = max(1, int(round(src_length * (dst_rate_hz / src_rate_hz))))
-
-        resampled_channels = []
-        x_old = np.linspace(0.0, 1.0, num=src_length, endpoint=False)
-        x_new = np.linspace(0.0, 1.0, num=target_length, endpoint=False)
-        for ch in range(channels):
-            resampled = np.interp(x_new, x_old, samples[:, ch]).astype(np.int16)
-            resampled_channels.append(resampled)
-
-        stacked = np.stack(resampled_channels, axis=1)
-        return stacked.astype("<i2").tobytes()
+        resampled, _ = audioop.ratecv(trimmed, 2, channels, src_rate_hz, dst_rate_hz, None)
+        return resampled
 
     def rms_pcm16(self, pcm16: bytes, channels: int) -> float:
         """Compute RMS energy of PCM16 (used by barge-in detector and diagnostics)."""
