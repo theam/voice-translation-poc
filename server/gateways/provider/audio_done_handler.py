@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import base64
 import logging
 from typing import TYPE_CHECKING
 
+from ...audio import Base64AudioCodec
 from ...models.messages import ProviderOutputEvent
 
 if TYPE_CHECKING:
@@ -28,29 +28,22 @@ class AudioDoneHandler:
         buffer = self.audio_delta_handler.get_buffer(event)
 
         # Emit aggregated audio for this response
-        if buffer:
-            source_format = (
-                self.audio_delta_handler._format_overrides.get(buffer_key)
-                or self.audio_delta_handler._frame_config(event)[1]
-            )
-            target_format = self.audio_delta_handler._target_format
-            audio_bytes = self.audio_delta_handler._resample_audio(
-                bytes(buffer),
-                int(source_format.get("sample_rate_hz") or 16000),
-                int(target_format.get("sample_rate_hz") or 16000),
-                int(target_format.get("channels") or 1),
-            )
-            acs_payload = {
-                "kind": "audioData",
-                "audioData": {
-                    "data": base64.b64encode(audio_bytes).decode("ascii"),
-                    "timestamp": None,
-                    "participant": None,
-                    "isSilent": False,
-                },
-                "stopAudio": None,
-            }
-            await self.audio_delta_handler.acs_outbound_bus.publish(acs_payload)
+        chunk_size = self.audio_delta_handler.chunk_size_for(event)
+        if buffer and chunk_size > 0:
+            while buffer:
+                chunk = bytes(buffer[:chunk_size]) if len(buffer) >= chunk_size else bytes(buffer)
+                del buffer[:chunk_size]
+                acs_payload = {
+                    "kind": "audioData",
+                    "audioData": {
+                        "data": Base64AudioCodec.encode(chunk),
+                        "timestamp": None,
+                        "participant": None,
+                        "isSilent": False,
+                    },
+                    "stopAudio": None,
+                }
+                await self.audio_delta_handler.acs_outbound_bus.publish(acs_payload)
 
         # Publish audio.done notification
         reason = event.payload.get("reason") if isinstance(event.payload, dict) else None

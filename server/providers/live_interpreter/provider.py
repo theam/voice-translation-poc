@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import time
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import azure.cognitiveservices.speech as speechsdk
 
+from ...audio import Base64AudioCodec
 from ...core.event_bus import EventBus, HandlerConfig
 from ...core.queues import OverflowPolicy
 from ...models.messages import AudioRequest, ProviderOutputEvent
@@ -264,7 +264,7 @@ class LiveInterpreterProvider:
             return
 
         try:
-            audio_bytes = base64.b64decode(request.audio_data, validate=False)
+            audio_bytes = Base64AudioCodec.decode(request.audio_data.decode("ascii"))
         except Exception as exc:
             logger.exception("Failed to decode audio for commit=%s: %s", request.commit_id, exc)
             return
