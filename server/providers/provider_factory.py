@@ -47,6 +47,7 @@ class ProviderFactory:
         outbound_bus: EventBus,
         inbound_bus: EventBus,
         session_metadata: Optional[dict] = None,
+        provider_capabilities=None,
     ) -> TranslationProvider:
         """
         Create translation provider based on provider type.
@@ -66,6 +67,7 @@ class ProviderFactory:
         """
         provider_config = config.providers.get(provider_name)
         provider_type = (provider_config.type or "mock").lower()
+        provider_capabilities = provider_capabilities or None
 
         logger.info(
             "Creating translation provider: name=%s type=%s",
@@ -97,6 +99,7 @@ class ProviderFactory:
                 settings=provider_config.settings,
                 session_metadata=session_metadata,
                 log_wire=config.system.log_wire,
+                capabilities=provider_capabilities,
             )
 
         elif provider_type == "live_interpreter":

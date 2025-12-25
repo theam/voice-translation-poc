@@ -28,6 +28,7 @@ class ProviderOutputHandler(Handler):
         acs_outbound_bus: EventBus,
         translation_settings: Dict[str, Any],
         session_metadata: Dict[str, Any],
+        provider_capabilities=None,
     ):
         super().__init__(settings)
         self.acs_outbound_bus = acs_outbound_bus
@@ -37,7 +38,8 @@ class ProviderOutputHandler(Handler):
         # Create specialized handlers
         self.audio_delta_handler = AudioDeltaHandler(
             acs_outbound_bus=acs_outbound_bus,
-            session_metadata=session_metadata
+            session_metadata=session_metadata,
+            provider_capabilities=provider_capabilities,
         )
         self.audio_done_handler = AudioDoneHandler(
             audio_delta_handler=self.audio_delta_handler

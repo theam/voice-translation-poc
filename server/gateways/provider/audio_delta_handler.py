@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderOutputEvent
+from ...providers.capabilities import ProviderAudioCapabilities
 from .audio import (
     AcsAudioPublisher,
     AcsFormatResolver,
@@ -40,20 +41,24 @@ class AudioDeltaHandler:
         publisher: AcsAudioPublisher | None = None,
         playout_engine: PacedPlayoutEngine | None = None,
         playout_config: PlayoutConfig | None = None,
+        provider_capabilities: ProviderAudioCapabilities | None = None,
     ):
         self.acs_outbound_bus = acs_outbound_bus
         self.session_metadata = session_metadata
         self.stream_key_builder = stream_key_builder or StreamKeyBuilder()
         self.acs_format_resolver = acs_format_resolver or AcsFormatResolver(session_metadata)
-        self.provider_format_resolver = provider_format_resolver or ProviderFormatResolver()
+        default_provider_format = None
+        if provider_capabilities:
+            default_provider_format = getattr(provider_capabilities, "provider_output_format", None)
+        self.provider_format_resolver = provider_format_resolver or ProviderFormatResolver(
+            provider_output_format=default_provider_format,
+            provider_capabilities=provider_capabilities,
+        )
         self.decoder = decoder or AudioDeltaDecoder()
         self.transcoder = transcoder or AudioTranscoder(PcmConverter())
         self.store = store or PlayoutStore()
         self.publisher = publisher or AcsAudioPublisher(acs_outbound_bus)
         self.playout_engine = playout_engine or PacedPlayoutEngine(self.publisher, playout_config)
-
-        self._target_format = self.acs_format_resolver.get_target_format()
-        self._frame_bytes = self.acs_format_resolver.get_frame_bytes(self._target_format)
 
     def can_handle(self, event: ProviderOutputEvent) -> bool:
         """Check if this handler can process the event."""
@@ -68,9 +73,11 @@ class AudioDeltaHandler:
             return
 
         buffer_key = self.stream_key_builder.build(event)
-        target_format = self._target_format
-        frame_bytes = self._frame_bytes
+        target_format = self.acs_format_resolver.get_target_format()
+        frame_bytes = self.acs_format_resolver.get_frame_bytes(target_format)
         state = self.store.get_or_create(buffer_key, target_format, frame_bytes)
+        state.frame_bytes = frame_bytes
+        state.fmt = target_format
         source_format = self.provider_format_resolver.resolve(event, target_format)
 
         try:
@@ -89,6 +96,14 @@ class AudioDeltaHandler:
             self.store.remove(buffer_key)
             return
 
+        if source_format.sample_rate_hz != target_format.sample_rate_hz or source_format.channels != target_format.channels:
+            logger.debug(
+                "Resampling provider->ACS: %sk -> %sk (len %s -> %s)",
+                source_format.sample_rate_hz,
+                target_format.sample_rate_hz,
+                len(audio_bytes),
+                len(converted),
+            )
         state.buffer.extend(converted)
         state.data_ready.set()
         logger.debug(
@@ -103,8 +118,8 @@ class AudioDeltaHandler:
 
     @property
     def target_format(self):
-        return self._target_format
+        return self.acs_format_resolver.get_target_format()
 
     @property
     def frame_bytes(self):
-        return self._frame_bytes
+        return self.acs_format_resolver.get_frame_bytes(self.target_format)

@@ -1,10 +1,12 @@
 import asyncio
 import base64
+import json
 import pytest
 
-from server.audio import AudioFormat, PcmConverter, UnsupportedAudioFormatError
+from server.audio import AudioFormat, Base64AudioCodec, PcmConverter, UnsupportedAudioFormatError
 from server.core.event_bus import EventBus, HandlerConfig
 from server.core.queues import OverflowPolicy
+from server.gateways.provider.audio_delta_handler import AudioDeltaHandler
 from server.gateways.provider.audio import (
     AcsAudioPublisher,
     AcsFormatResolver,
@@ -20,7 +22,9 @@ from server.gateways.provider.audio import (
     StreamKeyBuilder,
 )
 import server.gateways.provider.audio.playout_engine as playout_engine_module
-from server.models.provider_events import ProviderOutputEvent
+from server.models.provider_events import ProviderInputEvent, ProviderOutputEvent
+from server.providers.capabilities import ProviderAudioCapabilities
+from server.providers.voice_live.outbound_handler import VoiceLiveOutboundHandler
 
 
 def _provider_event(**kwargs):
@@ -33,6 +37,18 @@ def _provider_event(**kwargs):
         provider=kwargs.get("provider", "mock"),
         stream_id=kwargs.get("stream_id", "stream-1"),
     )
+
+
+class RecordingConverter(PcmConverter):
+    def __init__(self):
+        super().__init__()
+        self.calls = []
+        self.last_output = None
+
+    def convert(self, pcm, src, dst):
+        self.calls.append((src, dst, len(pcm)))
+        self.last_output = super().convert(pcm, src, dst)
+        return self.last_output
 
 
 def test_stream_key_builder_builds_expected_key():
@@ -60,11 +76,71 @@ def test_acs_format_resolver_uses_metadata_and_aligns():
     assert frame_bytes % fmt.bytes_per_frame() == 0
 
 
-def test_provider_format_resolver_falls_back_to_target():
+def test_provider_format_resolver_prefers_provider_defaults():
     target = AudioFormat(sample_rate_hz=16000, channels=1, sample_format="pcm16")
-    resolver = ProviderFormatResolver()
+    provider_fmt = AudioFormat(sample_rate_hz=24000, channels=1, sample_format="pcm16")
+    resolver = ProviderFormatResolver(provider_output_format=provider_fmt)
     fmt = resolver.resolve(_provider_event(), target)
-    assert fmt == target
+    assert fmt.sample_rate_hz == provider_fmt.sample_rate_hz
+    assert fmt.channels == provider_fmt.channels
+
+
+@pytest.mark.asyncio
+async def test_audio_delta_handler_resamples_from_provider_format():
+    session_metadata = {"acs_audio": {"format": {"sample_rate_hz": 16000, "channels": 1, "encoding": "pcm16"}}}
+    capabilities = ProviderAudioCapabilities(
+        provider_input_format=AudioFormat(sample_rate_hz=24000, channels=1, sample_format="pcm16"),
+        provider_output_format=AudioFormat(sample_rate_hz=24000, channels=1, sample_format="pcm16"),
+    )
+
+    class _StubPublisher:
+        def __init__(self):
+            self.chunks = []
+
+        async def publish_audio_chunk(self, audio_bytes: bytes) -> None:
+            self.chunks.append(audio_bytes)
+
+        async def publish_audio_done(self, *args, **kwargs) -> None:
+            return None
+
+    class _NoopPlayoutEngine:
+        def __init__(self):
+            self.keys = []
+
+        def ensure_task(self, key, state):
+            self.keys.append(key)
+
+        async def cancel(self, *args, **kwargs):
+            return None
+
+        async def mark_done(self, *args, **kwargs):
+            return None
+
+    converter = RecordingConverter()
+    handler = AudioDeltaHandler(
+        acs_outbound_bus=EventBus("test_resample"),
+        session_metadata=session_metadata,
+        provider_capabilities=capabilities,
+        transcoder=AudioTranscoder(converter),
+        publisher=_StubPublisher(),
+        playout_engine=_NoopPlayoutEngine(),
+    )
+
+    audio_bytes = b"\x00\x01" * 480  # 20ms at 24k mono -> 960 bytes
+    event = _provider_event(
+        payload={"audio_b64": Base64AudioCodec.encode(audio_bytes), "seq": 1, "format": {}},
+        provider="voice_live",
+        stream_id="stream-test",
+    )
+
+    await handler.handle(event)
+    buffer_key = handler.stream_key_builder.build(event)
+    state = handler.store.get(buffer_key)
+    assert converter.calls  # conversion was invoked
+    assert state is not None
+    assert len(state.buffer) == len(converter.last_output)
+    assert len(converter.last_output) < len(audio_bytes)
+    await handler.acs_outbound_bus.shutdown()
 
 
 def test_audio_delta_decoder_handles_invalid_base64():
@@ -89,6 +165,47 @@ def test_audio_transcoder_passes_through_and_wraps_errors():
     failing = AudioTranscoder(FailingConverter())
     with pytest.raises(AudioTranscodingError):
         failing.transcode(audio, fmt, AudioFormat(8000, 1, "pcm16"))
+
+
+@pytest.mark.asyncio
+async def test_voicelive_outbound_handler_resamples_to_provider_input():
+    session_metadata = {"acs_audio": {"format": {"sample_rate_hz": 16000, "channels": 1, "encoding": "pcm16"}}}
+    capabilities = ProviderAudioCapabilities(
+        provider_input_format=AudioFormat(sample_rate_hz=24000, channels=1, sample_format="pcm16"),
+        provider_output_format=AudioFormat(sample_rate_hz=24000, channels=1, sample_format="pcm16"),
+    )
+    converter = RecordingConverter()
+
+    class _StubWebSocket:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, payload):
+            self.sent.append(payload)
+
+    ws = _StubWebSocket()
+    handler = VoiceLiveOutboundHandler(
+        ws,
+        session_metadata=session_metadata,
+        capabilities=capabilities,
+        converter=converter,
+    )
+    audio_bytes = b"\x00\x01" * 320  # 20ms at 16k mono -> 640 bytes
+    event = ProviderInputEvent(
+        commit_id="commit-x",
+        session_id="session-y",
+        participant_id=None,
+        b64_audio_string=Base64AudioCodec.encode(audio_bytes),
+        metadata={},
+    )
+
+    await handler.handle(event)
+    assert converter.calls
+    assert ws.sent
+    payload = json.loads(ws.sent[0])
+    outbound_audio = Base64AudioCodec.decode(payload["audio"])
+    assert len(outbound_audio) > len(audio_bytes)
+    assert outbound_audio == converter.last_output
 
 
 def test_playout_store_lifecycle():
