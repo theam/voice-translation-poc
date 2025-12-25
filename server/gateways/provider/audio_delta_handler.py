@@ -97,7 +97,13 @@ class AudioDeltaHandler:
 
         try:
             audio_bytes = self.decoder.decode(audio_b64)
-            converted = self.transcoder.transcode(audio_bytes, source_format, target_format, resampler=resampler)
+            converted = self.transcoder.transcode(
+                audio_bytes,
+                source_format,
+                target_format,
+                resampler=resampler,
+                streaming=True,
+            )
         except AudioDecodingError as exc:
             logger.exception("Failed to decode audio for stream %s: %s", buffer_key, exc)
             await self.publisher.publish_audio_done(event, reason="error", error=str(exc))
