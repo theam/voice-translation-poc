@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Dict
 
 from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderOutputEvent
+from .audio import PacedPlayoutEngine, PlayoutStore, StreamKeyBuilder
 
 if TYPE_CHECKING:
     from .audio_delta_handler import AudioDeltaHandler
@@ -22,6 +23,9 @@ class ControlHandler:
     ):
         self.acs_outbound_bus = acs_outbound_bus
         self.audio_delta_handler = audio_delta_handler
+        self.stream_key_builder: StreamKeyBuilder = audio_delta_handler.stream_key_builder
+        self.store: PlayoutStore = audio_delta_handler.store
+        self.playout_engine: PacedPlayoutEngine = audio_delta_handler.playout_engine
 
     def can_handle(self, event: ProviderOutputEvent) -> bool:
         """Check if this handler can process the event."""
@@ -37,8 +41,11 @@ class ControlHandler:
             return
 
         # Clear any buffered audio for this stream
-        buffer_key = self.audio_delta_handler._buffer_key(event)
-        await self.audio_delta_handler.cancel_stream(buffer_key)
+        buffer_key = self.stream_key_builder.build(event)
+        state = self.store.get(buffer_key)
+        if state:
+            await self.playout_engine.cancel(buffer_key, state)
+            self.store.remove(buffer_key)
 
         # Publish stop_audio control to ACS
         acs_payload = {
