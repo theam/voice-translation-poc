@@ -12,16 +12,25 @@ class StreamingPcmResampler:
         self.channels = channels
         self.sample_width = sample_width
         self._state = None
+        self._pending = bytearray()
 
     def process(self, pcm_bytes: bytes) -> bytes:
         """Resample a chunk of PCM bytes while preserving boundary state."""
-        frame_bytes = self.sample_width * self.channels
-        trimmed = pcm_bytes[: len(pcm_bytes) - (len(pcm_bytes) % frame_bytes)]
-        if not trimmed:
+        if not pcm_bytes:
             return b""
 
+        self._pending.extend(pcm_bytes)
+
+        frame_bytes = self.sample_width * self.channels
+        usable = len(self._pending) - (len(self._pending) % frame_bytes)
+        if usable <= 0:
+            return b""
+
+        chunk = bytes(self._pending[:usable])
+        del self._pending[:usable]
+
         out, self._state = audioop.ratecv(
-            trimmed,
+            chunk,
             self.sample_width,
             self.channels,
             self.src_rate_hz,
@@ -33,7 +42,28 @@ class StreamingPcmResampler:
     def reset(self) -> None:
         """Reset internal resampling state."""
         self._state = None
+        self._pending.clear()
 
     def flush(self) -> bytes:
         """Flush pending state (ratecv does not require explicit flush)."""
-        return b""
+        if not self._pending:
+            return b""
+
+        frame_bytes = self.sample_width * self.channels
+        remainder = len(self._pending) % frame_bytes
+        if remainder:
+            pad_len = frame_bytes - remainder
+            self._pending.extend(b"\x00" * pad_len)
+
+        chunk = bytes(self._pending)
+        self._pending.clear()
+
+        out, self._state = audioop.ratecv(
+            chunk,
+            self.sample_width,
+            self.channels,
+            self.src_rate_hz,
+            self.dst_rate_hz,
+            self._state,
+        )
+        return out

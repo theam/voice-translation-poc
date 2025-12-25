@@ -12,7 +12,7 @@ from .types import AudioFormat, UnsupportedAudioFormatError
 class PcmConverter:
     """PCM16 conversion utilities (mono/stereo + resample)."""
 
-    def convert(self, pcm: bytes, src: AudioFormat, dst: AudioFormat, resampler=None) -> bytes:
+    def convert(self, pcm: bytes, src: AudioFormat, dst: AudioFormat, resampler=None, *, streaming: bool = False) -> bytes:
         """
         Convert PCM audio from src format to dst format.
         Supports:
@@ -26,17 +26,21 @@ class PcmConverter:
         if not pcm:
             return pcm
 
-        working = self._trim_to_frame_boundary(pcm, src)
+        working = pcm if streaming else self._trim_to_frame_boundary(pcm, src)
 
         if src.channels != dst.channels:
             working = self.to_mono(working, src.channels) if dst.channels == 1 else self.to_stereo(working, src.channels)
-            working = self._trim_to_frame_boundary(working, AudioFormat(src.sample_rate_hz, dst.channels, src.sample_format))
+            if not streaming:
+                working = self._trim_to_frame_boundary(working, AudioFormat(src.sample_rate_hz, dst.channels, src.sample_format))
 
         if src.sample_rate_hz != dst.sample_rate_hz:
             if resampler:
                 working = resampler.process(working)
             else:
                 working = self.resample_pcm16(working, src.sample_rate_hz, dst.sample_rate_hz, dst.channels)
+
+        if streaming:
+            return working
 
         return self._trim_to_frame_boundary(working, dst)
 
