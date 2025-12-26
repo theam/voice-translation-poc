@@ -49,6 +49,7 @@ class ScenarioEngine:
         self.clock = Clock(acceleration=config.time_acceleration)
         self.storage_service = storage_service
         self.evaluation_run_id = evaluation_run_id
+        self._media_time_ms: int = 0
 
     async def run(
         self,
@@ -184,8 +185,13 @@ class ScenarioEngine:
             current_time = await self._stream_silence_until(
                 ws, adapter, participants, current_time, turn.start_at_ms, sample_rate, channels, tape
             )
+            self._media_time_ms = current_time
 
-            conversation_manager.start_turn(turn.id, {"type": turn.type, "start_at_ms": turn.start_at_ms})
+            conversation_manager.start_turn(
+                turn.id,
+                {"type": turn.type, "start_at_ms": turn.start_at_ms},
+                turn_start_ms=turn.start_at_ms,
+            )
 
             # Execution: Process the turn
             processor = create_turn_processor(
@@ -199,6 +205,7 @@ class ScenarioEngine:
                 conversation_manager=conversation_manager,
             )
             current_time = await processor.process(turn, scenario, participants, current_time)
+            self._media_time_ms = current_time
 
             logger.debug(f"After processing turn '{turn.id}', current_time={current_time}ms")
 
@@ -211,6 +218,7 @@ class ScenarioEngine:
         current_time = await self._stream_silence_until(
             ws, adapter, participants, current_time, tail_target, sample_rate, channels, tape
         )
+        self._media_time_ms = current_time
 
     async def _stream_silence_until(
         self,
@@ -305,8 +313,9 @@ class ScenarioEngine:
                 stream_key = protocol_event.participant_id or "unknown"
                 start_ms, duration_ms = playout_assembler.add_chunk(
                     stream_key,
-                    arrival_ms,
-                    protocol_event.audio_payload,
+                    arrival_ms=arrival_ms,
+                    media_now_ms=self._media_time_ms,
+                    pcm_bytes=protocol_event.audio_payload,
                 )
                 timestamp_ms = start_ms
                 tape.add_pcm(start_ms, protocol_event.audio_payload)

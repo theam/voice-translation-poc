@@ -11,8 +11,7 @@ from typing import Dict, Tuple
 
 @dataclass
 class _StreamPlayoutState:
-    base_offset_ms: float
-    cursor_ms: float = 0.0
+    next_playout_ms: float | None = None
 
 
 class PlayoutAssembler:
@@ -29,30 +28,39 @@ class PlayoutAssembler:
         self.initial_buffer_ms = initial_buffer_ms
         self._streams: Dict[str, _StreamPlayoutState] = {}
 
-    def add_chunk(self, stream_key: str, arrival_ms: float, pcm_bytes: bytes) -> Tuple[float, float]:
+    def add_chunk(
+        self,
+        stream_key: str,
+        *,
+        arrival_ms: float,
+        media_now_ms: float,
+        pcm_bytes: bytes,
+    ) -> Tuple[float, float]:
         """Add a PCM chunk and return its playout position and duration.
 
         Args:
             stream_key: Identifier for the logical stream (e.g., participant).
             arrival_ms: Arrival timestamp (relative to scenario start).
+            media_now_ms: Current scenario media clock position.
             pcm_bytes: Raw 16-bit PCM payload.
 
         Returns:
             Tuple of (start_ms, duration_ms) for the chunk on the playout timeline.
         """
-        if not pcm_bytes:
-            return self._get_or_create_state(stream_key, arrival_ms).base_offset_ms, 0.0
+        state = self._get_or_create_state(stream_key)
 
-        state = self._get_or_create_state(stream_key, arrival_ms)
-        duration_ms = len(pcm_bytes) / (self.sample_rate * self.channels * 2) * 1000.0
-        start_ms = state.base_offset_ms + state.cursor_ms
-        state.cursor_ms += duration_ms
+        frame_bytes = self.channels * 2  # 16-bit PCM per channel
+        trimmed_len = len(pcm_bytes) - (len(pcm_bytes) % frame_bytes)
+        duration_ms = trimmed_len / (self.sample_rate * self.channels * 2) * 1000.0 if trimmed_len else 0.0
+
+        earliest = media_now_ms + self.initial_buffer_ms
+        start_ms = earliest if state.next_playout_ms is None else max(earliest, state.next_playout_ms)
+        state.next_playout_ms = start_ms + duration_ms
         return start_ms, duration_ms
 
-    def _get_or_create_state(self, stream_key: str, arrival_ms: float) -> _StreamPlayoutState:
+    def _get_or_create_state(self, stream_key: str) -> _StreamPlayoutState:
         if stream_key not in self._streams:
-            base_offset_ms = arrival_ms + self.initial_buffer_ms
-            self._streams[stream_key] = _StreamPlayoutState(base_offset_ms=base_offset_ms)
+            self._streams[stream_key] = _StreamPlayoutState()
         return self._streams[stream_key]
 
 
