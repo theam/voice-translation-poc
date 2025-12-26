@@ -16,9 +16,9 @@ from production.acs_emulator.websocket_client import WebSocketClient
 from production.acs_emulator.websocket_client_factory import create_websocket_client
 from production.metrics import MetricsRunner, MetricsSummary
 from production.capture.collector import CollectedEvent, EventCollector
+from production.capture.arrival_queue_assembler import ArrivalQueueAssembler
 from production.capture.conversation_manager import ConversationManager
 from production.capture.conversation_tape import ConversationTape
-from production.capture.playout_assembler import PlayoutAssembler
 from production.capture.results_persistence_service import ResultsPersistenceService
 from production.scenario_engine.turn_processors import create_turn_processor
 from production.scenario_engine.models import Participant, Scenario
@@ -74,11 +74,7 @@ class ScenarioEngine:
         effective_sample_rate = sample_rate or 16000
         effective_channels = channels or 1
         tape = ConversationTape(sample_rate=effective_sample_rate)
-        playout_assembler = PlayoutAssembler(
-            sample_rate=effective_sample_rate,
-            channels=effective_channels,
-            initial_buffer_ms=self.config.playout_initial_buffer_ms,
-        )
+        inbound_assembler = ArrivalQueueAssembler(sample_rate=effective_sample_rate, channels=effective_channels)
 
         # Create appropriate WebSocket client based on scenario configuration
         ws_client = create_websocket_client(
@@ -97,7 +93,7 @@ class ScenarioEngine:
                     raw_messages,
                     tape,
                     started_at_ms,
-                    playout_assembler,
+                    inbound_assembler,
                 )
             )
             if metadata:
@@ -304,7 +300,7 @@ class ScenarioEngine:
         raw_messages: List[dict],
         tape: ConversationTape,
         started_at_ms: int,
-        playout_assembler: PlayoutAssembler,
+        inbound_assembler: ArrivalQueueAssembler,
     ) -> None:
         # Track first/last audio per turn for gap calculation
         turn_audio_tracking = {}  # turn_id -> (first_ms, last_ms)
@@ -329,25 +325,22 @@ class ScenarioEngine:
             timestamp_ms: float | None = arrival_ms
             if protocol_event.event_type == "translated_audio" and protocol_event.audio_payload:
                 stream_key = protocol_event.participant_id or "unknown"
-                media_now_ms = conversation_manager.latest_outgoing_media_ms
                 turn_summary = (
                     conversation_manager.get_turn_summary(protocol_event.participant_id)
                     if protocol_event.participant_id
                     else None
                 )
-                start_ms, duration_ms = playout_assembler.add_chunk(
+                start_ms, duration_ms = inbound_assembler.add_chunk(
                     stream_key,
                     arrival_ms=arrival_ms,
-                    media_now_ms=media_now_ms,
                     pcm_bytes=protocol_event.audio_payload,
                 )
                 timestamp_ms = start_ms
                 tape.add_pcm(start_ms, protocol_event.audio_payload)
                 logger.debug(
-                    "📥 INBOUND AUDIO SCHEDULE: stream=%s arrival_ms=%.2f media_now_ms=%.2f start_ms=%.2f last_outbound_ms=%s",
+                    "📥 INBOUND AUDIO SCHEDULE: stream=%s arrival_ms=%.2f start_ms=%.2f last_outbound_ms=%s",
                     stream_key,
                     arrival_ms,
-                    media_now_ms,
                     start_ms,
                     getattr(turn_summary, "last_outbound_ms", None),
                 )
