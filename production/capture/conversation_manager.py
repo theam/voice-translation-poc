@@ -104,12 +104,9 @@ class TurnSummary:
     def latency_ms(self) -> Optional[int]:
         """Calculate latency from last outbound audio to first AUDIO response.
 
-        With VAD (Voice Activity Detection) enabled, the translation service
-        waits for the speaker to stop talking before processing. Therefore,
-        latency should be measured from the LAST audio chunk sent, not the first.
-
-        For audio translation services, this measures time until the user HEARS
-        the translation (first audio event), not when text appears.
+        Measures when the user hears the first audio response relative to the
+        last outbound media chunk. Overlap can occur in duplex scenarios; when
+        it does, latency will be negative and overlap is reported via logging.
 
         Returns:
             Milliseconds from last outbound to first audio response, or None if data missing
@@ -122,7 +119,18 @@ class TurnSummary:
 
         if outbound_ref is None or first_response is None:
             return None
-        return first_response - outbound_ref
+        latency = first_response - outbound_ref
+        if latency < 0:
+            logger.info(
+                "Inbound audio overlapped with outbound media",
+                extra={
+                    "turn_id": self.turn_id,
+                    "first_audio_response_ms": first_response,
+                    "last_outbound_ms": outbound_ref,
+                    "latency_ms": latency,
+                },
+            )
+        return latency
 
     @property
     def text_latency_ms(self) -> Optional[int]:
@@ -150,9 +158,23 @@ class TurnSummary:
             return None
         return self.first_response_ms - self.first_outbound_ms
 
+    @property
+    def overlap_ms(self) -> Optional[int]:
+        """Return overlap amount when inbound audio precedes outbound completion."""
+        outbound_ref = self.last_outbound_ms if self.last_outbound_ms is not None else self.first_outbound_ms
+        first_response = self.first_audio_response_ms
+        if outbound_ref is None or first_response is None:
+            return None
+        return max(0, outbound_ref - first_response)
+
 
 class ConversationManager:
-    """Groups inbound/outbound ACS messages by scenario event (turn)."""
+    """Groups inbound/outbound ACS messages by scenario event (turn).
+
+    Inbound `CollectedEvent.timestamp_ms` values represent audible start time on
+    the emulator's arrival-gated timeline; outbound values remain on the
+    scenario media timeline.
+    """
 
     def __init__(self, *, clock: Clock, scenario_started_at_ms: int) -> None:
         self._turns: List[TurnSummary] = []
