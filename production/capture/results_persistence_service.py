@@ -89,7 +89,7 @@ class ResultsPersistenceService:
         audio_sink.write_audio_events(audio_events)
 
         logger.debug("Writing call mix audio")
-        call_mix_path = audio_sink.audio_dir / "call_mix.wav"
+        call_mix_path = self.output_root / "phone_conversation.wav"
         tape.write_wav(call_mix_path)
 
         # Persist transcripts

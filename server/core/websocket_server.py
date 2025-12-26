@@ -62,7 +62,12 @@ class WebSocketServer:
 
         normalized = self._normalize_message(message)
         self.log_sink.append_message(
-            {"direction": direction, "message": normalized, "name": self.name}
+            {
+                "timestamp": self._now_iso(),
+                "direction": direction,
+                "message": normalized,
+                "name": self.name,
+            }
         )
 
     @staticmethod
@@ -73,6 +78,13 @@ class WebSocketServer:
             except json.JSONDecodeError:
                 return message
         return message
+
+    @staticmethod
+    def _now_iso() -> str:
+        """UTC timestamp in ISO-8601 format."""
+        from datetime import datetime, timezone
+
+        return datetime.now(timezone.utc).isoformat()
 
 
 __all__ = ["WebSocketServer"]
