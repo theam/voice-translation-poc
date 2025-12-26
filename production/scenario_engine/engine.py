@@ -183,7 +183,15 @@ class ScenarioEngine:
             )
             # Orchestration: Stream silence until turn start time
             current_time = await self._stream_silence_until(
-                ws, adapter, participants, current_time, turn.start_at_ms, sample_rate, channels, tape
+                ws,
+                adapter,
+                participants,
+                current_time,
+                turn.start_at_ms,
+                sample_rate,
+                channels,
+                tape,
+                conversation_manager,
             )
             self._media_time_ms = current_time
 
@@ -216,7 +224,15 @@ class ScenarioEngine:
             f"current_time={current_time}ms, tail_silence_needed={tail_target - current_time}ms"
         )
         current_time = await self._stream_silence_until(
-            ws, adapter, participants, current_time, tail_target, sample_rate, channels, tape
+            ws,
+            adapter,
+            participants,
+            current_time,
+            tail_target,
+            sample_rate,
+            channels,
+            tape,
+            conversation_manager,
         )
         self._media_time_ms = current_time
 
@@ -230,6 +246,7 @@ class ScenarioEngine:
         sample_rate: int,
         channels: int,
         tape: ConversationTape,
+        conversation_manager: ConversationManager,
     ) -> int:
         """Stream silence frames from current_time to target_ms.
 
@@ -272,6 +289,7 @@ class ScenarioEngine:
                 )
                 await ws.send_json(payload)
                 tape.add_pcm(frame.timestamp_ms, frame.data)
+                conversation_manager.register_outgoing_media(frame.timestamp_ms)
 
             await self.clock.sleep(FRAME_DURATION_MS)
 
@@ -311,14 +329,28 @@ class ScenarioEngine:
             timestamp_ms: float | None = arrival_ms
             if protocol_event.event_type == "translated_audio" and protocol_event.audio_payload:
                 stream_key = protocol_event.participant_id or "unknown"
+                media_now_ms = conversation_manager.latest_outgoing_media_ms
+                turn_summary = (
+                    conversation_manager.get_turn_summary(protocol_event.participant_id)
+                    if protocol_event.participant_id
+                    else None
+                )
                 start_ms, duration_ms = playout_assembler.add_chunk(
                     stream_key,
                     arrival_ms=arrival_ms,
-                    media_now_ms=self._media_time_ms,
+                    media_now_ms=media_now_ms,
                     pcm_bytes=protocol_event.audio_payload,
                 )
                 timestamp_ms = start_ms
                 tape.add_pcm(start_ms, protocol_event.audio_payload)
+                logger.debug(
+                    "📥 INBOUND AUDIO SCHEDULE: stream=%s arrival_ms=%.2f media_now_ms=%.2f start_ms=%.2f last_outbound_ms=%s",
+                    stream_key,
+                    arrival_ms,
+                    media_now_ms,
+                    start_ms,
+                    getattr(turn_summary, "last_outbound_ms", None),
+                )
 
                 # Track for logging
                 turn_id = protocol_event.participant_id

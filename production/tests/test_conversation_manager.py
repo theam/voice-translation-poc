@@ -33,3 +33,24 @@ def test_resolve_turn_id_prefers_event_timestamp_over_wall_clock():
 
     assert manager.get_turn("turn-1").inbound_events == [early_event]
     assert manager.get_turn("turn-2").inbound_events == [late_event]
+
+
+def test_register_outgoing_updates_latest_media_clock():
+    clock = Clock(time_fn=lambda: 0.0)
+    manager = ConversationManager(clock=clock, scenario_started_at_ms=0)
+    manager.start_turn("turn-1", {"type": "play_audio"}, turn_start_ms=0)
+
+    manager.register_outgoing("turn-1", {"message": "a"}, timestamp_ms=50)
+    manager.register_outgoing("turn-1", {"message": "b"}, timestamp_ms=40)
+
+    assert manager.latest_outgoing_media_ms == 50.0
+
+
+def test_register_outgoing_media_tracks_monotonic_progress():
+    clock = Clock(time_fn=lambda: 0.0)
+    manager = ConversationManager(clock=clock, scenario_started_at_ms=0)
+    manager.register_outgoing_media(10)
+    manager.register_outgoing_media(5)
+    manager.register_outgoing_media(25)
+
+    assert manager.latest_outgoing_media_ms == 25.0

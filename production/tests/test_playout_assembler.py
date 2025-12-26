@@ -106,3 +106,28 @@ def test_playout_assembler_trims_partial_frames_and_chains_from_media_clock():
     assert dur1 == pytest.approx(10.25)
     assert start2 == pytest.approx(50.25)  # chained from previous playout end
     assert dur2 == pytest.approx(20.0)
+
+
+def test_playout_assembler_clamps_when_media_clock_lags_far_behind():
+    assembler = PlayoutAssembler(sample_rate=16000, channels=1, initial_buffer_ms=80)
+
+    long_chunk_bytes = b"\x00" * (16000 * 2 * 6)  # ~6000ms of audio
+    start1, dur1 = assembler.add_chunk(
+        "stream-3",
+        arrival_ms=0.0,
+        media_now_ms=0.0,
+        pcm_bytes=long_chunk_bytes,
+    )
+
+    # Provide a regressed media clock; should clamp to existing playout cursor.
+    start2, dur2 = assembler.add_chunk(
+        "stream-3",
+        arrival_ms=100.0,
+        media_now_ms=0.0,  # stale media clock far behind next_playout_ms
+        pcm_bytes=b"\x00" * 3200,  # 100ms
+    )
+
+    assert dur1 == pytest.approx(6000.0)
+    assert start1 == pytest.approx(80.0)
+    assert start2 >= start1 + dur1  # clamped to after the first long chunk
+    assert dur2 == pytest.approx(100.0)
