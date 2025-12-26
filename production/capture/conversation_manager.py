@@ -165,14 +165,18 @@ class ConversationManager:
     def now_relative_ms(self) -> int:
         return max(0, self.clock.now_ms() - self.scenario_started_at_ms)
 
-    def start_turn(self, turn_id: str, metadata: dict) -> TurnSummary:
-        """Create a turn record before execution begins."""
+    def start_turn(self, turn_id: str, metadata: dict, *, turn_start_ms: int) -> TurnSummary:
+        """Create a turn record before execution begins.
+
+        Args:
+            turn_id: Scenario turn identifier.
+            metadata: Scenario metadata for the turn.
+            turn_start_ms: Start time on the scenario/media timeline.
+        """
         if metadata is None:
             raise ValueError("metadata is required when starting a turn")
         if turn_id in self._turn_lookup:
             raise ValueError("Starting the same turn multiple times is not allowed")
-
-        turn_start_ms = self.now_relative_ms()
         summary = TurnSummary(turn_id=turn_id, metadata=metadata, turn_start_ms=turn_start_ms)
         if self._turns:
             # SET END TIMESTAMP TO THE PREVIOUS TURN
@@ -228,7 +232,7 @@ class ConversationManager:
         turn.record_incoming(event)
 
     def _resolve_turn_id(self, event: CollectedEvent) -> str:
-        timestamp_ms = self.now_relative_ms()
+        timestamp_ms = event.timestamp_ms if event.timestamp_ms is not None else self.now_relative_ms()
 
         candidate: Optional[str] = None
         for turn in self._turns:
