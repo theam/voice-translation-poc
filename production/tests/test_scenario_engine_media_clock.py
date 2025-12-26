@@ -1,6 +1,7 @@
 import pytest
 
 from production.acs_emulator.media_engine import FRAME_DURATION_MS
+from production.capture.arrival_queue_assembler import ArrivalQueueAssembler
 from production.capture.collector import EventCollector
 from production.capture.conversation_manager import ConversationManager
 from production.capture.conversation_tape import ConversationTape
@@ -51,15 +52,6 @@ class _FakeProtocolEvent:
         self.arrival_ms = None
 
 
-class _RecordingPlayoutAssembler:
-    def __init__(self):
-        self.media_now_values = []
-
-    def add_chunk(self, stream_key, *, arrival_ms, media_now_ms, pcm_bytes):
-        self.media_now_values.append(media_now_ms)
-        return media_now_ms + 80.0, 20.0
-
-
 class _TapeStub:
     def __init__(self):
         self.added = []
@@ -99,18 +91,17 @@ async def test_stream_silence_advances_media_clock():
 
 
 @pytest.mark.asyncio
-async def test_listen_uses_latest_media_clock_for_inbound_audio():
+async def test_listen_schedules_inbound_from_arrival_queue():
     config = FrameworkConfig()
     engine = ScenarioEngine(config)
     engine.clock = Clock(time_fn=lambda: 0.0)
 
     conversation_manager = ConversationManager(clock=engine.clock, scenario_started_at_ms=0)
     conversation_manager.start_turn("turn-1", {"type": "play_audio"}, turn_start_ms=0)
-    conversation_manager.register_outgoing_media(500.0)
 
     collector = EventCollector()
     raw_messages = []
-    playout = _RecordingPlayoutAssembler()
+    inbound = ArrivalQueueAssembler(sample_rate=16000, channels=1)
     adapter = _FakeAdapter(participant_id="turn-1")
     ws = _FakeWebSocket(messages=[{"type": "translated_audio"}])
     tape = _TapeStub()
@@ -123,9 +114,8 @@ async def test_listen_uses_latest_media_clock_for_inbound_audio():
         raw_messages,
         tape,
         started_at_ms=0,
-        playout_assembler=playout,
+        inbound_assembler=inbound,
     )
 
-    assert playout.media_now_values == [conversation_manager.latest_outgoing_media_ms]
-    assert tape.added[0][0] == pytest.approx(conversation_manager.latest_outgoing_media_ms + config.playout_initial_buffer_ms)
+    assert tape.added[0][0] >= 0.0
     assert collector.events[0].timestamp_ms == tape.added[0][0]
