@@ -34,7 +34,7 @@ class AcsAudioPublisher:
         error: str | None,
     ) -> None:
         payload: Dict[str, Any] = {
-            "type": "audio.done",
+            "type": "control.test.response.audio_done",
             "session_id": event.session_id,
             "participant_id": event.participant_id,
             "commit_id": event.commit_id,

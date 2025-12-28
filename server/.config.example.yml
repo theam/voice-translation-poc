@@ -11,7 +11,7 @@ buffering:
   overflow_policy: DROP_OLDEST
 
 dispatch:
-  provider: mock
+  default_provider: mock
   batching:
     enabled: true
     max_batch_ms: 200

@@ -44,9 +44,6 @@ class Session:
         # Single session-scoped pipeline
         self.pipeline: Optional[SessionPipeline] = None
 
-        # Initialization flag
-        self._initialized = False
-
         # Frame sequencing
         self._sequence = 0
 
@@ -61,6 +58,9 @@ class Session:
     async def run(self):
         """Run session: process messages until disconnect."""
         logger.info(f"Session {self.session_id} started")
+
+        # Initialize ACS processing immediately (before receiving messages)
+        await self._initialize_acs_processing()
 
         # Start ACS receive/send loops
         self._receive_task = asyncio.create_task(
@@ -91,9 +91,22 @@ class Session:
                     data = json.loads(raw_message)
                     data = normalize_keys(data)
 
-                    # First message: extract metadata and initialize
-                    if not self._initialized:
-                        await self._initialize_from_first_message(data)
+                    # Extract session metadata if present (any message can contain metadata)
+                    if "metadata" in data:
+                        new_metadata = data.get("metadata", {})
+                        if isinstance(new_metadata, dict):
+                            # Merge into session metadata (used for dynamic provider selection)
+                            self.metadata.update(new_metadata)
+
+                            # Update pipeline's metadata (shared dict reference)
+                            if self.pipeline:
+                                self.pipeline.metadata.update(new_metadata)
+
+                            logger.debug(
+                                "Session %s updated metadata from message (keys: %s)",
+                                self.session_id,
+                                list(new_metadata.keys())
+                            )
 
                     # Convert to GatewayInputEvent
                     self._sequence += 1
@@ -103,7 +116,7 @@ class Session:
                         ctx=self.connection_ctx,
                     )
 
-                    # Route to the session pipeline
+                    # Route to the session pipeline (handlers process all messages)
                     await self._route_message(event)
 
                 except json.JSONDecodeError as e:
@@ -141,53 +154,27 @@ class Session:
         logger.info("Session %s initiating shutdown: %s", self.session_id, reason)
         self._shutdown_event.set()
 
-    async def _initialize_from_first_message(self, data: Dict[str, Any]):
-        """Extract metadata and initialize session pipeline from first message."""
-        self.metadata = data.get("metadata", {})
+    async def _initialize_acs_processing(self):
+        """Initialize ACS processing stage (before receiving any messages).
 
-        provider_name = self._select_provider(self.metadata)
-
-        # Create single session-scoped pipeline
+        Creates the pipeline and starts ACS handlers. The provider will be
+        selected dynamically and started later when AudioMetadata is received.
+        """
+        # Create single session-scoped pipeline (provider selected dynamically later)
         self.pipeline = SessionPipeline(
             session_id=self.canonical_session_id,
             config=self.config,
-            provider_name=provider_name,
-            metadata=self.metadata,
-            translation_settings=self.translation_settings
+            metadata=self.metadata,  # Empty at this point, will be updated as messages arrive
+            translation_settings=self.translation_settings  # Empty at this point, will be updated by TestSettingsHandler
         )
-        await self.pipeline.start()
+
+        # Start ACS processing (handlers ready to receive and queue messages)
+        await self.pipeline.start_acs_processing()
 
         # Subscribe to its outbound bus
         await self._subscribe_to_pipeline_output(self.pipeline)
 
-        self._initialized = True
-
-    def _select_provider(
-        self,
-        metadata: Dict[str, Any]
-    ) -> str:
-        """Select provider based on ACS metadata and participant."""
-        # Strategy 0: Test control settings override
-        settings_provider = self.translation_settings.get("provider")
-        if isinstance(settings_provider, str) and settings_provider:
-            return settings_provider
-        # Strategy 1: Explicit provider in metadata
-        if "provider" in metadata:
-            return metadata["provider"]
-
-        # Strategy 2: Customer/tenant-based routing
-        if "customer_id" in metadata:
-            # Could have per-customer provider mapping
-            # customer_provider_map = self.config.customer_providers
-            # return customer_provider_map.get(metadata["customer_id"], self.config.dispatch.provider)
-            pass
-
-        # Strategy 3: Feature flags
-        if metadata.get("feature_flags", {}).get("use_voicelive"):
-            return "voicelive"
-
-        # Default: use config
-        return self.config.dispatch.provider
+        logger.info("Session %s ACS processing initialized", self.session_id)
 
     async def _subscribe_to_pipeline_output(self, pipeline: SessionPipeline):
         """Subscribe to pipeline's acs_outbound_bus to forward to ACS."""

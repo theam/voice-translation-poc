@@ -50,7 +50,7 @@ class ACSServer:
         ) as server:
             self._server = server
             logger.info(f"ACS server listening on {self.host}:{self.port}")
-            logger.info(f"Provider: {self.config.dispatch.provider} (default)")
+            logger.info(f"Default Provider: {self.config.dispatch.default_provider} (can be overridden per session)")
             logger.info(f"Routing: dynamic from metadata (default: shared)")
 
             # Run forever
