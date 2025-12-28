@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from ...models.gateway_input_event import GatewayInputEvent
 
@@ -23,12 +23,20 @@ class AudioMetadataHandler:
 
     Stores a canonical format record in session_metadata for later use
     (e.g., AudioData handling, resampling/adaptation for translation providers).
+
+    After storing metadata, triggers pipeline_completion_callback to signal
+    that provider initialization can begin (all configuration messages received).
     """
 
     SESSION_KEY = "acs_audio"
 
-    def __init__(self, session_metadata: Dict[str, Any]):
+    def __init__(
+        self,
+        session_metadata: Dict[str, Any],
+        pipeline_completion_callback: Optional[Callable[[], Awaitable[None]]] = None
+    ):
         self.session_metadata = session_metadata
+        self.pipeline_completion_callback = pipeline_completion_callback
 
     def can_handle(self, event: GatewayInputEvent) -> bool:
         payload = event.payload or {}
@@ -88,3 +96,11 @@ class AudioMetadataHandler:
             stream_format.get("channels"),
             stream_format.get("frame_bytes"),
         )
+
+        # Trigger provider initialization now that metadata is available
+        if self.pipeline_completion_callback:
+            logger.info(
+                "Triggering provider processing start (session=%s)",
+                event.session_id
+            )
+            await self.pipeline_completion_callback()

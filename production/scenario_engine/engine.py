@@ -96,6 +96,11 @@ class ScenarioEngine:
                     inbound_assembler,
                 )
             )
+            # Send test settings to configure the server (e.g., provider selection)
+            test_settings = self._build_test_settings()
+            if test_settings:
+                await ws.send_json(adapter.build_test_settings(test_settings))
+
             if metadata:
                 await ws.send_json(metadata)
             await self._play_scenario(
@@ -337,7 +342,7 @@ class ScenarioEngine:
                 )
                 timestamp_ms = start_ms
                 tape.add_pcm(start_ms, protocol_event.audio_payload)
-                logger.debug(
+                logger.info(
                     "📥 INBOUND AUDIO SCHEDULE: stream=%s arrival_ms=%.2f start_ms=%.2f last_outbound_ms=%s",
                     stream_key,
                     arrival_ms,
@@ -415,3 +420,22 @@ class ScenarioEngine:
 
         logger.warning("Scenario contains no play_audio turns; skipping AudioMetadata emission")
         return None, None, None
+
+    def _build_test_settings(self) -> Optional[dict]:
+        """Build test settings dictionary from framework configuration.
+
+        Returns settings to be sent to the server via control.test.settings message.
+        This allows dynamic configuration of the server based on test framework settings.
+
+        Returns:
+            Dictionary of settings (e.g., {"provider": "voice_live"}), or None if no settings
+        """
+        settings = {}
+
+        # Map target_system to provider setting
+        if self.config.target_system:
+            settings["provider"] = self.config.target_system
+            logger.info("Test settings: provider=%s (from target_system config)", self.config.target_system)
+
+        # Return None if no settings to send
+        return settings if settings else None

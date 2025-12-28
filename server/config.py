@@ -49,12 +49,12 @@ class BatchingConfig:
 
 @dataclass
 class DispatchConfig:
-    provider: str = "mock"
+    default_provider: str = "mock"
     batching: BatchingConfig = field(default_factory=BatchingConfig)
 
     def to_dict(self) -> Dict:
         return {
-            "provider": self.provider,
+            "default_provider": self.default_provider,
             "batching": self.batching.to_dict(),
         }
 
@@ -210,7 +210,7 @@ class Config:
             ),
             buffering=BufferingConfig(**buffering),
             dispatch=DispatchConfig(
-                provider=dispatch.get("provider", "mock"),
+                default_provider=dispatch.get("default_provider", dispatch.get("provider", "mock")),
                 batching=BatchingConfig(**dispatch.get("batching", {})),
             ),
             providers=ProvidersConfig.from_dict(providers),
