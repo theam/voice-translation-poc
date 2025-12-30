@@ -1,6 +1,6 @@
 # Translation Service Server
 
-Real-time speech translation service with bidirectional streaming architecture. Receives audio from Azure Communication Services (ACS) via WebSocket, dispatches to translation providers (Voice Live, Speech Translator, Mock), and delivers translated results back to ACS.
+Real-time speech translation service with bidirectional streaming architecture. Receives audio from Azure Communication Services (ACS) via WebSocket, dispatches to translation providers (OpenAI, Voice Live, Live Interpreter, Mock), and delivers translated results back to ACS.
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ server:
   port: 8080
 
 dispatch:
-  provider: "mock"  # mock, voice_live, speech_translator
+  provider: "mock"  # mock, openai, voice_live, live_interpreter
   batching:
     enabled: true
     max_batch_ms: 200
@@ -72,7 +72,7 @@ ACS Client ← WebSocket ← Session ← Participant Pipeline(s) ← Provider �
 - **Participant Pipeline**: Translation pipeline (one or more per session)
   - Shared mode (default): All participants share one pipeline
   - Per-participant mode: Each participant gets isolated pipeline
-- **Provider Adapters**: Voice Live, Speech Translator, Live Interpreter, Mock
+- **Provider Adapters**: OpenAI, Voice Live, Live Interpreter, Mock
 
 ### Routing Strategies
 
@@ -133,21 +133,21 @@ Per-participant override:
 
 ### Available Providers
 
+#### OpenAI Realtime
+- **Type**: `openai`
+- **Technology**: OpenAI Realtime API (WebSocket)
+- **Audio Format**: 24 kHz PCM16
+- **Features**: GPT-based translation, customizable prompts, real-time audio synthesis
+- **Configuration**: Requires `endpoint`, `api_key`
+- **Use Case**: Translation using OpenAI's Realtime API with flexible prompt engineering
+
 #### Voice Live
 - **Type**: `voice_live`
 - **Technology**: Azure AI Foundry Realtime API (WebSocket)
 - **Audio Format**: 24 kHz PCM16
 - **Features**: GPT-based translation, customizable prompts, real-time audio synthesis
 - **Configuration**: Requires `endpoint`, `api_key`, `region`, `resource`
-- **Use Case**: Advanced conversational AI with flexible prompt engineering
-
-#### Speech Translator
-- **Type**: `speech_translator`
-- **Technology**: Azure Speech SDK TranslationRecognizer
-- **Audio Format**: 16 kHz PCM16
-- **Features**: Bidirectional translation (en ↔ es), specific language pairs, standard neural voices
-- **Configuration**: Requires `endpoint`, `api_key`
-- **Use Case**: Reliable speech-to-speech translation with known source/target languages
+- **Use Case**: Advanced conversational AI with flexible prompt engineering using Azure's implementation
 
 #### Live Interpreter
 - **Type**: `live_interpreter`
@@ -165,6 +165,13 @@ Per-participant override:
 **Configuration Example**:
 ```yaml
 providers:
+  openai:
+    type: openai
+    endpoint: wss://api.openai.com/v1/realtime
+    api_key: ${OPENAI_API_KEY}
+    settings:
+      deployment: gpt-4o-realtime-preview
+
   voicelive:
     type: voice_live
     endpoint: wss://example.cognitiveservices.azure.com/openai/realtime
@@ -172,15 +179,13 @@ providers:
     region: eastus
     resource: voice-live-resource
 
-  speech_translator:
-    type: speech_translator
-    endpoint: https://example.cognitiveservices.azure.com
-    api_key: ${SPEECH_TRANSLATOR_KEY}
-
   live_interpreter:
     type: live_interpreter
     region: eastus  # Required for v2 universal endpoint
     api_key: ${LIVE_INTERPRETER_KEY}
+    settings:
+      languages: [es-ES, en-US]  # First language is target for synthesis
+      voice: es-ES-ElviraNeural
 
   mock:
     type: mock
@@ -243,7 +248,10 @@ Each participant maintains independent state.
 ### Environment Variables
 
 ```bash
-# VoiceLive
+# OpenAI
+export OPENAI_API_KEY="your-openai-api-key"
+
+# VoiceLive (Azure)
 export VOICELIVE_ENDPOINT="wss://voicelive.example.com/v1/realtime"
 export VOICELIVE_API_KEY="your-api-key"
 ```
@@ -277,8 +285,8 @@ server/
 ├── providers/
 │   ├── provider_factory.py      # Factory for creating providers
 │   ├── mock_provider.py         # Mock provider (testing)
+│   ├── openai/                  # OpenAI Realtime API provider
 │   ├── voice_live/              # Voice Live provider (Azure AI Foundry)
-│   ├── speech_translator/       # Speech Translator provider (Azure Speech SDK)
 │   └── live_interpreter/        # Live Interpreter provider (Azure Speech SDK v2)
 ├── gateways/
 │   ├── audit.py                 # Logs all ACS messages
@@ -314,7 +322,7 @@ server/
 6. **Flexibility**: Different providers for different sessions/participants simultaneously
 7. **Efficiency**: Default shared mode avoids overhead when isolation not needed
 8. **Easy Testing**: Mock provider with no external calls
-9. **Extensible Providers**: Add new translation providers (Voice Live, Speech Translator, etc.)
+9. **Extensible Providers**: Add new translation providers (OpenAI, Voice Live, Live Interpreter, etc.)
 
 ## Migration from Old Architecture
 
@@ -326,7 +334,7 @@ The new architecture replaces:
 
 Unchanged (reused as-is):
 - ✅ All gateways (audit, ACS inbound, provider_result)
-- ✅ Provider implementations (Voice Live, Speech Translator, Mock)
+- ✅ Provider implementations (OpenAI, Voice Live, Live Interpreter, Mock)
 - ✅ Models (GatewayInputEvent, AudioRequest, ProviderOutputEvent)
 - ✅ Services (AudioDurationCalculator)
 - ✅ Config, EventBus, Queues

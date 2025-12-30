@@ -41,10 +41,6 @@ providers:
         #   threshold: 0.5
         #   prefix_padding_ms: 300
         #   silence_duration_ms: 600
-  speech_translator:
-    type: speech_translator
-    endpoint: https://speech-translator.example.com
-    api_key: ${SPEECH_TRANSLATOR_API_KEY}
   live_interpreter:
     type: live_interpreter
     # Option 1: Specify endpoint explicitly
@@ -53,26 +49,26 @@ providers:
     region: eastus2
     api_key: ${LIVE_INTERPRETER_API_KEY}
     settings:
-      # Required: Languages for text translation (2-letter ISO codes)
-      target_text_languages: [en, es]
-      # Required: Language for audio synthesis (2-letter ISO code)
-      # Supported: en, es, de, fr, pt, it, ja, zh, ko, ar, hi, ru
-      target_audio_language: es
+      # Required: Full locale codes for detection and translation
+      languages: [en-US, es-ES]
+      # Required: Neural voice name for audio synthesis
+      # Examples: es-ES-ElviraNeural, en-US-JennyNeural, de-DE-KatjaNeural
+      voice: es-ES-ElviraNeural
   # Example: Per-role provider instances for bidirectional translation
   live_interpreter_spanish:
     type: live_interpreter
     region: eastus2
     api_key: ${LIVE_INTERPRETER_API_KEY}
     settings:
-      target_text_languages: [en, es]
-      target_audio_language: es  # Spanish audio output
+      languages: [en-US, es-ES]
+      voice: es-ES-ElviraNeural  # Spanish audio output
   live_interpreter_english:
     type: live_interpreter
     region: eastus2
     api_key: ${LIVE_INTERPRETER_API_KEY}
     settings:
-      target_text_languages: [en, es]
-      target_audio_language: en  # English audio output
+      languages: [en-US, es-ES]
+      voice: en-US-JennyNeural  # English audio output
   # Role-based provider (composable router)
   role_based:
     type: role_based

@@ -17,14 +17,14 @@ from ...core.queues import OverflowPolicy
 from ...core.websocket_server import WebSocketServer
 from ...core.wire_log_sink import WireLogSink
 from ...utils.dict_utils import deep_merge
-from .inbound_handler import VoiceLiveInboundHandler
-from .outbound_handler import VoiceLiveOutboundHandler
+from .inbound_handler import OpenAIInboundHandler
+from .outbound_handler import OpenAIOutboundHandler
 
 logger = logging.getLogger(__name__)
 
 
-# Prompt adapted from the VoiceLive client for consistent bilingual translation behavior.
-VOICE_LIVE_PROMPT = """
+# Prompt for OpenAI Realtime API for consistent bilingual translation behavior.
+OPENAI_REALTIME_PROMPT = """
 
 You are a **real-time bilingual interpreter**, not a chatbot.  
 Your ONLY function is to **detect the language of each spoken segment (English ↔ Spanish) and translate it literally into the other language**, preserving the original order.
@@ -70,57 +70,32 @@ Do not describe silence or noise.
 
 """
 
-VOICE_LIVE_DEFAULT_SESSION_OPTIONS: Dict[str, Any] = {
-    # Your existing system prompt
-    "instructions": VOICE_LIVE_PROMPT,
-    # Same idea as Realtime
-    "modalities": ["text", "audio"],
-    "temperature": 0.6,
-
-    # Audio I/O
+DEFAULT_SESSION_OPTIONS: Dict[str, Any] = {
+    "instructions": OPENAI_REALTIME_PROMPT,
     "input_audio_format": "pcm16",
     "output_audio_format": "pcm16",
-
-    # Voice Live input audio enhancements (big win for call-center / speakerphone setups)
-    "input_audio_sampling_rate": 16000,  # choose 24000 if you are not telephony-bound
-    "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
-    "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
-
-    # Voice Live turn-taking (recommended over plain server_vad for real conversations)
+    "modalities": ["text", "audio"],
+    "temperature": 0.6,
     "turn_detection": {
-        # Multilingual semantic VAD: better end-of-turn + supports barge-in interruption
-        "type": "azure_semantic_vad_multilingual",
-        # Tuning: lower threshold => easier to trigger "user is speaking"
-        # Raise if you see false speech starts from background noise.
-        "threshold": 0.35,
-        # Keep a bit of pre-roll so the beginning of words isn’t clipped
-        "prefix_padding_ms": 200,
-        # End-of-speech pause; increase if users pause mid-sentence a lot
-        "silence_duration_ms": 250,
-        # Reduces false barge-in triggers from “uh/umm/yeah…”
-        "remove_filler_words": True,
-        # Let the server generate responses automatically at end-of-turn
+        "type": "server_vad",
+        "threshold": 0.5,
+        "prefix_padding_ms": 300,
+        "silence_duration_ms": 600,
         "create_response": True,
-        # True barge-in: stop assistant when user starts speaking
-        "interrupt_response": True,
-        # Keep server context aligned with what the user actually heard
-        "auto_truncate": True,
+        "interrupt_response": False,
+        "idle_timeout_ms": 5000,
     },
-
-    # Optional: enable streaming transcripts (useful for eval/analytics)
-    # Voice Live uses the Realtime-style `input_audio_transcription` opt-in behavior.
-    # Set a model to receive transcript events.
-    # "input_audio_transcription": {"model": "whisper-1"},
+    "input_audio_transcription": None,
 }
 
 
-class VoiceLiveProvider:
+class OpenAIProvider:
     """
-    Bidirectional streaming provider for VoiceLive.
+    Bidirectional streaming provider for OpenAI Realtime API.
 
     Split into:
-    - Outbound handler: consumes AudioRequest from provider_outbound_bus and sends to VoiceLive
-    - Inbound handler: receives VoiceLive events and dispatches to type-specific handlers
+    - Outbound handler: consumes AudioRequest from provider_outbound_bus and sends to OpenAI
+    - Inbound handler: receives OpenAI events and dispatches to type-specific handlers
     """
 
     def __init__(
@@ -147,27 +122,27 @@ class VoiceLiveProvider:
         self.session_metadata = session_metadata or {}
         self.log_wire = log_wire
         self.log_wire_dir = log_wire_dir
-        self.capabilities = capabilities or get_provider_capabilities("voice_live")
+        self.capabilities = capabilities or get_provider_capabilities("openai")
         self._connection_name = self._build_connection_name()
         self._ws: Optional[WebSocketServer] = None
         self._ingress_task: Optional[asyncio.Task] = None
         self._closed = False
 
-        self._inbound_handler = VoiceLiveInboundHandler(
+        self._inbound_handler = OpenAIInboundHandler(
             inbound_bus, session_metadata=self.session_metadata, capabilities=self.capabilities
         )
-        self._outbound_handler: Optional[VoiceLiveOutboundHandler] = None
+        self._outbound_handler: Optional[OpenAIOutboundHandler] = None
 
     async def start(self) -> None:
-        """Connect to VoiceLive and start ingress/egress processing."""
+        """Connect to OpenAI and start ingress/egress processing."""
         if self._closed:
             raise RuntimeError("Cannot start closed adapter")
 
         await self._connect()
         if not self._ws:
-            raise RuntimeError("VoiceLive WebSocket is not connected")
+            raise RuntimeError("OpenAI WebSocket is not connected")
 
-        self._outbound_handler = VoiceLiveOutboundHandler(
+        self._outbound_handler = OpenAIOutboundHandler(
             self._ws,
             session_metadata=self.session_metadata,
             capabilities=self.capabilities,
@@ -179,9 +154,9 @@ class VoiceLiveProvider:
 
         self._ingress_task = asyncio.create_task(
             self._ingress_loop(),
-            name="voicelive-ingress-loop",
+            name="openai-ingress-loop",
         )
-        logger.info("VoiceLive ingress loop started")
+        logger.info("OpenAI ingress loop started")
 
     def _build_websocket_url(self) -> str:
         """Build WebSocket URL with deployment and api-version query parameters."""
@@ -193,13 +168,13 @@ class VoiceLiveProvider:
         base_url = self.endpoint.rstrip("/")
         url = f"{base_url}?deployment={deployment}&api-version={api_version}"
 
-        logger.debug("Built WebSocket URL: %s", url)
+        logger.info("Built WebSocket URL: %s", url)
         return url
 
     async def _connect(self) -> None:
-        """Establish WebSocket connection to VoiceLive."""
+        """Establish WebSocket connection to OpenAI."""
         if self._ws is not None and not self._ws.closed:
-            logger.debug("VoiceLive WebSocket already connected")
+            logger.debug("OpenAI WebSocket already connected")
             return
 
         headers = {
@@ -228,19 +203,19 @@ class VoiceLiveProvider:
                 log_sink=log_sink,
             )
             logger.info(
-                "VoiceLive WebSocket connected to %s (region=%s, resource=%s)",
+                "OpenAI WebSocket connected to %s (region=%s, resource=%s)",
                 ws_url,
                 self.region,
                 self.resource,
             )
         except Exception as exc:
-            logger.exception("Failed to connect to VoiceLive: %s", exc)
+            logger.exception("Failed to connect to OpenAI: %s", exc)
             raise
 
     async def _update_session(self) -> None:
-        """Send session.update with configuration and prompt to VoiceLive."""
+        """Send session.update with configuration and prompt to OpenAI."""
         if not self._ws:
-            raise RuntimeError("VoiceLive WebSocket is not connected")
+            raise RuntimeError("OpenAI WebSocket is not connected")
 
         session_options = self._build_session_options()
         payload = {
@@ -250,9 +225,9 @@ class VoiceLiveProvider:
 
         try:
             await self._ws.send(json.dumps(payload))
-            logger.info("VoiceLive session.update dispatched with options: %s", session_options)
+            logger.info("OpenAI session.update dispatched with options: %s", session_options)
         except Exception as exc:
-            logger.exception("Failed to create VoiceLive session: %s", exc)
+            logger.exception("Failed to create OpenAI session: %s", exc)
             raise
 
     async def _register_outbound_handler(self) -> None:
@@ -262,19 +237,19 @@ class VoiceLiveProvider:
 
         await self.outbound_bus.register_handler(
             HandlerConfig(
-                name="voicelive_egress",
+                name="openai_egress",
                 queue_max=1000,
                 overflow_policy=OverflowPolicy.DROP_OLDEST,
                 concurrency=1,
             ),
             self._outbound_handler.handle,
         )
-        logger.info("VoiceLive egress handler registered")
+        logger.info("OpenAI egress handler registered")
 
     async def _ingress_loop(self) -> None:
-        """Receive VoiceLive messages and dispatch via inbound handler."""
+        """Receive OpenAI messages and dispatch via inbound handler."""
         if not self._ws:
-            logger.error("VoiceLive ingress loop started without WebSocket connection")
+            logger.error("OpenAI ingress loop started without WebSocket connection")
             return
 
         try:
@@ -282,22 +257,22 @@ class VoiceLiveProvider:
                 try:
                     data = json.loads(raw_message)
                 except json.JSONDecodeError as exc:
-                    logger.warning("Received non-JSON message from VoiceLive: %s (error: %s)", raw_message, exc)
+                    logger.warning("Received non-JSON message from OpenAI: %s (error: %s)", raw_message, exc)
                     continue
 
                 await self._inbound_handler.handle(data)
 
         except ConnectionClosed as exc:
-            logger.warning("VoiceLive WebSocket closed: code=%s reason=%s", exc.code, exc.reason)
+            logger.warning("OpenAI WebSocket closed: code=%s reason=%s", exc.code, exc.reason)
         except WebSocketException as exc:
-            logger.error("VoiceLive WebSocket error: %s", exc)
+            logger.error("OpenAI WebSocket error: %s", exc)
         except Exception as exc:
-            logger.exception("VoiceLive ingress loop failed: %s", exc)
+            logger.exception("OpenAI ingress loop failed: %s", exc)
 
     def _build_session_options(self) -> Dict[str, Any]:
         """Construct session options with defaults, provider overrides, and session metadata."""
         # Deep copy defaults to avoid mutation across sessions
-        session_options: Dict[str, Any] = copy.deepcopy(VOICE_LIVE_DEFAULT_SESSION_OPTIONS)
+        session_options: Dict[str, Any] = copy.deepcopy(DEFAULT_SESSION_OPTIONS)
 
         # Apply provider-level settings overrides from nested session_options
         if self.settings and "session_options" in self.settings:
@@ -310,7 +285,7 @@ class VoiceLiveProvider:
 
         # Ensure instructions are always present
         if not session_options.get("instructions"):
-            session_options["instructions"] = VOICE_LIVE_PROMPT
+            session_options["instructions"] = OPENAI_REALTIME_PROMPT
 
         return session_options
 
@@ -371,7 +346,7 @@ class VoiceLiveProvider:
 
         if self._ws and not self._ws.closed:
             await self._ws.close()
-            logger.info("VoiceLive WebSocket disconnected")
+            logger.info("OpenAI WebSocket disconnected")
 
     async def health(self) -> str:
         """Check adapter health status."""
@@ -381,7 +356,7 @@ class VoiceLiveProvider:
 
     def _build_connection_name(self) -> str:
         """Create a deterministic-ish name for wire logging."""
-        parts = ["voice_live"]
+        parts = ["openai"]
         value = None
         if isinstance(self.session_metadata, dict):
             for key in ("session_id", "call_connection_id", "call_correlation_id"):

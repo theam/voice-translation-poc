@@ -36,13 +36,14 @@ class LiveInterpreterProvider:
           region: eastus2  # or specify endpoint directly
           api_key: ${LIVE_INTERPRETER_API_KEY}
           settings:
-            target_text_languages: [en, es]  # Required: Languages for text translation
-            target_audio_language: es        # Required: Language for audio synthesis
+            languages: [es-ES, en-US]     # Required: Full locale codes, FIRST is target for synthesis
+            voice: es-ES-ElviraNeural     # Required: Neural voice name for audio synthesis
 
-    IMPORTANT: target_audio_language determines the output audio language!
-    - The SDK synthesizes the FIRST target language added to the config
-    - We add target_audio_language FIRST to ensure correct synthesis language
-    - Voice name alone doesn't determine language (Spanish voice + English text = English with accent!)
+    IMPORTANT: Language ordering:
+    - The FIRST language in the array is the target language for audio synthesis
+    - All languages are used for auto-detection (AutoDetectSourceLanguageConfig)
+    - Languages are added to translation config in the order specified
+    - Voice name must match the target language locale (first in array)
 
     The provider:
     - Uses a PushAudioInputStream for continuous audio ingestion
@@ -51,48 +52,24 @@ class LiveInterpreterProvider:
     - Publishes ProviderOutputEvent objects to the inbound bus
     """
 
-    # Voice mapping for common languages (Neural voices)
-    VOICE_MAP = {
-        "es": "es-ES-ElviraNeural",
-        "en": "en-US-JennyNeural",
-        "de": "de-DE-KatjaNeural",
-        "fr": "fr-FR-DeniseNeural",
-        "pt": "pt-BR-FranciscaNeural",
-        "it": "it-IT-ElsaNeural",
-        "ja": "ja-JP-NanamiNeural",
-        "zh": "zh-CN-XiaoxiaoNeural",
-        "ko": "ko-KR-SunHiNeural",
-        "ar": "ar-SA-ZariyahNeural",
-        "hi": "hi-IN-SwaraNeural",
-        "ru": "ru-RU-SvetlanaNeural",
-    }
-
     def __init__(
         self,
         *,
         endpoint: str,
         api_key: str,
-        target_text_languages: list[str],
-        target_audio_language: str,
+        languages: list[str],
+        voice: str,
         outbound_bus: EventBus,
         inbound_bus: EventBus,
         session_metadata: Optional[Dict[str, Any]] = None,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
-        self.target_text_languages = target_text_languages
-        self.target_audio_language = target_audio_language
+        self.languages = languages
+        self.voice = voice
         self.outbound_bus = outbound_bus
         self.inbound_bus = inbound_bus
         self.session_metadata = session_metadata or {}
-
-        # Resolve voice name from target_audio_language
-        self.voice_name = self.VOICE_MAP.get(target_audio_language)
-        if not self.voice_name:
-            raise ValueError(
-                f"Unsupported target_audio_language: '{target_audio_language}'. "
-                f"Supported languages: {list(self.VOICE_MAP.keys())}"
-            )
 
         self._push_stream: Optional[speechsdk.audio.PushAudioInputStream] = None
         self._recognizer: Optional[speechsdk.translation.TranslationRecognizer] = None
@@ -106,8 +83,8 @@ class LiveInterpreterProvider:
 
         logger.info(
             f"🎯 LiveInterpreterProvider initialized: endpoint={self.endpoint}, "
-            f"text_languages={self.target_text_languages}, audio_language={self.target_audio_language}, "
-            f"voice={self.voice_name}"
+            f"languages={self.languages} (target: {self.languages[0]}), "
+            f"voice={self.voice}"
         )
 
     async def start(self) -> None:
@@ -141,33 +118,22 @@ class LiveInterpreterProvider:
             endpoint=self.endpoint,
         )
 
-        # Enable continuous language detection
-        translation_config.set_property(
-            property_id=speechsdk.PropertyId.SpeechServiceConnection_LanguageIdMode,
-            value="Continuous",
-        )
-
-        # Add target audio language FIRST (SDK synthesizes the first target language)
-        logger.info(f"📋 Configuring target audio language for synthesis: {self.target_audio_language}")
-        translation_config.add_target_language(self.target_audio_language)
-
-        # Add remaining target text languages (for text-only translations)
-        remaining_languages = [lang for lang in self.target_text_languages if lang != self.target_audio_language]
-        if remaining_languages:
-            logger.info(f"📋 Adding additional text translation languages: {remaining_languages}")
-            for lang in remaining_languages:
-                translation_config.add_target_language(lang)
+        # Add all languages in order (SDK synthesizes the first target language)
+        logger.info(f"📋 Adding target languages in order: {self.languages}")
+        for lang in self.languages:
+            translation_config.add_target_language(lang)
 
         # Configure synthesis voice from config
-        translation_config.voice_name = self.voice_name
+        translation_config.voice_name = self.voice
         logger.info(
-            f"🎙️ Speech synthesis configured: voice={self.voice_name}, "
-            f"language={self.target_audio_language}"
+            f"🎙️ Speech synthesis configured: voice={self.voice}, "
+            f"target_locale={self.languages[0]}"
         )
 
-        # Configure open range auto-detect (all 76 languages)
-        auto_detect_config = speechsdk.languageconfig.AutoDetectSourceLanguageConfig()
-        logger.info("🌐 Open range language detection ENABLED (all 76 languages)")
+        # Use configured languages for auto-detection
+        auto_detect_config = speechsdk.languageconfig.AutoDetectSourceLanguageConfig(
+            languages=self.languages
+        )
 
         return translation_config, auto_detect_config
 
@@ -266,8 +232,8 @@ class LiveInterpreterProvider:
             self._publish_audio(audio_bytes, partial=partial)
 
         # Create handlers with necessary dependencies
-        recognizing_handler = RecognizingHandler(self.target_text_languages)
-        recognized_handler = RecognizedHandler(self.target_text_languages, publish_response_wrapper)
+        recognizing_handler = RecognizingHandler(self.languages)
+        recognized_handler = RecognizedHandler(self.languages, publish_response_wrapper)
         canceled_handler = CanceledHandler()  # No participant tracking in shared session
         synthesizing_handler = SynthesizingHandler(publish_audio_wrapper)
 

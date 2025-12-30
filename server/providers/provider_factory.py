@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from ..config import Config
 from ..core.event_bus import EventBus
 from .mock_provider import MockProvider
+from .openai import OpenAIProvider
 from .voice_live import VoiceLiveProvider
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,27 @@ class ProviderFactory:
                 delay_ms=50,  # Configurable if needed
             )
 
+        elif provider_type == "openai":
+            endpoint = provider_config.endpoint
+            api_key = provider_config.api_key
+
+            if not endpoint:
+                raise ValueError("OpenAI endpoint not configured")
+
+            return OpenAIProvider(
+                endpoint=endpoint,
+                api_key=api_key or "",
+                region=provider_config.region,
+                resource=provider_config.resource,
+                outbound_bus=outbound_bus,
+                inbound_bus=inbound_bus,
+                settings=provider_config.settings,
+                session_metadata=session_metadata,
+                log_wire=config.system.log_wire,
+                log_wire_dir=config.system.log_wire_dir,
+                capabilities=provider_capabilities,
+            )
+
         elif provider_type == "voice_live":
             endpoint = provider_config.endpoint
             api_key = provider_config.api_key
@@ -169,25 +191,6 @@ class ProviderFactory:
                 capabilities=provider_capabilities,
             )
 
-        elif provider_type == "speech_translator":
-            from .speech_translator import SpeechTranslatorProvider
-
-            endpoint = provider_config.endpoint
-            api_key = provider_config.api_key
-
-            if not endpoint:
-                raise ValueError("Speech Translator requires endpoint configuration")
-            if not api_key:
-                raise ValueError("Speech Translator requires api_key configuration")
-
-            return SpeechTranslatorProvider(
-                endpoint=endpoint,
-                api_key=api_key,
-                outbound_bus=outbound_bus,
-                inbound_bus=inbound_bus,
-                session_metadata=session_metadata,
-            )
-
         elif provider_type == "live_interpreter":
             from .live_interpreter import LiveInterpreterProvider
 
@@ -205,25 +208,25 @@ class ProviderFactory:
 
             # Extract required settings
             settings = provider_config.settings or {}
-            target_text_languages = settings.get("target_text_languages")
-            if not target_text_languages or not isinstance(target_text_languages, list):
+            languages = settings.get("languages")
+            if not languages or not isinstance(languages, list):
                 raise ValueError(
-                    "Live Interpreter requires 'target_text_languages' in settings "
-                    "(array of 2-letter ISO language codes, e.g., ['en', 'es'])"
+                    "Live Interpreter requires 'languages' in settings "
+                    "(array of full locale codes, e.g., ['en-US', 'es-ES'])"
                 )
 
-            target_audio_language = settings.get("target_audio_language")
-            if not target_audio_language or not isinstance(target_audio_language, str):
+            voice = settings.get("voice")
+            if not voice or not isinstance(voice, str):
                 raise ValueError(
-                    "Live Interpreter requires 'target_audio_language' in settings "
-                    "(2-letter ISO language code, e.g., 'es')"
+                    "Live Interpreter requires 'voice' in settings "
+                    "(neural voice name, e.g., 'es-ES-ElviraNeural')"
                 )
 
             return LiveInterpreterProvider(
                 endpoint=endpoint,
                 api_key=api_key,
-                target_text_languages=target_text_languages,
-                target_audio_language=target_audio_language,
+                languages=languages,
+                voice=voice,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
                 session_metadata=session_metadata,
