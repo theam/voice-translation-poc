@@ -176,7 +176,7 @@ class AudioMessageHandler:
             metadata={"timestamp_utc": timestamp_utc, "message_id": event.event_id},
         )
 
-        logger.info("Publishing audio request to provider: commit=%s bytes=%s", commit_id, len(raw_audio))
+        logger.info("Publishing audio request to provider - commit=%s bytes=%s", commit_id, len(raw_audio))
         await self._provider_outbound_bus.publish(request)
 
     async def shutdown(self) -> None:

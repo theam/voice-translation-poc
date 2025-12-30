@@ -109,6 +109,7 @@ class VoiceLiveProvider:
         settings: Optional[Dict[str, Any]] = None,
         session_metadata: Optional[Dict[str, Any]] = None,
         log_wire: bool = False,
+        log_wire_dir: str = "logs",
         capabilities: Optional[ProviderAudioCapabilities] = None,
     ):
         self.endpoint = endpoint
@@ -120,6 +121,7 @@ class VoiceLiveProvider:
         self.settings = settings or {}
         self.session_metadata = session_metadata or {}
         self.log_wire = log_wire
+        self.log_wire_dir = log_wire_dir
         self.capabilities = capabilities or get_provider_capabilities("voice_live")
         self._connection_name = self._build_connection_name()
         self._ws: Optional[WebSocketServer] = None
@@ -193,7 +195,7 @@ class VoiceLiveProvider:
                 ping_interval=20,
                 ping_timeout=10,
             )
-            log_sink = WireLogSink(self._connection_name) if self.log_wire else None
+            log_sink = WireLogSink(self._connection_name, base_dir=self.log_wire_dir) if self.log_wire else None
             self._ws = WebSocketServer(
                 websocket=raw_ws,
                 name=self._connection_name,

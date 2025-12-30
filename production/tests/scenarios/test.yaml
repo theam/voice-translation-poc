@@ -9,11 +9,13 @@ participants:
     target_language: en
     audio_files:
       p1: ../audios/cough_sob_001.wav
+metrics: []
+
 turns:
 - id: patient_turn_1
   type: play_audio
   participant: patient
-  audio_file: p1
+  data_file: p1
   start_at_ms: 0
   source_language: es
   expected_language: en

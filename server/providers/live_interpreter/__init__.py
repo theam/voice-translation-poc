@@ -1,4 +1,4 @@
-"""Live Interpreter provider wiring."""
+from __future__ import annotations
 
 from .provider import LiveInterpreterProvider
 

@@ -74,6 +74,7 @@ from production.scenario_engine.turn_processors.audio import AudioTurnProcessor
 from production.scenario_engine.turn_processors.base import TurnProcessor
 from production.scenario_engine.turn_processors.hangup import HangupTurnProcessor
 from production.scenario_engine.turn_processors.loopback_text import LoopbackTextTurnProcessor
+from production.scenario_engine.turn_processors.replay import ReplayWireLogTurnProcessor
 from production.scenario_engine.turn_processors.silence import SilenceTurnProcessor
 
 if TYPE_CHECKING:
@@ -139,6 +140,7 @@ def create_turn_processor(
         "silence": SilenceTurnProcessor,
         "hangup": HangupTurnProcessor,
         "loopback_text": LoopbackTextTurnProcessor,
+        "replay_wire_log": ReplayWireLogTurnProcessor,
     }
 
     processor_class = processor_map.get(turn_type)
@@ -165,5 +167,6 @@ __all__ = [
     "SilenceTurnProcessor",
     "HangupTurnProcessor",
     "LoopbackTextTurnProcessor",
+    "ReplayWireLogTurnProcessor",
     "create_turn_processor",
 ]

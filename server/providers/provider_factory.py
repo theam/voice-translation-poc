@@ -165,25 +165,94 @@ class ProviderFactory:
                 settings=provider_config.settings,
                 session_metadata=session_metadata,
                 log_wire=config.system.log_wire,
+                log_wire_dir=config.system.log_wire_dir,
                 capabilities=provider_capabilities,
+            )
+
+        elif provider_type == "speech_translator":
+            from .speech_translator import SpeechTranslatorProvider
+
+            endpoint = provider_config.endpoint
+            api_key = provider_config.api_key
+
+            if not endpoint:
+                raise ValueError("Speech Translator requires endpoint configuration")
+            if not api_key:
+                raise ValueError("Speech Translator requires api_key configuration")
+
+            return SpeechTranslatorProvider(
+                endpoint=endpoint,
+                api_key=api_key,
+                outbound_bus=outbound_bus,
+                inbound_bus=inbound_bus,
+                session_metadata=session_metadata,
             )
 
         elif provider_type == "live_interpreter":
             from .live_interpreter import LiveInterpreterProvider
 
+            # Use explicit endpoint if provided, otherwise construct from region
             endpoint = provider_config.endpoint
-            api_key = provider_config.api_key
+            if not endpoint:
+                region = provider_config.region
+                if not region:
+                    raise ValueError("Live Interpreter requires either endpoint or region configuration")
+                endpoint = f"wss://{region}.stt.speech.microsoft.com/speech/universal/v2"
 
+            api_key = provider_config.api_key
             if not api_key:
-                raise ValueError("Live Interpreter api_key not configured")
-            if not endpoint and not provider_config.resource:
-                raise ValueError("Live Interpreter requires either endpoint or resource configuration")
+                raise ValueError("Live Interpreter requires api_key configuration")
+
+            # Extract required settings
+            settings = provider_config.settings or {}
+            target_text_languages = settings.get("target_text_languages")
+            if not target_text_languages or not isinstance(target_text_languages, list):
+                raise ValueError(
+                    "Live Interpreter requires 'target_text_languages' in settings "
+                    "(array of 2-letter ISO language codes, e.g., ['en', 'es'])"
+                )
+
+            target_audio_language = settings.get("target_audio_language")
+            if not target_audio_language or not isinstance(target_audio_language, str):
+                raise ValueError(
+                    "Live Interpreter requires 'target_audio_language' in settings "
+                    "(2-letter ISO language code, e.g., 'es')"
+                )
 
             return LiveInterpreterProvider(
                 endpoint=endpoint,
                 api_key=api_key,
-                region=provider_config.region,
-                resource=provider_config.resource,
+                target_text_languages=target_text_languages,
+                target_audio_language=target_audio_language,
+                outbound_bus=outbound_bus,
+                inbound_bus=inbound_bus,
+                session_metadata=session_metadata,
+            )
+
+        elif provider_type == "role_based":
+            from .role_based_provider import RoleBasedProvider
+
+            # Extract required settings
+            settings = provider_config.settings or {}
+            role_providers = settings.get("role_providers")
+
+            if not role_providers or not isinstance(role_providers, dict):
+                raise ValueError(
+                    "RoleBased provider requires 'role_providers' dict in settings "
+                    "(mapping of role → provider_name, e.g., {'agent': 'live_interpreter_spanish'})"
+                )
+
+            # Validate that referenced providers exist
+            for role, ref_provider_name in role_providers.items():
+                if config.providers.get(ref_provider_name) is None:
+                    raise ValueError(
+                        f"RoleBased provider references unknown provider '{ref_provider_name}' "
+                        f"for role '{role}'. Ensure provider is defined in config."
+                    )
+
+            return RoleBasedProvider(
+                config=config,
+                role_providers=role_providers,
                 outbound_bus=outbound_bus,
                 inbound_bus=inbound_bus,
                 session_metadata=session_metadata,

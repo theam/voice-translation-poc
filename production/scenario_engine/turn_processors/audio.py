@@ -53,7 +53,7 @@ class AudioTurnProcessor(TurnProcessor):
         """
         # Get participant and audio file
         participant = scenario.participants[turn.participant]
-        audio_path = participant.audio_files[turn.audio_file]  # type: ignore[index]
+        audio_path = participant.audio_files[turn.data_file]  # type: ignore[index]
 
         logger.debug(
             "Starting audio playback: turn=%s participant=%s file=%s at time=%s",
@@ -84,7 +84,7 @@ class AudioTurnProcessor(TurnProcessor):
 
             # Send audio data
             payload = self.adapter.build_audio_message(
-                participant_id=turn.id,
+                participant_id=participant.name,
                 pcm_bytes=data,
                 timestamp_ms=send_at,
             )
@@ -93,7 +93,7 @@ class AudioTurnProcessor(TurnProcessor):
             self.conversation_manager.register_outgoing(
                 turn.id,
                 payload,
-                participant_id=turn.id,
+                participant_id=participant.name,
                 timestamp_ms=send_at,  # Use scenario timeline!
             )
             await self.ws.send_json(payload)
