@@ -2,7 +2,7 @@
 .PHONY: bash bash_server
 .PHONY: logs logs_server logs_all
 .PHONY: evaluations run_test
-.PHONY: test_prod test_suite calibrate generate_report
+.PHONY: test_prod test_suite calibrate replay export-audio generate_report
 .PHONY: test_parallel_tests test_parallel_suites
 .PHONY: simulate_test simulate_suite
 .PHONY: mongo clean clean_reports status help
@@ -28,6 +28,9 @@ help:
 	@echo "  make evaluations      Run evaluations"
 	@echo "  make test_prod        Run production test"
 	@echo "  make test_suite       Run test suite"
+	@echo "  make calibrate        Run metrics calibration"
+	@echo "  make replay           Replay wire log file"
+	@echo "  make export-audio     Export wire log audio to WAV"
 	@echo ""
 	@echo "Development:"
 	@echo "  make bash             Shell into vt-app container"
@@ -202,6 +205,29 @@ simulate_suite:
 calibrate:
 	@echo "Running metrics calibration..."
 	@docker compose exec -T vt-app poetry run prod calibrate $(ARGS)
+
+replay:
+	@if [ -z "$(WIRE_LOG)" ]; then \
+		echo "Error: WIRE_LOG not specified"; \
+		echo "Usage: make replay WIRE_LOG=artifacts/websocket_wire/acs_server_UUID.jsonl"; \
+		exit 1; \
+	fi
+	@echo "Replaying wire log: $(WIRE_LOG)"
+	@docker compose exec -T vt-app poetry run prod replay $(WIRE_LOG) $(ARGS)
+
+export-audio:
+	@if [ -z "$(WIRE_LOG)" ]; then \
+		echo "Error: WIRE_LOG not specified"; \
+		echo "Usage: make export-audio WIRE_LOG=logs/server/acs_server_UUID.jsonl"; \
+		echo "       make export-audio WIRE_LOG=logs/server/acs_server_UUID.jsonl OUTPUT=output.wav"; \
+		exit 1; \
+	fi
+	@echo "Exporting audio from wire log: $(WIRE_LOG)"
+	@if [ -n "$(OUTPUT)" ]; then \
+		docker compose exec -T vt-app poetry run prod export-audio $(WIRE_LOG) --output $(OUTPUT); \
+	else \
+		docker compose exec -T vt-app poetry run prod export-audio $(WIRE_LOG); \
+	fi
 
 generate_report:
 	@if [ -z "$(EVAL_ID)" ]; then \

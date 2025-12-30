@@ -16,7 +16,7 @@ turns:
 - id: doctor_turn_1
   type: play_audio
   participant: doctor
-  audio_file: d1
+  data_file: d1
   start_at_ms: 0
   source_language: es
   expected_language: en

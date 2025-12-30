@@ -35,7 +35,7 @@ class ScenarioLoader:
                 id=item["id"],
                 type=item["type"],
                 participant=item["participant"],
-                audio_file=item.get("audio_file"),
+                data_file=item.get("data_file"),
                 text=item.get("text"),
                 start_at_ms=int(item.get("start_at_ms", 0)),
                 source_language=item.get("source_language"),
@@ -55,9 +55,10 @@ class ScenarioLoader:
             tags=raw.get("tags", []),
             score_method=raw.get("score_method", "average"),
             websocket_client=raw.get("websocket_client", "websocket"),
-            metrics=raw.get("metrics", []),
+            metrics=raw.get("metrics", None),
             expected_score=raw.get("expected_score"),
             tolerance=raw.get("tolerance"),
+            tail_silence=raw.get("tail_silence"),
         )
 
         logger.info(f"Scenario loaded id:{scenario.id} path:{path}")

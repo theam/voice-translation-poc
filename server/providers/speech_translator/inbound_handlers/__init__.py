@@ -1,4 +1,4 @@
-"""Inbound handlers for Live Interpreter SDK events."""
+"""Inbound handlers for Speech Translator SDK events."""
 
 from .canceled_handler import CanceledHandler
 from .recognized_handler import RecognizedHandler

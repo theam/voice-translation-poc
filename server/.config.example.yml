@@ -1,9 +1,5 @@
 system:
   log_level: INFO
-  payload_capture:
-    enabled: false
-    mode: metadata_only
-    output_dir: ./artifacts
 
 buffering:
   ingress_queue_max: 2000
@@ -45,11 +41,47 @@ providers:
         #   threshold: 0.5
         #   prefix_padding_ms: 300
         #   silence_duration_ms: 600
+  speech_translator:
+    type: speech_translator
+    endpoint: https://speech-translator.example.com
+    api_key: ${SPEECH_TRANSLATOR_API_KEY}
   live_interpreter:
     type: live_interpreter
-    endpoint: https://live-interpreter.example.com
+    # Option 1: Specify endpoint explicitly
+    # endpoint: wss://eastus2.stt.speech.microsoft.com/speech/universal/v2
+    # Option 2: Specify region (endpoint will be constructed automatically)
+    region: eastus2
     api_key: ${LIVE_INTERPRETER_API_KEY}
-    region: eastus
-    resource: live-interpreter-resource-name
+    settings:
+      # Required: Languages for text translation (2-letter ISO codes)
+      target_text_languages: [en, es]
+      # Required: Language for audio synthesis (2-letter ISO code)
+      # Supported: en, es, de, fr, pt, it, ja, zh, ko, ar, hi, ru
+      target_audio_language: es
+  # Example: Per-role provider instances for bidirectional translation
+  live_interpreter_spanish:
+    type: live_interpreter
+    region: eastus2
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    settings:
+      target_text_languages: [en, es]
+      target_audio_language: es  # Spanish audio output
+  live_interpreter_english:
+    type: live_interpreter
+    region: eastus2
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    settings:
+      target_text_languages: [en, es]
+      target_audio_language: en  # English audio output
+  # Role-based provider (composable router)
+  role_based:
+    type: role_based
+    settings:
+      # Map roles to provider instances
+      # First participant → agent → Spanish audio
+      # Second participant → caller → English audio
+      role_providers:
+        agent: live_interpreter_spanish
+        caller: live_interpreter_english
   mock:
     type: mock

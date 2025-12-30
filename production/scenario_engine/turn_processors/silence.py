@@ -40,8 +40,8 @@ class SilenceTurnProcessor(TurnProcessor):
         Simply calculates and returns the target time after the silence duration.
         The engine will handle streaming silence to reach this time.
 
-        Note: The duration is stored in turn.audio_file as an integer
-        representing milliseconds (this is a legacy field reuse).
+        Note: The duration is stored in turn.data_file as an integer
+        representing milliseconds.
 
         Args:
             turn: The silence turn
@@ -52,7 +52,7 @@ class SilenceTurnProcessor(TurnProcessor):
         Returns:
             Target time after silence duration
         """
-        duration = int(turn.audio_file or 0)
+        duration = int(turn.data_file or 0)
         target_time = current_time + duration
 
         logger.debug(

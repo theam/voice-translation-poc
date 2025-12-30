@@ -219,10 +219,12 @@ class ScenarioEngine:
             logger.debug(f"After processing turn '{turn.id}', current_time={current_time}ms")
 
         # Stream trailing silence to allow translations to arrive before teardown
-        tail_target = current_time + self.config.tail_silence_ms
+        # Use scenario.tail_silence if set, otherwise use config default
+        tail_silence_ms = self.config.tail_silence_ms if scenario.tail_silence is None else scenario.tail_silence
+        tail_target = current_time + tail_silence_ms
         logger.info(
             f"Turn completed '{turn.id}': start_at={turn.start_at_ms}ms, "
-            f"current_time={current_time}ms, tail_silence_needed={tail_target - current_time}ms"
+            f"current_time={current_time}ms, tail_silence_needed={tail_silence_ms}ms"
         )
         current_time = await self._stream_silence_until(
             ws,
@@ -342,7 +344,7 @@ class ScenarioEngine:
                 )
                 timestamp_ms = start_ms
                 tape.add_pcm(start_ms, protocol_event.audio_payload)
-                logger.info(
+                logger.debug(
                     "📥 INBOUND AUDIO SCHEDULE: stream=%s arrival_ms=%.2f start_ms=%.2f last_outbound_ms=%s",
                     stream_key,
                     arrival_ms,
@@ -400,7 +402,7 @@ class ScenarioEngine:
             if turn.type != "play_audio":
                 continue
             participant = scenario.participants[turn.participant]
-            audio_path = participant.audio_files[turn.audio_file]  # type: ignore[index]
+            audio_path = participant.audio_files[turn.data_file]  # type: ignore[index]
             with wave.open(str(audio_path), "rb") as wav:
                 channels = wav.getnchannels()
                 sample_width = wav.getsampwidth()

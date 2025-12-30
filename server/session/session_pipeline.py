@@ -11,7 +11,6 @@ from ..providers.provider_factory import ProviderFactory, TranslationProvider
 from ..config import Config
 from ..models.gateway_input_event import GatewayInputEvent
 from ..core.event_bus import EventBus, HandlerConfig
-from ..gateways.audit import AuditHandler
 from ..gateways.base import HandlerSettings
 from ..gateways.provider import ProviderOutputHandler
 from ..gateways.acs.inbound_handler import AcsInboundMessageHandler
@@ -158,25 +157,7 @@ class SessionPipeline:
         """
         overflow_policy = OverflowPolicy(self.config.buffering.overflow_policy)
 
-        # 1. Audit handler
-        await self.acs_inbound_bus.register_handler(
-            HandlerConfig(
-                name=f"audit_{self.session_id}",
-                queue_max=500,
-                overflow_policy=overflow_policy,
-                concurrency=1
-            ),
-            AuditHandler(
-                HandlerSettings(
-                    name=f"audit_{self.session_id}",
-                    queue_max=500,
-                    overflow_policy=str(overflow_policy)
-                ),
-                payload_capture=None
-            )
-        )
-
-        # 2. Translation dispatch handler (processes test settings, audio metadata, audio data)
+        # 1. Translation dispatch handler (processes test settings, audio metadata, audio data)
         # This handler includes a callback to trigger provider initialization
         self._translation_handler = AcsInboundMessageHandler(
             HandlerSettings(

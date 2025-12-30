@@ -68,7 +68,7 @@ class FrameworkConfig:
         default_factory=lambda: os.getenv("ENVIRONMENT", "dev")
     )
 
-    # Target system being tested (voice_live, live_interpreter, custom_llm, etc.)
+    # Target system being tested (voice_live, speech_translator, custom_llm, etc.)
     target_system: str = field(
         default_factory=lambda: os.getenv("TARGET_SYSTEM", "voice_live")
     )

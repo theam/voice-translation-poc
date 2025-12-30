@@ -9,6 +9,8 @@ import typer
 
 from production.cli.calibrate import calibrate_async
 from production.cli.generate_report import generate_report_async
+from production.cli.replay import replay_async
+from production.cli.export_audio import export_audio_async
 from production.cli.run_test import run_test_async
 from production.cli.run_suite import run_suite_async
 from production.cli.reset_db import reset_db_async
@@ -98,6 +100,58 @@ def calibrate(
         metric=metric,
         store=store,
         log_level=log_level
+    ))
+
+
+@app.command("replay")
+def replay(
+    wire_log_path: Path = typer.Argument(..., help="Path to wire log JSONL file"),
+    log_level: str = typer.Option("INFO", help="Logging level"),
+    store: bool = typer.Option(
+        False,
+        "--store",
+        "-s",
+        help="Force-enable MongoDB storage for this run"
+    ),
+) -> None:
+    """Replay a wire log file with exact timing preservation.
+
+    Loads wire log as a Scenario with a single turn at 0ms, ensuring
+    no silence is added. Results are logged and optionally stored in MongoDB.
+
+    Example:
+        poetry run prod replay artifacts/websocket_wire/acs_server_UUID.jsonl
+    """
+    asyncio.run(replay_async(
+        wire_log_path=wire_log_path,
+        log_level=log_level,
+        store=store
+    ))
+
+
+@app.command("export-audio")
+def export_audio(
+    wire_log_path: Path = typer.Argument(..., help="Path to wire log JSONL file"),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output WAV file path (defaults to wire_log_path.wav)"
+    ),
+) -> None:
+    """Export wire log audio to WAV file.
+
+    Extracts all inbound and outbound audio from the wire log and merges them
+    chronologically into a single WAV file, mixing overlapping audio as it would
+    sound in a telephone call.
+
+    Example:
+        poetry run prod export-audio logs/server/acs_server_UUID.jsonl
+        poetry run prod export-audio logs/server/acs_server_UUID.jsonl -o output.wav
+    """
+    asyncio.run(export_audio_async(
+        wire_log_path=wire_log_path,
+        output_path=output
     ))
 
 

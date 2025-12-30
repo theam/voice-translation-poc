@@ -1,6 +1,6 @@
 # Translation Service Server
 
-Real-time speech translation service with bidirectional streaming architecture. Receives audio from Azure Communication Services (ACS) via WebSocket, dispatches to translation providers (VoiceLive, Live Interpreter, Mock), and delivers translated results back to ACS.
+Real-time speech translation service with bidirectional streaming architecture. Receives audio from Azure Communication Services (ACS) via WebSocket, dispatches to translation providers (Voice Live, Speech Translator, Mock), and delivers translated results back to ACS.
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ server:
   port: 8080
 
 dispatch:
-  provider: "mock"  # mock, voicelive, live_interpreter
+  provider: "mock"  # mock, voice_live, speech_translator
   batching:
     enabled: true
     max_batch_ms: 200
@@ -72,7 +72,7 @@ ACS Client ← WebSocket ← Session ← Participant Pipeline(s) ← Provider �
 - **Participant Pipeline**: Translation pipeline (one or more per session)
   - Shared mode (default): All participants share one pipeline
   - Per-participant mode: Each participant gets isolated pipeline
-- **Provider Adapters**: VoiceLive, Mock, Live Interpreter (future)
+- **Provider Adapters**: Voice Live, Speech Translator, Live Interpreter, Mock
 
 ### Routing Strategies
 
@@ -129,6 +129,61 @@ Per-participant override:
     }
   }
 }
+```
+
+### Available Providers
+
+#### Voice Live
+- **Type**: `voice_live`
+- **Technology**: Azure AI Foundry Realtime API (WebSocket)
+- **Audio Format**: 24 kHz PCM16
+- **Features**: GPT-based translation, customizable prompts, real-time audio synthesis
+- **Configuration**: Requires `endpoint`, `api_key`, `region`, `resource`
+- **Use Case**: Advanced conversational AI with flexible prompt engineering
+
+#### Speech Translator
+- **Type**: `speech_translator`
+- **Technology**: Azure Speech SDK TranslationRecognizer
+- **Audio Format**: 16 kHz PCM16
+- **Features**: Bidirectional translation (en ↔ es), specific language pairs, standard neural voices
+- **Configuration**: Requires `endpoint`, `api_key`
+- **Use Case**: Reliable speech-to-speech translation with known source/target languages
+
+#### Live Interpreter
+- **Type**: `live_interpreter`
+- **Technology**: Azure Speech SDK v2 Universal Endpoint (Live Interpreter API)
+- **Audio Format**: 16 kHz PCM16
+- **Features**:
+  - **Automatic multi-lingual detection** (76 input languages)
+  - **No source language configuration** required
+  - **Real-time language switching** within same session
+  - **Detected language published** in transcript.delta events
+  - Bidirectional translation with standard neural voices
+- **Configuration**: Requires `region`, `api_key`
+- **Use Case**: Multi-lingual scenarios where speakers may switch languages mid-conversation
+
+**Configuration Example**:
+```yaml
+providers:
+  voicelive:
+    type: voice_live
+    endpoint: wss://example.cognitiveservices.azure.com/openai/realtime
+    api_key: ${VOICELIVE_KEY}
+    region: eastus
+    resource: voice-live-resource
+
+  speech_translator:
+    type: speech_translator
+    endpoint: https://example.cognitiveservices.azure.com
+    api_key: ${SPEECH_TRANSLATOR_KEY}
+
+  live_interpreter:
+    type: live_interpreter
+    region: eastus  # Required for v2 universal endpoint
+    api_key: ${LIVE_INTERPRETER_KEY}
+
+  mock:
+    type: mock
 ```
 
 ## Testing
@@ -222,7 +277,9 @@ server/
 ├── providers/
 │   ├── provider_factory.py      # Factory for creating providers
 │   ├── mock_provider.py         # Mock provider (testing)
-│   └── voice_live/              # VoiceLive bidirectional streaming provider
+│   ├── voice_live/              # Voice Live provider (Azure AI Foundry)
+│   ├── speech_translator/       # Speech Translator provider (Azure Speech SDK)
+│   └── live_interpreter/        # Live Interpreter provider (Azure Speech SDK v2)
 ├── gateways/
 │   ├── audit.py                 # Logs all ACS messages
 │   ├── base.py                  # Base classes for gateway handlers
@@ -257,7 +314,7 @@ server/
 6. **Flexibility**: Different providers for different sessions/participants simultaneously
 7. **Efficiency**: Default shared mode avoids overhead when isolation not needed
 8. **Easy Testing**: Mock provider with no external calls
-9. **Extensible Providers**: Add new translation providers (VoiceLive provider, LiveInterpreter, etc.)
+9. **Extensible Providers**: Add new translation providers (Voice Live, Speech Translator, etc.)
 
 ## Migration from Old Architecture
 
@@ -269,7 +326,7 @@ The new architecture replaces:
 
 Unchanged (reused as-is):
 - ✅ All gateways (audit, ACS inbound, provider_result)
-- ✅ Provider implementations (VoiceLive provider, MockProvider)
+- ✅ Provider implementations (Voice Live, Speech Translator, Mock)
 - ✅ Models (GatewayInputEvent, AudioRequest, ProviderOutputEvent)
 - ✅ Services (AudioDurationCalculator)
 - ✅ Config, EventBus, Queues

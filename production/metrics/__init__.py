@@ -82,8 +82,10 @@ def create_metric(
 def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -> List[Metric]:
     """Instantiate metrics for a run.
 
-    If scenario.metrics is empty, instantiates all available metrics.
-    If scenario.metrics is specified, only instantiates those metrics.
+    Metrics filtering logic:
+    - scenario.metrics is None: Run all available metrics (default)
+    - scenario.metrics == []: Run NO metrics (used for replay)
+    - scenario.metrics has items: Run only specified metrics (selective testing)
 
     Available metrics:
     - wer: Calculates Word Error Rate for translation accuracy
@@ -105,15 +107,19 @@ def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -
 
     Example:
         # Run all metrics (default)
-        scenario = Scenario(...)
+        scenario = Scenario(...)  # metrics=None
         metrics = get_metrics(scenario, conv_mgr)
+
+        # Run NO metrics (replay mode)
+        scenario = Scenario(..., metrics=[])
+        metrics = get_metrics(scenario, conv_mgr)  # Returns []
 
         # Run only specific metrics (e.g., for calibration)
         scenario = Scenario(..., metrics=["intelligibility"])
         metrics = get_metrics(scenario, conv_mgr)
     """
-    # If no specific metrics requested, return all metrics
-    if not scenario.metrics:
+    # If metrics is None, return all metrics (default behavior)
+    if scenario.metrics is None:
         return [
             WERMetric(scenario, conversation_manager),  # WER with default threshold 0.3
             TechnicalTermsMetric(scenario, conversation_manager),  # Technical terms with default threshold 0.90
@@ -125,6 +131,10 @@ def get_metrics(scenario: Scenario, conversation_manager: ConversationManager) -
             ContextMetric(scenario, conversation_manager),  # Context with default threshold 0.80
             OverlapMetric(scenario, conversation_manager),  # Audio overlap detection
         ]
+
+    # If metrics is empty list, return NO metrics (replay mode)
+    if len(scenario.metrics) == 0:
+        return []
 
     # Return only requested metrics
     return [

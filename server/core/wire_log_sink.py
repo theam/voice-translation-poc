@@ -8,14 +8,11 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 
-DEFAULT_WIRE_LOG_DIR = Path("./artifacts/websocket_wire")
-
-
 class WireLogSink:
     """Write wire-level WebSocket messages to newline-delimited JSON."""
 
-    def __init__(self, name: str, base_dir: Path = DEFAULT_WIRE_LOG_DIR) -> None:
-        base_path = base_dir if isinstance(base_dir, Path) else Path(base_dir)
+    def __init__(self, name: str, base_dir: str) -> None:
+        base_path = Path(base_dir)
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         self.path = base_path / f"{name}.{timestamp}.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -30,4 +27,4 @@ class WireLogSink:
         self.append_messages([message])
 
 
-__all__ = ["WireLogSink", "DEFAULT_WIRE_LOG_DIR"]
+__all__ = ["WireLogSink"]
