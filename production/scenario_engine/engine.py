@@ -16,9 +16,8 @@ from production.acs_emulator.websocket_client import WebSocketClient
 from production.acs_emulator.websocket_client_factory import create_websocket_client
 from production.metrics import MetricsRunner, MetricsSummary
 from production.capture.collector import CollectedEvent, EventCollector
-from production.capture.arrival_queue_assembler import ArrivalQueueAssembler
 from production.capture.conversation_manager import ConversationManager
-from production.capture.conversation_tape import ConversationTape
+from production.capture.conversation_renderer import ConversationRenderer
 from production.capture.results_persistence_service import ResultsPersistenceService
 from production.scenario_engine.turn_processors import create_turn_processor
 from production.scenario_engine.models import Participant, Scenario
@@ -49,7 +48,7 @@ class ScenarioEngine:
         self.clock = Clock(acceleration=config.time_acceleration)
         self.storage_service = storage_service
         self.evaluation_run_id = evaluation_run_id
-        self._media_time_ms: int = 0
+        self._media_time_scn_ms: int = 0
 
     async def run(
         self,
@@ -63,18 +62,20 @@ class ScenarioEngine:
             evaluation_run_id=self.evaluation_run_id
         )
 
-        collector = EventCollector()
-        started_at_ms = self.clock.now_ms()
-        conversation_manager = ConversationManager(
-            clock=self.clock, scenario_started_at_ms=started_at_ms
-        )
-        raw_messages: List[dict] = []
+        started_at_wall_ms = self.clock.now_ms()
         adapter = ProtocolAdapter(call_id=scenario.id)
         metadata, sample_rate, channels = self._build_audio_metadata(adapter, scenario)
         effective_sample_rate = sample_rate or 16000
         effective_channels = channels or 1
-        tape = ConversationTape(sample_rate=effective_sample_rate)
-        inbound_assembler = ArrivalQueueAssembler(sample_rate=effective_sample_rate, channels=effective_channels)
+        conversation_manager = ConversationManager(
+            clock=self.clock,
+            scenario_start_wall_ms=started_at_wall_ms,
+            sample_rate=effective_sample_rate,
+            channels=effective_channels,
+        )
+        collector = EventCollector()
+        raw_messages: List[dict] = []
+        renderer = ConversationRenderer(sample_rate=effective_sample_rate, channels=effective_channels)
 
         # Create appropriate WebSocket client based on scenario configuration
         ws_client = create_websocket_client(
@@ -91,9 +92,6 @@ class ScenarioEngine:
                     collector,
                     conversation_manager,
                     raw_messages,
-                    tape,
-                    started_at_ms,
-                    inbound_assembler,
                 )
             )
             # Send test settings to configure the server (e.g., provider selection)
@@ -107,7 +105,6 @@ class ScenarioEngine:
                 ws,
                 adapter,
                 scenario,
-                tape,
                 effective_sample_rate,
                 effective_channels,
                 conversation_manager,
@@ -118,7 +115,7 @@ class ScenarioEngine:
                 await listener
 
         # Persist results using the service
-        persistence_service.persist_results(collector, raw_messages, tape)
+        persistence_service.persist_results(collector, raw_messages, conversation_manager, renderer)
 
         # Create MetricsRunner with storage integration
         test_started_at = started_at or datetime.utcnow()
@@ -150,7 +147,6 @@ class ScenarioEngine:
         ws: WebSocketClient,
         adapter: ProtocolAdapter,
         scenario: Scenario,
-        tape: ConversationTape,
         sample_rate: int,
         channels: int,
         conversation_manager: ConversationManager,
@@ -173,33 +169,32 @@ class ScenarioEngine:
             channels: Number of audio channels
         """
         timeline = sorted(scenario.turns, key=lambda turn: turn.start_at_ms)
-        current_time = 0
+        current_scn_ms = 0
         participants = list(scenario.participants.values())
 
         # Process each turn with orchestrated timing
         for turn in timeline:
             logger.info(
                 f"Processing turn '{turn.id}': start_at={turn.start_at_ms}ms, "
-                f"current_time={current_time}ms, silence_needed={turn.start_at_ms - current_time}ms"
+                f"current_time={current_scn_ms}ms, silence_needed={turn.start_at_ms - current_scn_ms}ms"
             )
             # Orchestration: Stream silence until turn start time
-            current_time = await self._stream_silence_until(
+            current_scn_ms = await self._stream_silence_until(
                 ws,
                 adapter,
                 participants,
-                current_time,
+                current_scn_ms,
                 turn.start_at_ms,
                 sample_rate,
                 channels,
-                tape,
                 conversation_manager,
             )
-            self._media_time_ms = current_time
+            self._media_time_scn_ms = current_scn_ms
 
             conversation_manager.start_turn(
                 turn.id,
                 {"type": turn.type, "start_at_ms": turn.start_at_ms},
-                turn_start_ms=turn.start_at_ms,
+                turn_start_scn_ms=turn.start_at_ms,
             )
 
             # Execution: Process the turn
@@ -208,50 +203,47 @@ class ScenarioEngine:
                 ws=ws,
                 adapter=adapter,
                 clock=self.clock,
-                tape=tape,
                 sample_rate=sample_rate,
                 channels=channels,
                 conversation_manager=conversation_manager,
             )
-            current_time = await processor.process(turn, scenario, participants, current_time)
-            self._media_time_ms = current_time
+            current_scn_ms = await processor.process(turn, scenario, participants, current_scn_ms)
+            self._media_time_scn_ms = current_scn_ms
 
-            logger.debug(f"After processing turn '{turn.id}', current_time={current_time}ms")
+            logger.debug(f"After processing turn '{turn.id}', current_time={current_scn_ms}ms")
 
         # Stream trailing silence to allow translations to arrive before teardown
         # Use scenario.tail_silence if set, otherwise use config default
         tail_silence_ms = self.config.tail_silence_ms if scenario.tail_silence is None else scenario.tail_silence
-        tail_target = current_time + tail_silence_ms
+        tail_target = current_scn_ms + tail_silence_ms
         logger.info(
             f"Turn completed '{turn.id}': start_at={turn.start_at_ms}ms, "
-            f"current_time={current_time}ms, tail_silence_needed={tail_silence_ms}ms"
+            f"current_time={current_scn_ms}ms, tail_silence_needed={tail_silence_ms}ms"
         )
-        current_time = await self._stream_silence_until(
+        current_scn_ms = await self._stream_silence_until(
             ws,
             adapter,
             participants,
-            current_time,
+            current_scn_ms,
             tail_target,
             sample_rate,
             channels,
-            tape,
             conversation_manager,
         )
-        self._media_time_ms = current_time
+        self._media_time_scn_ms = current_scn_ms
 
     async def _stream_silence_until(
         self,
         ws: WebSocketClient,
         adapter: ProtocolAdapter,
         participants: List[Participant],
-        current_time: int,
-        target_ms: int,
+        current_scn_ms: int,
+        target_scn_ms: int,
         sample_rate: int,
         channels: int,
-        tape: ConversationTape,
         conversation_manager: ConversationManager,
     ) -> int:
-        """Stream silence frames from current_time to target_ms.
+        """Stream silence frames from current_scn_ms to target_scn_ms.
 
         Uses media_engine for silence generation, maintaining separation of
         concerns between orchestration (ScenarioEngine) and media operations
@@ -261,42 +253,40 @@ class ScenarioEngine:
             ws: WebSocket client for sending messages
             adapter: Protocol adapter for encoding messages
             participants: List of participants to stream silence for
-            current_time: Current playback position in milliseconds
-            target_ms: Target timestamp to reach
+            current_scn_ms: Current playback position in milliseconds
+            target_scn_ms: Target timestamp to reach
             sample_rate: Audio sample rate in Hz
             channels: Number of audio channels
-            tape: Conversation tape for recording
-
         Returns:
             Updated current time position
         """
-        if target_ms <= current_time:
-            return current_time
+        if target_scn_ms <= current_scn_ms:
+            return current_scn_ms
 
-        duration_ms = target_ms - current_time
+        duration_ms = target_scn_ms - current_scn_ms
 
         async for frame in async_stream_silence(
             duration_ms=duration_ms,
-            start_time_ms=current_time,
+            start_time_ms=current_scn_ms,
             sample_rate=sample_rate,
             channels=channels,
             sample_width=2,  # 16-bit PCM
             frame_duration_ms=FRAME_DURATION_MS
         ):
             for participant in participants:
+                frame_scn_ms = frame.timestamp_ms
                 payload = adapter.build_audio_message(
                     participant_id=participant.name,
                     pcm_bytes=frame.data,
-                    timestamp_ms=frame.timestamp_ms,
+                    timestamp_ms=frame_scn_ms,
                     silent=frame.is_silence,
                 )
                 await ws.send_json(payload)
-                tape.add_pcm(frame.timestamp_ms, frame.data)
-                conversation_manager.register_outgoing_media(frame.timestamp_ms)
+                conversation_manager.register_outgoing_media(frame_scn_ms)
 
             await self.clock.sleep(FRAME_DURATION_MS)
 
-        return target_ms
+        return target_scn_ms
 
     async def _listen(
         self,
@@ -305,19 +295,16 @@ class ScenarioEngine:
         collector: EventCollector,
         conversation_manager: ConversationManager,
         raw_messages: List[dict],
-        tape: ConversationTape,
-        started_at_ms: int,
-        inbound_assembler: ArrivalQueueAssembler,
     ) -> None:
-        # Track first/last audio per turn for gap calculation
-        turn_audio_tracking = {}  # turn_id -> (first_ms, last_ms)
+        turn_audio_tracking: dict[str, tuple[float, float]] = {}  # turn_id -> (first_ms, last_ms)
 
         async for message in ws.iter_messages():
-            arrival_ms = self.clock.now_ms() - started_at_ms
-            wall_clock_ms = self.clock.now_ms()
+            arrival_wall_ms = self.clock.now_ms()
+            arrival_scn_ms = conversation_manager.wall_to_scenario_ms(arrival_wall_ms)
 
             annotated_message = dict(message)
-            annotated_message["_arrival_ms"] = arrival_ms
+            annotated_message["_arrival_wall_ms"] = arrival_wall_ms
+            annotated_message["_arrival_scn_ms"] = arrival_scn_ms
             raw_messages.append(annotated_message)
 
             protocol_event = adapter.decode_inbound(annotated_message)
@@ -326,64 +313,45 @@ class ScenarioEngine:
 
             if protocol_event.raw is None:
                 protocol_event.raw = {}
-            protocol_event.raw["_arrival_ms"] = arrival_ms
-            protocol_event.arrival_ms = arrival_ms
-
-            timestamp_ms: float | None = arrival_ms
-            if protocol_event.event_type == "translated_audio" and protocol_event.audio_payload:
-                stream_key = protocol_event.participant_id or "unknown"
-                turn_summary = (
-                    conversation_manager.get_turn_summary(protocol_event.participant_id)
-                    if protocol_event.participant_id
-                    else None
-                )
-                start_ms, duration_ms = inbound_assembler.add_chunk(
-                    stream_key,
-                    arrival_ms=arrival_ms,
-                    pcm_bytes=protocol_event.audio_payload,
-                )
-                timestamp_ms = start_ms
-                tape.add_pcm(start_ms, protocol_event.audio_payload)
-                logger.debug(
-                    "📥 INBOUND AUDIO SCHEDULE: stream=%s arrival_ms=%.2f start_ms=%.2f last_outbound_ms=%s",
-                    stream_key,
-                    arrival_ms,
-                    start_ms,
-                    getattr(turn_summary, "last_outbound_ms", None),
-                )
-
-                # Track for logging
-                turn_id = protocol_event.participant_id
-                if turn_id not in turn_audio_tracking:
-                    turn_audio_tracking[turn_id] = (start_ms, start_ms)
-                    logger.info(
-                        f"🔊 INCOMING AUDIO START: turn='{turn_id}', "
-                        f"arrival_ms={arrival_ms}ms, start_ms={start_ms}ms, wall_clock={wall_clock_ms}ms, "
-                        f"payload_size={len(protocol_event.audio_payload)} bytes, duration_ms={duration_ms:.2f}"
-                    )
-                else:
-                    first_ms, _ = turn_audio_tracking[turn_id]
-                    turn_audio_tracking[turn_id] = (first_ms, start_ms)
-
-            elif protocol_event.event_type == "translated_delta":
-                # Log text events for comparison
-                logger.debug(
-                    f"📝 TEXT DELTA: turn='{protocol_event.participant_id}', "
-                    f"arrival_ms={arrival_ms}ms, text='{protocol_event.text[:50] if protocol_event.text else ''}...'"
-                )
+            protocol_event.raw["_arrival_wall_ms"] = arrival_wall_ms
+            protocol_event.raw["_arrival_scn_ms"] = arrival_scn_ms
+            protocol_event.arrival_scn_ms = arrival_scn_ms
 
             collected = CollectedEvent(
                 event_type=protocol_event.event_type,
-                timestamp_ms=timestamp_ms,
+                timestamp_scn_ms=arrival_scn_ms,
                 participant_id=protocol_event.participant_id,
                 source_language=protocol_event.source_language,
                 target_language=protocol_event.target_language,
                 text=protocol_event.text,
                 audio_payload=protocol_event.audio_payload,
                 raw=protocol_event.raw,
+                arrival_wall_ms=arrival_wall_ms,
             )
+            assigned_turn_id = conversation_manager.register_incoming(collected)
             collector.add(collected)
-            conversation_manager.register_incoming(collected)
+
+            if collected.event_type == "translated_audio" and collected.audio_payload:
+                duration_ms = conversation_manager.pcm_duration_ms(collected.audio_payload)
+                start_scn_ms = collected.timestamp_scn_ms
+                turn_id = assigned_turn_id or collected.participant_id or "unassigned"
+
+                if turn_id not in turn_audio_tracking:
+                    turn_audio_tracking[turn_id] = (start_scn_ms, start_scn_ms)
+                    logger.info(
+                        f"🔊 INCOMING AUDIO START: turn='{turn_id}', "
+                        f"arrival_wall_ms={arrival_wall_ms}ms, start_scn_ms={start_scn_ms}ms, "
+                        f"payload_size={len(collected.audio_payload)} bytes, duration_ms={duration_ms:.2f}"
+                    )
+                else:
+                    first_ms, _ = turn_audio_tracking[turn_id]
+                    turn_audio_tracking[turn_id] = (first_ms, start_scn_ms)
+
+            elif collected.event_type == "translated_delta":
+                logger.debug(
+                    f"📝 TEXT DELTA: turn='{protocol_event.participant_id}', "
+                    f"arrival_scn_ms={arrival_scn_ms}ms, text='{protocol_event.text[:50] if protocol_event.text else ''}...'"
+                )
 
     def _build_audio_metadata(
         self, adapter: ProtocolAdapter, scenario: Scenario

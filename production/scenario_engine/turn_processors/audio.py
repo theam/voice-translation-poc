@@ -31,11 +31,11 @@ class AudioTurnProcessor(TurnProcessor):
         turn: ScenarioTurn,
         scenario: Scenario,
         participants: list[Participant],
-        current_time: int,
+        current_scn_ms: int,
     ) -> int:
         """Process a play_audio turn.
 
-        Assumes current_time is already at turn.start_at_ms (orchestrated by engine).
+        Assumes current_scn_ms is already at turn.start_at_ms (orchestrated by engine).
 
         The processor:
         1. Loads and chunks the audio file
@@ -46,7 +46,7 @@ class AudioTurnProcessor(TurnProcessor):
             turn: The play_audio turn
             scenario: The full scenario context
             participants: List of all participants (unused, for consistency)
-            current_time: Current playback position (== turn.start_at_ms)
+            current_scn_ms: Current playback position (== turn.start_at_ms)
 
         Returns:
             Updated current time after audio playback
@@ -57,57 +57,55 @@ class AudioTurnProcessor(TurnProcessor):
 
         logger.debug(
             "Starting audio playback: turn=%s participant=%s file=%s at time=%s",
-            turn.id, participant.name, audio_path.name, current_time
+            turn.id, participant.name, audio_path.name, current_scn_ms
         )
 
         # Stream audio chunks
         chunk_count = 0
-        first_chunk_wall_clock = None
-        last_chunk_wall_clock = None
+        first_chunk_wall_clock_ms = None
+        last_chunk_wall_clock_ms = None
 
         async for offset_ms, data in async_chunk_audio(audio_path, FRAME_DURATION_MS):
-            send_at = turn.start_at_ms + offset_ms
+            send_at_scn_ms = turn.start_at_ms + offset_ms
             chunk_count += 1
             wall_clock_ms = self.clock.now_ms()
 
             if chunk_count == 1:
-                first_chunk_wall_clock = wall_clock_ms
+                first_chunk_wall_clock_ms = wall_clock_ms
                 logger.info(
                     f"🎤 OUTGOING AUDIO START: turn='{turn.id}', "
-                    f"scenario_time={send_at}ms, wall_clock={wall_clock_ms}ms"
+                    f"scenario_time={send_at_scn_ms}ms, wall_clock={wall_clock_ms}ms"
                 )
 
             logger.debug(
                 f"Sending audio chunk #{chunk_count} for '{turn.id}': "
-                f"offset={offset_ms}ms, send_at={send_at}ms, size={len(data)} bytes"
+                f"offset={offset_ms}ms, send_at={send_at_scn_ms}ms, size={len(data)} bytes"
             )
 
             # Send audio data
             payload = self.adapter.build_audio_message(
                 participant_id=participant.name,
                 pcm_bytes=data,
-                timestamp_ms=send_at,
+                timestamp_ms=send_at_scn_ms,
             )
-            # Register with scenario timeline timestamp (send_at), not wall-clock
-            # This ensures last_outbound_ms matches when audio actually plays in the tape
             self.conversation_manager.register_outgoing(
                 turn.id,
                 payload,
                 participant_id=participant.name,
-                timestamp_ms=send_at,  # Use scenario timeline!
+                timestamp_scn_ms=send_at_scn_ms,
+                audio_payload=data,
             )
             await self.ws.send_json(payload)
-            self.tape.add_pcm(send_at, data)
             await self.clock.sleep(FRAME_DURATION_MS)
-            current_time = send_at + FRAME_DURATION_MS
-            last_chunk_wall_clock = wall_clock_ms
+            current_scn_ms = send_at_scn_ms + FRAME_DURATION_MS
+            last_chunk_wall_clock_ms = wall_clock_ms
 
         logger.info(
             f"🎤 OUTGOING AUDIO END: turn='{turn.id}', "
-            f"scenario_time={current_time}ms, wall_clock={last_chunk_wall_clock}ms, "
-            f"total_chunks={chunk_count}, duration={current_time - turn.start_at_ms}ms"
+            f"scenario_time={current_scn_ms}ms, wall_clock={last_chunk_wall_clock_ms}ms, "
+            f"total_chunks={chunk_count}, duration={current_scn_ms - turn.start_at_ms}ms"
         )
-        return current_time
+        return current_scn_ms
 
 
 __all__ = ["AudioTurnProcessor"]

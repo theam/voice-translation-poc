@@ -28,8 +28,8 @@ class AudioSink:
             if event.audio_payload is None:
                 continue
 
-            start_ms = event.timestamp_ms if event.timestamp_ms is not None else 0.0
-            tape.add_pcm(start_ms, event.audio_payload)
+            start_scn_ms = event.timestamp_scn_ms if event.timestamp_scn_ms is not None else 0.0
+            tape.add_pcm(start_scn_ms, event.audio_payload)
 
         file_path = self.audio_dir / "translated_audio.wav"
         tape.write_wav(file_path)
