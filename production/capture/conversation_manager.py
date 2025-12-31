@@ -179,7 +179,6 @@ class ConversationManager:
     def __init__(self, *, clock: Clock, scenario_started_at_ms: int) -> None:
         self._turns: List[TurnSummary] = []
         self._turn_lookup: Dict[str, TurnSummary] = {}
-        self._participant_turn: Dict[str, str] = {}
         self.clock = clock
         self.scenario_started_at_ms = scenario_started_at_ms
         self._last_outgoing_turn_id: Optional[str] = None
@@ -236,8 +235,6 @@ class ConversationManager:
                 For audio, should be the send_at time from scenario timeline.
         """
         turn = self.get_turn(turn_id)
-        if participant_id:
-            self._participant_turn[participant_id] = turn_id
 
         # Use provided timestamp (scenario timeline) or fall back to wall-clock
         if timestamp_ms is None:
@@ -273,6 +270,12 @@ class ConversationManager:
 
     def get_turn_summary(self, turn_id: str) -> Optional[TurnSummary]:
         return self._turn_lookup.get(turn_id)
+
+    def get_latest_turn(self) -> Optional[TurnSummary]:
+        """Return the most recently started turn, if any."""
+        if not self._turns:
+            return None
+        return self._turns[-1]
 
     def iter_turns(self) -> Iterable[TurnSummary]:
         return list(self._turns)

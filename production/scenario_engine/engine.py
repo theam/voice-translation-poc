@@ -16,10 +16,10 @@ from production.acs_emulator.websocket_client import WebSocketClient
 from production.acs_emulator.websocket_client_factory import create_websocket_client
 from production.metrics import MetricsRunner, MetricsSummary
 from production.capture.collector import CollectedEvent, EventCollector
-from production.capture.arrival_queue_assembler import ArrivalQueueAssembler
 from production.capture.conversation_manager import ConversationManager
 from production.capture.conversation_tape import ConversationTape
 from production.capture.results_persistence_service import ResultsPersistenceService
+from production.capture.timebase_mapper import TimebaseMapper
 from production.scenario_engine.turn_processors import create_turn_processor
 from production.scenario_engine.models import Participant, Scenario
 from production.utils.config import FrameworkConfig
@@ -74,7 +74,7 @@ class ScenarioEngine:
         effective_sample_rate = sample_rate or 16000
         effective_channels = channels or 1
         tape = ConversationTape(sample_rate=effective_sample_rate)
-        inbound_assembler = ArrivalQueueAssembler(sample_rate=effective_sample_rate, channels=effective_channels)
+        timebase_mapper = TimebaseMapper(sample_rate=effective_sample_rate, channels=effective_channels)
 
         # Create appropriate WebSocket client based on scenario configuration
         ws_client = create_websocket_client(
@@ -93,7 +93,7 @@ class ScenarioEngine:
                     raw_messages,
                     tape,
                     started_at_ms,
-                    inbound_assembler,
+                    timebase_mapper,
                 )
             )
             # Send test settings to configure the server (e.g., provider selection)
@@ -307,7 +307,7 @@ class ScenarioEngine:
         raw_messages: List[dict],
         tape: ConversationTape,
         started_at_ms: int,
-        inbound_assembler: ArrivalQueueAssembler,
+        timebase_mapper: TimebaseMapper,
     ) -> None:
         # Track first/last audio per turn for gap calculation
         turn_audio_tracking = {}  # turn_id -> (first_ms, last_ms)
@@ -331,39 +331,37 @@ class ScenarioEngine:
 
             timestamp_ms: float | None = arrival_ms
             if protocol_event.event_type == "translated_audio" and protocol_event.audio_payload:
-                stream_key = protocol_event.participant_id or "unknown"
-                turn_summary = (
-                    conversation_manager.get_turn_summary(protocol_event.participant_id)
-                    if protocol_event.participant_id
-                    else None
-                )
-                start_ms, duration_ms = inbound_assembler.add_chunk(
-                    stream_key,
+                turn_id = (conversation_manager.get_latest_turn().turn_id if conversation_manager.get_latest_turn() else None) or "default"
+                turn_summary = conversation_manager.get_latest_turn()
+                turn_start_ms = turn_summary.turn_start_ms if turn_summary else 0
+                start_ms, duration_ms = timebase_mapper.map_inbound_audio(
+                    turn_id=turn_summary.turn_id if turn_summary else turn_id,
                     arrival_ms=arrival_ms,
+                    turn_start_ms=float(turn_start_ms),
                     pcm_bytes=protocol_event.audio_payload,
                 )
                 timestamp_ms = start_ms
                 tape.add_pcm(start_ms, protocol_event.audio_payload)
                 logger.debug(
                     "📥 INBOUND AUDIO SCHEDULE: stream=%s arrival_ms=%.2f start_ms=%.2f last_outbound_ms=%s",
-                    stream_key,
+                    turn_id,
                     arrival_ms,
                     start_ms,
                     getattr(turn_summary, "last_outbound_ms", None),
                 )
 
                 # Track for logging
-                turn_id = protocol_event.participant_id
-                if turn_id not in turn_audio_tracking:
-                    turn_audio_tracking[turn_id] = (start_ms, start_ms)
+                track_key = turn_summary.turn_id if turn_summary else turn_id
+                if track_key not in turn_audio_tracking:
+                    turn_audio_tracking[track_key] = (start_ms, start_ms)
                     logger.info(
-                        f"🔊 INCOMING AUDIO START: turn='{turn_id}', "
+                        f"🔊 INCOMING AUDIO START: turn='{track_key}', "
                         f"arrival_ms={arrival_ms}ms, start_ms={start_ms}ms, wall_clock={wall_clock_ms}ms, "
                         f"payload_size={len(protocol_event.audio_payload)} bytes, duration_ms={duration_ms:.2f}"
                     )
                 else:
-                    first_ms, _ = turn_audio_tracking[turn_id]
-                    turn_audio_tracking[turn_id] = (first_ms, start_ms)
+                    first_ms, _ = turn_audio_tracking[track_key]
+                    turn_audio_tracking[track_key] = (first_ms, start_ms)
 
             elif protocol_event.event_type == "translated_delta":
                 # Log text events for comparison
