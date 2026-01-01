@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AudioTimelineEvent:
-    start_scn_ms: float
+    start_scn_ms: int
     pcm_bytes: bytes
     direction: str
     participant_id: Optional[str] = None
@@ -34,7 +34,7 @@ class TurnSummary:
     outbound_audio_events: List[AudioTimelineEvent] = field(default_factory=list)
     inbound_events: List[CollectedEvent] = field(default_factory=list)
     inbound_audio_events: List[AudioTimelineEvent] = field(default_factory=list)
-    inbound_audio_playhead_scn_ms: float = 0.0
+    inbound_audio_playhead_scn_ms: int = 0
     first_outbound_scn_ms: Optional[int] = None
     last_outbound_scn_ms: Optional[int] = None
 
@@ -42,7 +42,7 @@ class TurnSummary:
         self,
         message: dict,
         *,
-        timestamp_scn_ms: float,
+        timestamp_scn_ms: int,
         participant_id: str | None = None,
         audio_payload: bytes | None = None,
     ) -> None:
@@ -178,15 +178,15 @@ class ConversationManager:
         self.sample_rate = sample_rate
         self.channels = channels
         self._last_outgoing_turn_id: Optional[str] = None
-        self.latest_outgoing_media_scn_ms: float = 0.0
+        self.latest_outgoing_media_scn_ms: int = 0
 
     def now_relative_scn_ms(self) -> int:
         return max(0, self._to_scenario_ms(self.clock.now_ms()))
 
-    def _to_scenario_ms(self, wall_ms: float) -> float:
-        return float(max(0.0, wall_ms - self.scenario_start_wall_ms))
+    def _to_scenario_ms(self, wall_ms: float) -> int:
+        return int(max(0, int(wall_ms) - self.scenario_start_wall_ms))
 
-    def wall_to_scenario_ms(self, wall_ms: float) -> float:
+    def wall_to_scenario_ms(self, wall_ms: float) -> int:
         """Convert a wall-clock timestamp to scenario time."""
         return self._to_scenario_ms(wall_ms)
 
@@ -234,8 +234,8 @@ class ConversationManager:
         message: dict,
         *,
         participant_id: Optional[str] = None,
-        timestamp_scn_ms: Optional[float] = None,
-        timestamp_wall_ms: Optional[float] = None,
+        timestamp_scn_ms: Optional[int] = None,
+        timestamp_wall_ms: Optional[int] = None,
         audio_payload: bytes | None = None,
     ) -> None:
         """Associate an outbound message with a turn."""
@@ -255,7 +255,7 @@ class ConversationManager:
 
     def register_incoming(self, event: CollectedEvent) -> str:
         """Assign an inbound event to the appropriate turn using wall-clock arrival."""
-        arrival_wall_ms = float(event.arrival_wall_ms if event.arrival_wall_ms is not None else self.clock.now_ms())
+        arrival_wall_ms = int(event.arrival_wall_ms if event.arrival_wall_ms is not None else self.clock.now_ms())
         turn = self._resolve_turn_by_wall(arrival_wall_ms)
         if turn is None:
             raise ValueError("Missing turn for inbound event")
@@ -267,26 +267,26 @@ class ConversationManager:
         turn.record_incoming(event)
         return turn.turn_id
 
-    def _coalesce_timestamp(self, timestamp_scn_ms: Optional[float], timestamp_wall_ms: Optional[float]) -> float:
+    def _coalesce_timestamp(self, timestamp_scn_ms: Optional[int], timestamp_wall_ms: Optional[int]) -> int:
         if timestamp_scn_ms is not None:
-            return float(timestamp_scn_ms)
+            return int(timestamp_scn_ms)
         wall_value = timestamp_wall_ms if timestamp_wall_ms is not None else self.clock.now_ms()
-        return self._to_scenario_ms(float(wall_value))
+        return self._to_scenario_ms(int(wall_value))
 
-    def _scenario_timestamp_for_turn(self, turn: TurnSummary, arrival_wall_ms: float) -> float:
-        offset_from_turn_wall = max(0.0, arrival_wall_ms - float(turn.turn_start_wall_ms or 0.0))
-        return float(turn.turn_start_scn_ms or 0.0) + offset_from_turn_wall
+    def _scenario_timestamp_for_turn(self, turn: TurnSummary, arrival_wall_ms: int) -> int:
+        offset_from_turn_wall = max(0, arrival_wall_ms - int(turn.turn_start_wall_ms or 0))
+        return int(turn.turn_start_scn_ms or 0) + offset_from_turn_wall
 
-    def _schedule_inbound_audio(self, turn: TurnSummary, candidate_start_scn_ms: float, pcm_bytes: bytes) -> float:
+    def _schedule_inbound_audio(self, turn: TurnSummary, candidate_start_scn_ms: int, pcm_bytes: bytes) -> int:
         duration_ms = self._pcm_duration_ms(pcm_bytes)
         start_ms = max(candidate_start_scn_ms, turn.inbound_audio_playhead_scn_ms)
         turn.inbound_audio_playhead_scn_ms = start_ms + duration_ms
         return start_ms
 
-    def _resolve_turn_by_wall(self, arrival_wall_ms: float) -> Optional[TurnSummary]:
+    def _resolve_turn_by_wall(self, arrival_wall_ms: int) -> Optional[TurnSummary]:
         candidate: Optional[TurnSummary] = None
         for turn in self._turns:
-            start_wall_ms = float(turn.turn_start_wall_ms or 0.0)
+            start_wall_ms = int(turn.turn_start_wall_ms or 0)
             end_wall_ms = turn.turn_end_wall_ms
             if arrival_wall_ms >= start_wall_ms and (end_wall_ms is None or arrival_wall_ms < end_wall_ms):
                 return turn
@@ -317,14 +317,14 @@ class ConversationManager:
         """Advance the media clock based on an outbound media timestamp."""
         self.latest_outgoing_media_scn_ms = max(self.latest_outgoing_media_scn_ms, float(timestamp_scn_ms))
 
-    def _pcm_duration_ms(self, pcm_bytes: bytes) -> float:
+    def _pcm_duration_ms(self, pcm_bytes: bytes) -> int:
         frame_bytes = self.channels * 2
         trimmed_len = len(pcm_bytes) - (len(pcm_bytes) % frame_bytes)
         if trimmed_len <= 0:
-            return 0.0
-        return trimmed_len / (self.sample_rate * frame_bytes) * 1000.0
+            return 0
+        return int(round(trimmed_len / (self.sample_rate * frame_bytes) * 1000))
 
-    def pcm_duration_ms(self, pcm_bytes: bytes) -> float:
+    def pcm_duration_ms(self, pcm_bytes: bytes) -> int:
         """Public helper for computing PCM duration using configured sample rate and channels."""
         return self._pcm_duration_ms(pcm_bytes)
 
