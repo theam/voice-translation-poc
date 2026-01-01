@@ -192,7 +192,7 @@ def _validate_calibration(scenario, summary, conversation_manager, validator, sc
         if scenario_turn and scenario_turn.metric_expectations:
             turn = Turn(
                 turn_id=turn_summary.turn_id,
-                start_ms=turn_summary.turn_start_ms or 0,
+                start_scn_ms=turn_summary.turn_start_scn_ms or 0,
                 metric_expectations=scenario_turn.metric_expectations,
             )
             turns.append(turn)

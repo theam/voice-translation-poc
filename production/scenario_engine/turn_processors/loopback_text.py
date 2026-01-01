@@ -37,7 +37,7 @@ class LoopbackTextTurnProcessor(TurnProcessor):
         turn: ScenarioTurn,
         scenario: Scenario,
         participants: list[Participant],
-        current_time: int,
+        current_scn_ms: int,
     ) -> int:
         """Process a loopback_text turn.
 
@@ -49,7 +49,7 @@ class LoopbackTextTurnProcessor(TurnProcessor):
             turn: The loopback_text turn with text and expected_text fields
             scenario: The full scenario context
             participants: List of all participants
-            current_time: Current playback position (== turn.start_at_ms)
+            current_scn_ms: Current playback position (== turn.start_at_ms)
 
         Returns:
             Current time (loopback messages are instantaneous)
@@ -77,7 +77,7 @@ class LoopbackTextTurnProcessor(TurnProcessor):
         audio_payload = self.adapter.build_audio_message(
             participant_id=turn.id,
             pcm_bytes=silent_audio,
-            timestamp_ms=current_time,
+            timestamp_ms=current_scn_ms,
             silent=True,
         )
 
@@ -100,6 +100,7 @@ class LoopbackTextTurnProcessor(TurnProcessor):
             turn.id,
             text_delta_payload,
             participant_id=turn.id,
+            timestamp_scn_ms=current_scn_ms,
         )
 
         # Send text delta message (will be echoed back by loopback client)
@@ -111,7 +112,7 @@ class LoopbackTextTurnProcessor(TurnProcessor):
         )
 
         # Loopback messages are instantaneous (no duration)
-        return current_time
+        return current_scn_ms
 
 
 __all__ = ["LoopbackTextTurnProcessor"]

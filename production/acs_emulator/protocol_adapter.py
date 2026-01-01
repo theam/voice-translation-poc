@@ -20,7 +20,7 @@ class ProtocolEvent:
     source_language: Optional[str]
     target_language: Optional[str]
     timestamp_ms: Optional[float]
-    arrival_ms: Optional[float] = None
+    arrival_scn_ms: Optional[int] = None
     text: Optional[str] = None
     audio_payload: Optional[bytes] = None
     raw: Dict[str, Any] | None = None

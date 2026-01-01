@@ -206,13 +206,13 @@ class MetricsRunner:
 
         # Calculate audio duration
         audio_duration = None
-        if turn_summary.first_outbound_ms is not None and turn_summary.last_outbound_ms is not None:
-            audio_duration = turn_summary.last_outbound_ms - turn_summary.first_outbound_ms
+        if turn_summary.first_outbound_scn_ms is not None and turn_summary.last_outbound_scn_ms is not None:
+            audio_duration = turn_summary.last_outbound_scn_ms - turn_summary.first_outbound_scn_ms
 
         # Calculate last audio response timestamp
-        last_audio_response = None
+        last_audio_response_scn_ms = None
         if audio_events:
-            last_audio_response = max(e.timestamp_ms for e in audio_events)
+            last_audio_response_scn_ms = max(e.timestamp_scn_ms for e in audio_events)
 
         # Create latency metrics (all fields optional - only set if data available)
         return LatencyMetrics(
@@ -222,12 +222,12 @@ class MetricsRunner:
             first_chunk_latency_ms=turn_summary.first_chunk_latency_ms,
 
             # Raw timestamps
-            first_outbound_ms=turn_summary.first_outbound_ms,
-            last_outbound_ms=turn_summary.last_outbound_ms,
-            first_response_ms=turn_summary.first_response_ms,
-            first_audio_response_ms=turn_summary.first_audio_response_ms,
-            last_audio_response_ms=last_audio_response,
-            first_text_response_ms=turn_summary.first_text_response_ms,
+            first_outbound_scn_ms=turn_summary.first_outbound_scn_ms,
+            last_outbound_scn_ms=turn_summary.last_outbound_scn_ms,
+            first_response_scn_ms=turn_summary.first_response_scn_ms,
+            first_audio_response_scn_ms=turn_summary.first_audio_response_scn_ms,
+            last_audio_response_scn_ms=last_audio_response_scn_ms,
+            first_text_response_scn_ms=turn_summary.first_text_response_scn_ms,
 
             # Derived metrics
             audio_duration_ms=audio_duration,
@@ -285,8 +285,8 @@ class MetricsRunner:
 
             turn = Turn(
                 turn_id=turn_summary.turn_id,
-                start_ms=turn_summary.turn_start_ms or 0,
-                end_ms=turn_summary.turn_end_ms,
+                start_scn_ms=turn_summary.turn_start_scn_ms or 0,
+                end_scn_ms=turn_summary.turn_end_scn_ms,
                 source_text=scenario_turn.source_text if scenario_turn else None,
                 translated_text=turn_summary.translation_text(),
                 # Add expected values from scenario

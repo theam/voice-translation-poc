@@ -31,11 +31,11 @@ class HangupTurnProcessor(TurnProcessor):
         turn: ScenarioTurn,
         scenario: Scenario,
         participants: list[Participant],
-        current_time: int,
+        current_scn_ms: int,
     ) -> int:
         """Process a hangup turn.
 
-        Assumes current_time is already at turn.start_at_ms (orchestrated by engine).
+        Assumes current_scn_ms is already at turn.start_at_ms (orchestrated by engine).
 
         Sends hangup control message for the participant.
         Returns unchanged current time since hangup is instantaneous.
@@ -44,14 +44,14 @@ class HangupTurnProcessor(TurnProcessor):
             turn: The hangup turn
             scenario: The full scenario context (unused)
             participants: List of all participants (unused, for consistency)
-            current_time: Current playback position (== turn.start_at_ms)
+            current_scn_ms: Current playback position (== turn.start_at_ms)
 
         Returns:
             Unchanged current time (hangup is instantaneous)
         """
         logger.debug(
             "Sending hangup: turn=%s participant=%s time=%s",
-            turn.id, turn.participant, current_time
+            turn.id, turn.participant, current_scn_ms
         )
 
         # Send hangup control message
@@ -60,6 +60,7 @@ class HangupTurnProcessor(TurnProcessor):
             turn.id,
             payload,
             participant_id=turn.participant,
+            timestamp_scn_ms=current_scn_ms,
         )
         await self.ws.send_json(
             payload
@@ -69,7 +70,7 @@ class HangupTurnProcessor(TurnProcessor):
             "Completed hangup turn: turn=%s participant=%s",
             turn.id, turn.participant
         )
-        return current_time
+        return current_scn_ms
 
 
 __all__ = ["HangupTurnProcessor"]

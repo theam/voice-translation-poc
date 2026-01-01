@@ -27,13 +27,12 @@ processor = create_turn_processor(
     ws=websocket_client,
     adapter=protocol_adapter,
     clock=clock,
-    tape=tape,
     sample_rate=16000,
     channels=1
 )
 
 # Process the turn
-current_time = await processor.process(turn, scenario, participants, current_time)
+current_scn_ms = await processor.process(turn, scenario, participants, current_scn_ms)
 ```
 
 ## Extending
@@ -51,16 +50,13 @@ Example:
 from production.scenario_engine.turn_processors.base import TurnProcessor
 
 class RecordingStartProcessor(TurnProcessor):
-    async def process(self, turn, scenario, participants, current_time):
-        current_time = await self._stream_silence_until(
-            participants, current_time, turn.start_at_ms
-        )
+    async def process(self, turn, scenario, participants, current_scn_ms):
         await self.ws.send_json(
             self.adapter.build_control_message(
                 "recording_start", participant_id=turn.participant
             )
         )
-        return current_time
+        return current_scn_ms
 
 # Then add to factory map:
 # "recording_start": RecordingStartProcessor
@@ -81,7 +77,6 @@ if TYPE_CHECKING:
     from production.acs_emulator.protocol_adapter import ProtocolAdapter
     from production.acs_emulator.websocket_client import WebSocketClient
     from production.capture.conversation_manager import ConversationManager
-    from production.capture.conversation_tape import ConversationTape
     from production.utils.time_utils import Clock
 
 
@@ -90,7 +85,6 @@ def create_turn_processor(
     ws: WebSocketClient,
     adapter: ProtocolAdapter,
     clock: Clock,
-    tape: ConversationTape,
     sample_rate: int,
     channels: int,
     conversation_manager: "ConversationManager",
@@ -113,7 +107,6 @@ def create_turn_processor(
         ws: WebSocket client for sending messages
         adapter: Protocol adapter for encoding messages
         clock: Clock for time acceleration and sleep
-        tape: Conversation tape for recording audio
         sample_rate: Audio sample rate in Hz
         channels: Number of audio channels
 
@@ -129,7 +122,6 @@ def create_turn_processor(
         ...     ws=ws_client,
         ...     adapter=proto_adapter,
         ...     clock=clock,
-        ...     tape=tape,
         ...     sample_rate=16000,
         ...     channels=1
         ... )
@@ -154,7 +146,6 @@ def create_turn_processor(
         ws=ws,
         adapter=adapter,
         clock=clock,
-        tape=tape,
         sample_rate=sample_rate,
         channels=channels,
         conversation_manager=conversation_manager,

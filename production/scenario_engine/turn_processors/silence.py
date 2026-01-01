@@ -31,11 +31,11 @@ class SilenceTurnProcessor(TurnProcessor):
         turn: ScenarioTurn,
         scenario: Scenario,
         participants: list[Participant],
-        current_time: int,
+        current_scn_ms: int,
     ) -> int:
         """Process a silence turn.
 
-        Assumes current_time is already at turn.start_at_ms (orchestrated by engine).
+        Assumes current_scn_ms is already at turn.start_at_ms (orchestrated by engine).
 
         Simply calculates and returns the target time after the silence duration.
         The engine will handle streaming silence to reach this time.
@@ -47,17 +47,17 @@ class SilenceTurnProcessor(TurnProcessor):
             turn: The silence turn
             scenario: The full scenario context (unused)
             participants: List of all participants (unused, for consistency)
-            current_time: Current playback position (== turn.start_at_ms)
+            current_scn_ms: Current playback position (== turn.start_at_ms)
 
         Returns:
             Target time after silence duration
         """
         duration = int(turn.data_file or 0)
-        target_time = current_time + duration
+        target_time = current_scn_ms + duration
 
         logger.debug(
             "Silence turn: turn=%s duration=%sms current=%s target=%s",
-            turn.id, duration, current_time, target_time
+            turn.id, duration, current_scn_ms, target_time
         )
 
         return target_time

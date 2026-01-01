@@ -32,7 +32,7 @@ class ReplayWireLogTurnProcessor(TurnProcessor):
         turn: ScenarioTurn,
         scenario: Scenario,
         participants: list[Participant],
-        current_time: int,
+        current_scn_ms: int,
     ) -> int:
         """Process a replay_wire_log turn.
 
@@ -44,20 +44,20 @@ class ReplayWireLogTurnProcessor(TurnProcessor):
             turn: The replay_wire_log turn with data_file pointing to wire log
             scenario: The full scenario context
             participants: List of all participants (unused)
-            current_time: Current playback position (should be 0)
+            current_scn_ms: Current playback position (should be 0)
 
         Returns:
             Updated current time after replay (timestamp of last message)
         """
         if not turn.data_file:
             logger.error("No data_file specified for replay turn %s", turn.id)
-            return current_time
+            return current_scn_ms
 
         # Load and parse wire log file
         wire_log_path = Path(turn.data_file)
         if not wire_log_path.exists():
             logger.error("Wire log file not found: %s", wire_log_path)
-            return current_time
+            return current_scn_ms
 
         logger.info("Loading wire log from: %s", wire_log_path.name)
         parser = WireLogParser()
@@ -75,13 +75,13 @@ class ReplayWireLogTurnProcessor(TurnProcessor):
             len(all_messages)
         )
 
-        prev_timestamp_ms = 0
+        prev_timestamp_scn_ms = 0
         audio_chunk_count = 0
 
         for i, msg in enumerate(messages):
             # Calculate sleep time based on timestamp delta
-            current_timestamp_ms = msg.scenario_timestamp_ms or 0
-            delta_ms = current_timestamp_ms - prev_timestamp_ms
+            current_timestamp_scn_ms = msg.scenario_timestamp_ms or 0
+            delta_ms = current_timestamp_scn_ms - prev_timestamp_scn_ms
 
             if delta_ms > 0:
                 # Sleep for the time difference (respecting acceleration)
@@ -92,16 +92,15 @@ class ReplayWireLogTurnProcessor(TurnProcessor):
                 message_payload = msg.raw_message.get("message", {})
                 await self.ws.send_json(message_payload)
 
-                # Only track audio messages in conversation timeline and tape
+                # Only track audio messages in conversation timeline
                 if msg.kind == "AudioData" and msg.audio_data:
                     self.conversation_manager.register_outgoing(
                         turn.id,
                         message_payload,
                         participant_id=msg.participant_id or "unknown",
-                        timestamp_ms=current_timestamp_ms,
+                        timestamp_scn_ms=current_timestamp_scn_ms,
+                        audio_payload=msg.audio_data,
                     )
-                    # Add audio to tape for recording
-                    self.tape.add_pcm(current_timestamp_ms, msg.audio_data)
                     audio_chunk_count += 1
 
                 # Log progress
@@ -111,21 +110,21 @@ class ReplayWireLogTurnProcessor(TurnProcessor):
                         i + 1,
                         len(messages),
                         msg.kind,
-                        current_timestamp_ms,
+                        current_timestamp_scn_ms,
                         delta_ms,
                     )
 
-            prev_timestamp_ms = current_timestamp_ms
+            prev_timestamp_scn_ms = current_timestamp_scn_ms
 
         logger.info(
             "✅ Wire log replay complete: %d messages sent (%d audio chunks), final_time=%dms",
             len(messages),
             audio_chunk_count,
-            prev_timestamp_ms,
+            prev_timestamp_scn_ms,
         )
 
         # Return final timestamp
-        return prev_timestamp_ms
+        return prev_timestamp_scn_ms
 
 
 __all__ = ["ReplayWireLogTurnProcessor"]

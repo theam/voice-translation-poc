@@ -12,121 +12,130 @@ from production.utils.time_utils import Clock
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class AudioTimelineEvent:
+    start_scn_ms: int
+    pcm_bytes: bytes
+    direction: str
+    participant_id: Optional[str] = None
+
+
 @dataclass
 class TurnSummary:
     """Aggregated view of ACS activity for a single scenario event (turn)."""
 
     turn_id: str
     metadata: Optional[dict] = None
-    turn_start_ms: Optional[int] = None
+    turn_start_scn_ms: Optional[int] = None
+    turn_start_wall_ms: Optional[int] = None
+    turn_end_scn_ms: Optional[int] = None
+    turn_end_wall_ms: Optional[int] = None
     outbound_messages: List[dict] = field(default_factory=list)
+    outbound_audio_events: List[AudioTimelineEvent] = field(default_factory=list)
     inbound_events: List[CollectedEvent] = field(default_factory=list)
-    first_outbound_ms: Optional[int] = None
-    last_outbound_ms: Optional[int] = None
-    turn_end_ms: Optional[int] = None
+    inbound_audio_events: List[AudioTimelineEvent] = field(default_factory=list)
+    inbound_audio_playhead_scn_ms: int = 0
+    first_outbound_scn_ms: Optional[int] = None
+    last_outbound_scn_ms: Optional[int] = None
 
     def record_outgoing(
-        self, message: dict, timestamp_ms: int, participant_id: str | None = None
+        self,
+        message: dict,
+        *,
+        timestamp_scn_ms: int,
+        participant_id: str | None = None,
+        audio_payload: bytes | None = None,
     ) -> None:
         """Record an outbound ACS message for this turn."""
-        outbound_entry = {"message": message}
-        outbound_entry["timestamp_ms"] = timestamp_ms
-        if self.first_outbound_ms is None:
-            self.first_outbound_ms = timestamp_ms
-        # Always update last outbound to track when audio finished
-        self.last_outbound_ms = timestamp_ms
+        outbound_entry = {"message": message, "timestamp_scn_ms": timestamp_scn_ms}
+        if self.first_outbound_scn_ms is None:
+            self.first_outbound_scn_ms = timestamp_scn_ms
+        self.last_outbound_scn_ms = timestamp_scn_ms
         if participant_id:
             outbound_entry["participant_id"] = participant_id
+        if audio_payload:
+            self.outbound_audio_events.append(
+                AudioTimelineEvent(
+                    start_scn_ms=timestamp_scn_ms,
+                    pcm_bytes=audio_payload,
+                    direction="outbound",
+                    participant_id=participant_id,
+                )
+            )
         self.outbound_messages.append(outbound_entry)
 
     def record_incoming(self, event: CollectedEvent) -> None:
         """Record an inbound ACS event for this turn."""
         self.inbound_events.append(event)
+        if event.event_type == "translated_audio" and event.audio_payload:
+            self.inbound_audio_events.append(
+                AudioTimelineEvent(
+                    start_scn_ms=event.timestamp_scn_ms,
+                    pcm_bytes=event.audio_payload,
+                    direction="inbound",
+                    participant_id=event.participant_id,
+                )
+            )
 
     @property
     def translated_text_events(self) -> List[CollectedEvent]:
         return [event for event in self.inbound_events if event.event_type == "translated_delta"]
 
     def translation_text(self) -> str | None:
-        """Return the complete translated text for this turn.
-
-        Translation services send incremental text deltas. This concatenates
-        all deltas in chronological order to produce the complete text.
-
-        Returns:
-            Complete translated text string (concatenated deltas), or None if no translation events exist
-        """
+        """Return the complete translated text for this turn."""
         events = self.translated_text_events
         if not events:
             return None
-
-        # Concatenate all delta texts
         return "".join(event.text for event in events if event.text)
 
     @property
-    def first_response_ms(self) -> Optional[int]:
-        """Get timestamp of first inbound event (any type).
-
-        Note: For audio translation services, consider using first_audio_response_ms
-        instead, as that measures when audio (what user hears) actually arrives.
-        """
+    def first_response_scn_ms(self) -> Optional[int]:
+        """Get timestamp of first inbound event (any type)."""
         if not self.inbound_events:
             return None
-        return min(event.timestamp_ms for event in self.inbound_events)
+        return int(min(event.timestamp_scn_ms for event in self.inbound_events))
 
     @property
-    def first_audio_response_ms(self) -> Optional[int]:
-        """Get timestamp of first audio event.
-
-        For audio translation services, this is the true latency metric - when the
-        user first hears the translation, not when text appears.
-        """
+    def first_audio_response_scn_ms(self) -> Optional[int]:
+        """Get timestamp of first audio event."""
         audio_events = [e for e in self.inbound_events if e.event_type == "translated_audio"]
         if not audio_events:
             return None
-        return min(e.timestamp_ms for e in audio_events)
+        return int(min(e.timestamp_scn_ms for e in audio_events))
 
     @property
-    def first_text_response_ms(self) -> Optional[int]:
+    def first_text_response_scn_ms(self) -> Optional[int]:
         """Get timestamp of first text event (for comparison with audio)."""
         text_events = [e for e in self.inbound_events if e.event_type in ("translated_delta", "translated_text")]
         if not text_events:
             return None
-        return min(e.timestamp_ms for e in text_events)
+        return int(min(e.timestamp_scn_ms for e in text_events))
 
     @property
-    def completion_ms(self) -> Optional[int]:
+    def completion_scn_ms(self) -> Optional[int]:
         if not self.inbound_events:
             return None
-        return max(event.timestamp_ms for event in self.inbound_events)
+        return int(max(event.timestamp_scn_ms for event in self.inbound_events))
 
     @property
     def latency_ms(self) -> Optional[int]:
-        """Calculate latency from last outbound audio to first AUDIO response.
-
-        Measures when the user hears the first audio response relative to the
-        last outbound media chunk. Overlap can occur in duplex scenarios; when
-        it does, latency will be negative and overlap is reported via logging.
-
-        Returns:
-            Milliseconds from last outbound to first audio response, or None if data missing
-        """
-        # Use last_outbound for VAD-aware latency calculation
-        outbound_ref = self.last_outbound_ms if self.last_outbound_ms is not None else self.first_outbound_ms
-
-        # Use first audio response (what user hears), not first text response
-        first_response = self.first_audio_response_ms if self.first_audio_response_ms is not None else self.first_response_ms
-
+        """Calculate latency from last outbound audio to first AUDIO response."""
+        outbound_ref = self.last_outbound_scn_ms if self.last_outbound_scn_ms is not None else self.first_outbound_scn_ms
+        first_response = (
+            self.first_audio_response_scn_ms
+            if self.first_audio_response_scn_ms is not None
+            else self.first_response_scn_ms
+        )
         if outbound_ref is None or first_response is None:
             return None
-        latency = first_response - outbound_ref
+        latency = int(first_response - outbound_ref)
         if latency < 0:
             logger.info(
                 "Inbound audio overlapped with outbound media",
                 extra={
                     "turn_id": self.turn_id,
-                    "first_audio_response_ms": first_response,
-                    "last_outbound_ms": outbound_ref,
+                    "first_audio_response_scn_ms": first_response,
+                    "last_outbound_scn_ms": outbound_ref,
                     "latency_ms": latency,
                 },
             )
@@ -134,81 +143,83 @@ class TurnSummary:
 
     @property
     def text_latency_ms(self) -> Optional[int]:
-        """Calculate latency to first TEXT response (for comparison).
-
-        This shows when text appears, which may be before audio in some services.
-        """
-        outbound_ref = self.last_outbound_ms if self.last_outbound_ms is not None else self.first_outbound_ms
-
-        if outbound_ref is None or self.first_text_response_ms is None:
+        """Calculate latency to first TEXT response (for comparison)."""
+        outbound_ref = self.last_outbound_scn_ms if self.last_outbound_scn_ms is not None else self.first_outbound_scn_ms
+        if outbound_ref is None or self.first_text_response_scn_ms is None:
             return None
-        return self.first_text_response_ms - outbound_ref
+        return int(self.first_text_response_scn_ms - outbound_ref)
 
     @property
     def first_chunk_latency_ms(self) -> Optional[int]:
-        """Calculate latency from FIRST outbound audio to first response.
-
-        This represents the total time including speaking + processing.
-        Useful for comparison with VAD-aware latency.
-
-        Returns:
-            Milliseconds from first outbound to first response, or None if data missing
-        """
-        if self.first_outbound_ms is None or self.first_response_ms is None:
+        """Calculate latency from FIRST outbound audio to first response."""
+        if self.first_outbound_scn_ms is None or self.first_response_scn_ms is None:
             return None
-        return self.first_response_ms - self.first_outbound_ms
+        return int(self.first_response_scn_ms - self.first_outbound_scn_ms)
 
     @property
     def overlap_ms(self) -> Optional[int]:
         """Return overlap amount when inbound audio precedes outbound completion."""
-        outbound_ref = self.last_outbound_ms if self.last_outbound_ms is not None else self.first_outbound_ms
-        first_response = self.first_audio_response_ms
+        outbound_ref = self.last_outbound_scn_ms if self.last_outbound_scn_ms is not None else self.first_outbound_scn_ms
+        first_response = self.first_audio_response_scn_ms
         if outbound_ref is None or first_response is None:
             return None
-        return max(0, outbound_ref - first_response)
+        return max(0, int(outbound_ref - first_response))
 
 
 class ConversationManager:
-    """Groups inbound/outbound ACS messages by scenario event (turn).
+    """Groups inbound/outbound ACS messages by scenario event (turn)."""
 
-    Inbound `CollectedEvent.timestamp_ms` values represent audible start time on
-    the emulator's arrival-gated timeline; outbound values remain on the
-    scenario media timeline.
-    """
-
-    def __init__(self, *, clock: Clock, scenario_started_at_ms: int) -> None:
+    def __init__(self, *, clock: Clock, scenario_start_wall_ms: int, sample_rate: int = 16000, channels: int = 1) -> None:
         self._turns: List[TurnSummary] = []
         self._turn_lookup: Dict[str, TurnSummary] = {}
         self._participant_turn: Dict[str, str] = {}
         self.clock = clock
-        self.scenario_started_at_ms = scenario_started_at_ms
+        self.scenario_start_wall_ms = scenario_start_wall_ms
+        self.sample_rate = sample_rate
+        self.channels = channels
         self._last_outgoing_turn_id: Optional[str] = None
-        self.latest_outgoing_media_ms: float = 0.0
+        self.latest_outgoing_media_scn_ms: int = 0
 
-    def now_relative_ms(self) -> int:
-        return max(0, self.clock.now_ms() - self.scenario_started_at_ms)
+    def now_relative_scn_ms(self) -> int:
+        return max(0, self._to_scenario_ms(self.clock.now_ms()))
 
-    def start_turn(self, turn_id: str, metadata: dict, *, turn_start_ms: int) -> TurnSummary:
-        """Create a turn record before execution begins.
+    def _to_scenario_ms(self, wall_ms: float) -> int:
+        return int(max(0, int(wall_ms) - self.scenario_start_wall_ms))
 
-        Args:
-            turn_id: Scenario turn identifier.
-            metadata: Scenario metadata for the turn.
-            turn_start_ms: Start time on the scenario/media timeline.
-        """
+    def wall_to_scenario_ms(self, wall_ms: float) -> int:
+        """Convert a wall-clock timestamp to scenario time."""
+        return self._to_scenario_ms(wall_ms)
+
+    def start_turn(self, turn_id: str, metadata: dict, *, turn_start_scn_ms: int, turn_start_wall_ms: Optional[int] = None) -> TurnSummary:
+        """Create a turn record before execution begins."""
         if metadata is None:
             raise ValueError("metadata is required when starting a turn")
         if turn_id in self._turn_lookup:
             raise ValueError("Starting the same turn multiple times is not allowed")
-        summary = TurnSummary(turn_id=turn_id, metadata=metadata, turn_start_ms=turn_start_ms)
+        wall_start_ms = float(turn_start_wall_ms if turn_start_wall_ms is not None else self.clock.now_ms())
+        summary = TurnSummary(
+            turn_id=turn_id,
+            metadata=metadata,
+            turn_start_scn_ms=turn_start_scn_ms,
+            turn_start_wall_ms=wall_start_ms,
+            inbound_audio_playhead_scn_ms=float(turn_start_scn_ms),
+        )
         if self._turns:
-            # SET END TIMESTAMP TO THE PREVIOUS TURN
-            self._turns[-1].turn_end_ms = turn_start_ms
+            self._turns[-1].turn_end_scn_ms = turn_start_scn_ms
+            self._turns[-1].turn_end_wall_ms = wall_start_ms
 
         self._turns.append(summary)
         self._turn_lookup[turn_id] = summary
 
-        logger.info(f"Turn created: '{turn_id}' at {turn_start_ms}ms (type: {metadata.get('type', 'unknown')})")
+        logger.info(
+            "Turn created",
+            extra={
+                "turn_id": turn_id,
+                "turn_start_scn_ms": turn_start_scn_ms,
+                "turn_start_wall_ms": wall_start_ms,
+                "turn_type": metadata.get("type", "unknown"),
+            },
+        )
 
         return summary
 
@@ -223,53 +234,65 @@ class ConversationManager:
         message: dict,
         *,
         participant_id: Optional[str] = None,
-        timestamp_ms: Optional[int] = None,
+        timestamp_scn_ms: Optional[int] = None,
+        timestamp_wall_ms: Optional[int] = None,
+        audio_payload: bytes | None = None,
     ) -> None:
-        """Associate an outbound message with a turn.
-
-        Args:
-            turn_id: ID of the turn
-            message: The outbound message
-            participant_id: Optional participant ID
-            timestamp_ms: Optional explicit timestamp (scenario timeline).
-                If not provided, uses current wall-clock time.
-                For audio, should be the send_at time from scenario timeline.
-        """
+        """Associate an outbound message with a turn."""
         turn = self.get_turn(turn_id)
         if participant_id:
             self._participant_turn[participant_id] = turn_id
 
-        # Use provided timestamp (scenario timeline) or fall back to wall-clock
-        if timestamp_ms is None:
-            timestamp_ms = self.now_relative_ms()
-
-        turn.record_outgoing(message, timestamp_ms=timestamp_ms, participant_id=participant_id)
-        self.register_outgoing_media(timestamp_ms)
+        scenario_timestamp = self._coalesce_timestamp(timestamp_scn_ms, timestamp_wall_ms)
+        turn.record_outgoing(
+            message,
+            timestamp_scn_ms=scenario_timestamp,
+            participant_id=participant_id,
+            audio_payload=audio_payload,
+        )
+        self.register_outgoing_media(scenario_timestamp)
         self._last_outgoing_turn_id = turn_id
 
-    def register_incoming(self, event: CollectedEvent) -> None:
-        """Assign an inbound event to the appropriate turn."""
-        turn_id = self._resolve_turn_id(event)
-        turn = self._turn_lookup.get(turn_id)
+    def register_incoming(self, event: CollectedEvent) -> str:
+        """Assign an inbound event to the appropriate turn using wall-clock arrival."""
+        arrival_wall_ms = int(event.arrival_wall_ms if event.arrival_wall_ms is not None else self.clock.now_ms())
+        turn = self._resolve_turn_by_wall(arrival_wall_ms)
         if turn is None:
-            raise ValueError(f"Missing turn for inbound event: {turn_id}")
+            raise ValueError("Missing turn for inbound event")
+
+        scenario_timestamp = self._scenario_timestamp_for_turn(turn, arrival_wall_ms)
+        if event.event_type == "translated_audio" and event.audio_payload:
+            scenario_timestamp = self._schedule_inbound_audio(turn, scenario_timestamp, event.audio_payload)
+        event.timestamp_scn_ms = scenario_timestamp
         turn.record_incoming(event)
+        return turn.turn_id
 
-    def _resolve_turn_id(self, event: CollectedEvent) -> str:
-        timestamp_ms = event.timestamp_ms if event.timestamp_ms is not None else self.now_relative_ms()
+    def _coalesce_timestamp(self, timestamp_scn_ms: Optional[int], timestamp_wall_ms: Optional[int]) -> int:
+        if timestamp_scn_ms is not None:
+            return int(timestamp_scn_ms)
+        wall_value = timestamp_wall_ms if timestamp_wall_ms is not None else self.clock.now_ms()
+        return self._to_scenario_ms(int(wall_value))
 
-        candidate: Optional[str] = None
+    def _scenario_timestamp_for_turn(self, turn: TurnSummary, arrival_wall_ms: int) -> int:
+        offset_from_turn_wall = max(0, arrival_wall_ms - int(turn.turn_start_wall_ms or 0))
+        return int(turn.turn_start_scn_ms or 0) + offset_from_turn_wall
+
+    def _schedule_inbound_audio(self, turn: TurnSummary, candidate_start_scn_ms: int, pcm_bytes: bytes) -> int:
+        duration_ms = self._pcm_duration_ms(pcm_bytes)
+        start_ms = max(candidate_start_scn_ms, turn.inbound_audio_playhead_scn_ms)
+        turn.inbound_audio_playhead_scn_ms = start_ms + duration_ms
+        return start_ms
+
+    def _resolve_turn_by_wall(self, arrival_wall_ms: int) -> Optional[TurnSummary]:
+        candidate: Optional[TurnSummary] = None
         for turn in self._turns:
-            start_at_ms = turn.turn_start_ms
-            end_at_ms = turn.turn_end_ms
-            if timestamp_ms >= start_at_ms and (end_at_ms is None or timestamp_ms < end_at_ms):
-                return turn.turn_id
-            if timestamp_ms >= start_at_ms:
-                candidate = turn.turn_id
-
-        if candidate:
-            return candidate
-        return self._turns[-1].turn_id if self._turns else "unassigned"
+            start_wall_ms = int(turn.turn_start_wall_ms or 0)
+            end_wall_ms = turn.turn_end_wall_ms
+            if arrival_wall_ms >= start_wall_ms and (end_wall_ms is None or arrival_wall_ms < end_wall_ms):
+                return turn
+            if arrival_wall_ms >= start_wall_ms:
+                candidate = turn
+        return candidate or (self._turns[-1] if self._turns else None)
 
     def get_turn_summary(self, turn_id: str) -> Optional[TurnSummary]:
         return self._turn_lookup.get(turn_id)
@@ -283,14 +306,27 @@ class ConversationManager:
             events.extend(turn.inbound_events)
         return events
 
-    def register_outgoing_media(self, timestamp_ms: float) -> None:
-        """Advance the media clock based on an outbound media timestamp.
+    def iter_audio_events(self) -> List[AudioTimelineEvent]:
+        events: List[AudioTimelineEvent] = []
+        for turn in self._turns:
+            events.extend(turn.outbound_audio_events)
+            events.extend(turn.inbound_audio_events)
+        return sorted(events, key=lambda event: (event.start_scn_ms, event.direction, event.participant_id or ""))
 
-        This is used both for audio frames that are part of a turn and for
-        synthetic silence frames generated by the scenario engine to keep the
-        media timeline progressing.
-        """
-        self.latest_outgoing_media_ms = max(self.latest_outgoing_media_ms, float(timestamp_ms))
+    def register_outgoing_media(self, timestamp_scn_ms: float) -> None:
+        """Advance the media clock based on an outbound media timestamp."""
+        self.latest_outgoing_media_scn_ms = max(self.latest_outgoing_media_scn_ms, float(timestamp_scn_ms))
+
+    def _pcm_duration_ms(self, pcm_bytes: bytes) -> int:
+        frame_bytes = self.channels * 2
+        trimmed_len = len(pcm_bytes) - (len(pcm_bytes) % frame_bytes)
+        if trimmed_len <= 0:
+            return 0
+        return int(round(trimmed_len / (self.sample_rate * frame_bytes) * 1000))
+
+    def pcm_duration_ms(self, pcm_bytes: bytes) -> int:
+        """Public helper for computing PCM duration using configured sample rate and channels."""
+        return self._pcm_duration_ms(pcm_bytes)
 
     def log_turns_summary(self) -> None:
         """Log summary of all conversation turns with their IDs and translated text."""
@@ -299,26 +335,26 @@ class ConversationManager:
         for i, turn in enumerate(self._turns):
             translation = turn.translation_text()
 
-            # Calculate timing metrics
-            latency = turn.latency_ms  # VAD-aware audio latency: last_outbound → first_audio
-            text_latency = turn.text_latency_ms  # Text latency for comparison
-            first_chunk_latency = turn.first_chunk_latency_ms  # Total: from first audio chunk
-            audio_duration = (turn.last_outbound_ms - turn.first_outbound_ms) if turn.last_outbound_ms and turn.first_outbound_ms else None
+            latency = turn.latency_ms
+            text_latency = turn.text_latency_ms
+            first_chunk_latency = turn.first_chunk_latency_ms
+            audio_duration = (
+                turn.last_outbound_scn_ms - turn.first_outbound_scn_ms
+                if turn.last_outbound_scn_ms is not None and turn.first_outbound_scn_ms is not None
+                else None
+            )
             audio_events = [e for e in turn.inbound_events if e.event_type == "translated_audio"]
             text_events = [e for e in turn.inbound_events if e.event_type == "translated_delta"]
 
-            logger.info(
-                f"  Turn '{turn.turn_id}' ({turn.turn_start_ms}ms): {translation}"
-            )
+            logger.info(f"  Turn '{turn.turn_id}' ({turn.turn_start_scn_ms}ms): {translation}")
 
             if latency is not None:
                 logger.info(
                     f"    ⏱️  Audio latency (VAD-aware): {latency}ms "
-                    f"(last_outbound={turn.last_outbound_ms}ms → "
-                    f"first_audio={turn.first_audio_response_ms}ms)"
+                    f"(last_outbound={turn.last_outbound_scn_ms}ms → "
+                    f"first_audio={turn.first_audio_response_scn_ms}ms)"
                 )
 
-                # Show text latency if different from audio latency
                 if text_latency is not None and text_latency != latency:
                     diff = latency - text_latency
                     logger.info(
@@ -333,8 +369,8 @@ class ConversationManager:
                     )
 
             if audio_events:
-                first_audio = min(e.timestamp_ms for e in audio_events)
-                last_audio = max(e.timestamp_ms for e in audio_events)
+                first_audio = min(e.timestamp_scn_ms for e in audio_events)
+                last_audio = max(e.timestamp_scn_ms for e in audio_events)
                 logger.info(
                     f"    🔊 Audio: {len(audio_events)} events, "
                     f"first={first_audio}ms, last={last_audio}ms, "
@@ -342,21 +378,20 @@ class ConversationManager:
                 )
 
             if text_events:
-                first_text = min(e.timestamp_ms for e in text_events)
-                last_text = max(e.timestamp_ms for e in text_events)
+                first_text = min(e.timestamp_scn_ms for e in text_events)
+                last_text = max(e.timestamp_scn_ms for e in text_events)
                 logger.info(
                     f"    📝 Text: {len(text_events)} events, "
                     f"first={first_text}ms, last={last_text}ms"
                 )
 
-            # Calculate gap from previous turn
             if i > 0:
                 prev_turn = self._turns[i - 1]
                 prev_audio_events = [e for e in prev_turn.inbound_events if e.event_type == "translated_audio"]
 
                 if prev_audio_events and audio_events:
-                    prev_last_audio = max(e.timestamp_ms for e in prev_audio_events)
-                    curr_first_audio = min(e.timestamp_ms for e in audio_events)
+                    prev_last_audio = max(e.timestamp_scn_ms for e in prev_audio_events)
+                    curr_first_audio = min(e.timestamp_scn_ms for e in audio_events)
                     gap = curr_first_audio - prev_last_audio
 
                     logger.info(
@@ -371,4 +406,4 @@ class ConversationManager:
                         )
 
 
-__all__ = ["ConversationManager", "TurnSummary"]
+__all__ = ["ConversationManager", "TurnSummary", "AudioTimelineEvent"]
