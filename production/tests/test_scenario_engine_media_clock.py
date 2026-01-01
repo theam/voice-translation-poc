@@ -1,10 +1,8 @@
 import pytest
 
 from production.acs_emulator.media_engine import FRAME_DURATION_MS
-from production.capture.arrival_queue_assembler import ArrivalQueueAssembler
 from production.capture.collector import EventCollector
 from production.capture.conversation_manager import ConversationManager
-from production.capture.conversation_tape import ConversationTape
 from production.scenario_engine.engine import ScenarioEngine
 from production.scenario_engine.models import Participant
 from production.utils.config import FrameworkConfig
@@ -49,15 +47,7 @@ class _FakeProtocolEvent:
         self.text = None
         self.source_language = None
         self.target_language = None
-        self.arrival_ms = None
-
-
-class _TapeStub:
-    def __init__(self):
-        self.added = []
-
-    def add_pcm(self, start_ms, pcm_bytes):
-        self.added.append((start_ms, pcm_bytes))
+        self.arrival_scn_ms = None
 
 
 @pytest.mark.asyncio
@@ -66,11 +56,10 @@ async def test_stream_silence_advances_media_clock():
     engine = ScenarioEngine(config)
     engine.clock = Clock(acceleration=1_000.0, time_fn=lambda: 0.0)
 
-    conversation_manager = ConversationManager(clock=engine.clock, scenario_started_at_ms=0)
+    conversation_manager = ConversationManager(clock=engine.clock, scenario_start_wall_ms=0, sample_rate=16000)
     participants = [Participant(name="speaker-1", source_language="en", target_language="es")]
     ws = _FakeWebSocket()
     adapter = _FakeAdapter()
-    tape = ConversationTape(sample_rate=16000)
 
     current_time = await engine._stream_silence_until(
         ws,
@@ -80,12 +69,11 @@ async def test_stream_silence_advances_media_clock():
         FRAME_DURATION_MS * 2,
         16000,
         1,
-        tape,
         conversation_manager,
     )
 
     assert current_time == FRAME_DURATION_MS * 2
-    assert conversation_manager.latest_outgoing_media_ms >= FRAME_DURATION_MS
+    assert conversation_manager.latest_outgoing_media_scn_ms >= FRAME_DURATION_MS
     # Two frames of silence for a single participant
     assert len(ws.sent) == 2
 
@@ -96,15 +84,13 @@ async def test_listen_schedules_inbound_from_arrival_queue():
     engine = ScenarioEngine(config)
     engine.clock = Clock(time_fn=lambda: 0.0)
 
-    conversation_manager = ConversationManager(clock=engine.clock, scenario_started_at_ms=0)
-    conversation_manager.start_turn("turn-1", {"type": "play_audio"}, turn_start_ms=0)
+    conversation_manager = ConversationManager(clock=engine.clock, scenario_start_wall_ms=0, sample_rate=16000)
+    conversation_manager.start_turn("turn-1", {"type": "play_audio"}, turn_start_scn_ms=0)
 
     collector = EventCollector()
     raw_messages = []
-    inbound = ArrivalQueueAssembler(sample_rate=16000, channels=1)
     adapter = _FakeAdapter(participant_id="turn-1")
     ws = _FakeWebSocket(messages=[{"type": "translated_audio"}])
-    tape = _TapeStub()
 
     await engine._listen(
         ws,
@@ -112,10 +98,8 @@ async def test_listen_schedules_inbound_from_arrival_queue():
         collector,
         conversation_manager,
         raw_messages,
-        tape,
-        started_at_ms=0,
-        inbound_assembler=inbound,
     )
 
-    assert tape.added[0][0] >= 0.0
-    assert collector.events[0].timestamp_ms == tape.added[0][0]
+    assert collector.events[0].timestamp_scn_ms >= 0.0
+    assert collector.events[0].audio_payload is not None
+    assert conversation_manager.iter_turns()[0].inbound_events[0] == collector.events[0]

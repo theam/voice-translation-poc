@@ -24,7 +24,7 @@ class TranscriptSink:
         serializable = [
             {
                 "event_type": event.event_type,
-                "timestamp_ms": event.timestamp_ms,
+                "timestamp_scn_ms": event.timestamp_scn_ms,
                 "participant_id": event.participant_id,
                 "source_language": event.source_language,
                 "target_language": event.target_language,

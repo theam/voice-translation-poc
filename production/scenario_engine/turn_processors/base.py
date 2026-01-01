@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from production.acs_emulator.protocol_adapter import ProtocolAdapter
     from production.acs_emulator.websocket_client import WebSocketClient
     from production.capture.conversation_manager import ConversationManager
-    from production.capture.conversation_tape import ConversationTape
     from production.scenario_engine.models import ScenarioTurn, Participant, Scenario
     from production.utils.time_utils import Clock
 
@@ -38,7 +37,6 @@ class TurnProcessor(ABC):
         ws: WebSocketClient,
         adapter: ProtocolAdapter,
         clock: Clock,
-        tape: ConversationTape,
         sample_rate: int,
         channels: int,
         conversation_manager: "ConversationManager",
@@ -49,14 +47,12 @@ class TurnProcessor(ABC):
             ws: WebSocket client for sending messages
             adapter: Protocol adapter for encoding messages
             clock: Clock for time acceleration and sleep
-            tape: Conversation tape for recording audio
             sample_rate: Audio sample rate in Hz
             channels: Number of audio channels
         """
         self.ws = ws
         self.adapter = adapter
         self.clock = clock
-        self.tape = tape
         self.sample_rate = sample_rate
         self.channels = channels
         self.conversation_manager = conversation_manager
@@ -67,7 +63,7 @@ class TurnProcessor(ABC):
         turn: ScenarioTurn,
         scenario: Scenario,
         participants: list[Participant],
-        current_time: int,
+        current_scn_ms: int,
     ) -> int:
         """Process a turn and return the updated current time.
 
@@ -78,10 +74,10 @@ class TurnProcessor(ABC):
         handled by the ScenarioEngine before calling this method.
 
         Args:
-            turn: The turn to process (current_time already at turn.start_at_ms)
+            turn: The turn to process (current_scn_ms already at turn.start_at_ms)
             scenario: The full scenario context
             participants: List of all participants
-            current_time: Current playback position in milliseconds (== turn.start_at_ms)
+            current_scn_ms: Current playback position in milliseconds (== turn.start_at_ms)
 
         Returns:
             Updated current time position in milliseconds

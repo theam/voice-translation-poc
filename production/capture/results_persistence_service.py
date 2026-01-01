@@ -10,7 +10,7 @@ from bson import ObjectId
 
 from production.capture.audio_sink import AudioSink, AUDIO_EVENT_TYPES
 from production.capture.collector import EventCollector
-from production.capture.conversation_tape import ConversationTape
+from production.capture.conversation_renderer import ConversationRenderer
 from production.capture.raw_log_sink import RawLogSink
 from production.capture.transcript_sink import TranscriptSink, TEXT_EVENT_TYPES
 
@@ -61,7 +61,8 @@ class ResultsPersistenceService:
         self,
         collector: EventCollector,
         raw_messages: List[dict],
-        tape: ConversationTape
+        conversation_manager: "ConversationManager",
+        renderer: "ConversationRenderer",
     ) -> None:
         """Persist all scenario results to disk.
 
@@ -74,23 +75,24 @@ class ResultsPersistenceService:
         Args:
             collector: Event collector with all collected events
             raw_messages: List of raw WebSocket messages
-            tape: Conversation tape with mixed audio
+            conversation_manager: Source of scenario-timeline events and audio payloads
+            renderer: Renderer responsible for producing the call mix WAV
         """
         logger.info(
             f"Starting results persistence to {self.output_root} "
             f"(events: {len(collector.events)}, raw_messages: {len(raw_messages)}, "
-            f"sample_rate: {tape.sample_rate}Hz)"
+            f"sample_rate: {conversation_manager.sample_rate}Hz)"
         )
 
         # Persist audio events and call mix
-        audio_sink = AudioSink(self.output_root, sample_rate=tape.sample_rate)
+        audio_sink = AudioSink(self.output_root, sample_rate=conversation_manager.sample_rate)
         audio_events = [e for e in collector.events if e.event_type in AUDIO_EVENT_TYPES]
         logger.debug(f"Writing {len(audio_events)} audio events")
         audio_sink.write_audio_events(audio_events)
 
         logger.debug("Writing call mix audio")
         call_mix_path = self.output_root / "phone_conversation.wav"
-        tape.write_wav(call_mix_path)
+        renderer.write_wav(call_mix_path, conversation_manager)
 
         # Persist transcripts
         transcript_sink = TranscriptSink(self.output_root)
