@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
-
-from ....models.provider_events import ProviderOutputEvent
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
 
 class LoggingOnlyHandler:
-    """Handler for messages where we don't yet translate payloads."""
+    """Default handler for messages where we don't yet translate payloads."""
 
-    def __init__(self, name: str):
-        self.name = name
+    def can_handle(self, message: Dict[str, Any]) -> bool:
+        """This handler accepts all messages as the catch-all default."""
+        return True
 
-    async def handle(self, message: Dict[str, Any]) -> Optional[ProviderOutputEvent]:
-        logger.debug("VoiceLive handler '%s' received payload with no action: %s", self.name, message)
-        return None
+    async def handle(self, message: Dict[str, Any]) -> None:
+        message_type = message.get("type") or "unknown"
+        logger.debug("OpenAI message type '%s' received with no action: %s", message_type, message)

@@ -35,37 +35,25 @@ class OpenAIInboundHandler:
         self.audio_seq_counters: Dict[str, int] = defaultdict(int)
         self.capabilities = capabilities or get_provider_capabilities(provider)
         audio_format = self._resolve_default_format()
-        self._handlers: Dict[str, OpenAIMessageHandler] = {
-            "response.output_text.delta": ResponseOutputTextDeltaHandler(self.text_buffers),
-            "response.output_text.done": ResponseOutputTextDoneHandler(self.text_buffers),
-            "response.completed": ResponseCompletedHandler(self.text_buffers, self.transcript_buffers),
-            "response.audio_transcript.delta": AudioTranscriptDeltaHandler(self.transcript_buffers),
-            "response.audio_transcript.done": AudioTranscriptDoneHandler(self.transcript_buffers),
-            "response.audio.delta": AudioDeltaHandler(self.audio_seq_counters, audio_format),
-            "response.output_audio.delta": AudioDeltaHandler(self.audio_seq_counters, audio_format),
-            "response.audio.done": AudioDoneHandler(self.audio_seq_counters),
-            "response.created": LoggingOnlyHandler("response.created"),
-            "response.error": ResponseErrorHandler(),
-            "error": ResponseErrorHandler(),
-            "input_audio_buffer.committed": LoggingOnlyHandler("input_audio_buffer.committed"),
-            "input_audio_buffer.speech.started": LoggingOnlyHandler("input_audio_buffer.speech.started"),
-            "input_audio_buffer.speech.stopped": LoggingOnlyHandler("input_audio_buffer.speech.stopped"),
-            "input_audio_buffer.speech.recognized": LoggingOnlyHandler("input_audio_buffer.speech.recognized"),
-            "conversation.item.created": LoggingOnlyHandler("conversation.item.created"),
-            "response.output_item.added": LoggingOnlyHandler("response.output_item.added"),
-            "session.created": LoggingOnlyHandler("session.created"),
-            "session.updated": LoggingOnlyHandler("session.updated"),
-        }
-        self._default_handler: OpenAIMessageHandler = LoggingOnlyHandler("unknown")
+        self._handlers: List[OpenAIMessageHandler] = [
+            ResponseOutputTextDeltaHandler(inbound_bus, self.text_buffers),
+            ResponseOutputTextDoneHandler(inbound_bus, self.text_buffers),
+            ResponseCompletedHandler(inbound_bus, self.text_buffers, self.transcript_buffers),
+            AudioTranscriptDeltaHandler(inbound_bus, self.transcript_buffers),
+            AudioTranscriptDoneHandler(inbound_bus, self.transcript_buffers),
+            AudioDeltaHandler(inbound_bus, self.audio_seq_counters, audio_format),
+            AudioDoneHandler(inbound_bus, self.audio_seq_counters),
+            ResponseErrorHandler(),
+            LoggingOnlyHandler(),  # Default catch-all handler for unsupported message types
+        ]
         self.provider = provider
 
     async def handle(self, message: Dict[str, Any]) -> None:
-        """Dispatch to a handler and publish any resulting translation."""
-        message_type = message.get("type") or ""
-        handler = self._handlers.get(message_type, self._default_handler)
-        response = await handler.handle(message)
-        if response:
-            await self.inbound_bus.publish(response)
+        """Dispatch message to appropriate handler."""
+        for handler in self._handlers:
+            if handler.can_handle(message):
+                await handler.handle(message)
+                return
 
     def _resolve_default_format(self) -> Dict[str, Any]:
         """Derive default provider output format from capabilities."""
