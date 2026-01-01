@@ -3,13 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol
 
-from ....models.provider_events import ProviderOutputEvent
-
 
 class VoiceLiveMessageHandler(Protocol):
     """Protocol for VoiceLive inbound message handlers."""
 
-    async def handle(self, message: Dict[str, Any]) -> Optional[ProviderOutputEvent]:
+    def can_handle(self, message: Dict[str, Any]) -> bool:
+        """Check if this handler can process the given message."""
+        ...
+
+    async def handle(self, message: Dict[str, Any]) -> None:
         ...
 
 
