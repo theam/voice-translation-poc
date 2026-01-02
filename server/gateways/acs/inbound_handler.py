@@ -27,9 +27,14 @@ class AcsInboundMessageHandler(Handler):
         session_metadata: Dict[str, Any],
         translation_settings: Dict[str, Any],
         pipeline_completion_callback: Optional[Callable[[], Awaitable[None]]] = None,
+        activity_callback: Optional[Callable[[Any], Awaitable[None]]] = None,
     ):
         super().__init__(settings)
-        self.audio_handler = AudioMessageHandler(provider_outbound_bus, batching_config)
+        self.audio_handler = AudioMessageHandler(
+            provider_outbound_bus,
+            batching_config,
+            activity_callback=activity_callback,
+        )
         self.control_handler = TestSettingsHandler(translation_settings, session_metadata)
         self.system_info_handler = SystemInfoMessageHandler(acs_outbound_bus)
         self.audio_metadata_handler = AudioMetadataHandler(

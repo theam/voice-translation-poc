@@ -32,6 +32,10 @@ class TranslationProvider:
         """Check provider health status."""
         raise NotImplementedError
 
+    async def cancel_response(self) -> None:  # pragma: no cover - optional
+        """Optional: cancel any in-flight response (for barge-in)."""
+        return
+
 
 class ProviderFactory:
     """

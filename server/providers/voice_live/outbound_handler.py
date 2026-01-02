@@ -66,6 +66,12 @@ class VoiceLiveOutboundHandler:
                 event.session_id,
                 len(converted),
             )
+            logger.debug(
+                "VoiceLive outbound detail commit=%s participant=%s ts=%s",
+                event.commit_id,
+                event.participant_id,
+                event.metadata.get("timestamp_utc"),
+            )
         except Exception as exc:
             logger.exception(
                 "Failed to send audio to VoiceLive: commit=%s error=%s",

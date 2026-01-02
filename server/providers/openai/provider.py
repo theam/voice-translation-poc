@@ -354,6 +354,17 @@ class OpenAIProvider:
             return "ok"
         return "degraded"
 
+    async def cancel_response(self) -> None:
+        """Send response.cancel and clear input buffer for barge-in."""
+        if not self._ws or self._ws.closed:
+            return
+        try:
+            await self._ws.send(json.dumps({"type": "response.cancel"}))
+            await self._ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+            logger.info("OpenAI response.cancel dispatched for barge-in")
+        except Exception:
+            logger.exception("Failed to cancel OpenAI response")
+
     def _build_connection_name(self) -> str:
         """Create a deterministic-ish name for wire logging."""
         parts = ["openai"]

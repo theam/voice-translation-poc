@@ -42,6 +42,7 @@ class AudioDeltaHandler:
         playout_engine: PacedPlayoutEngine | None = None,
         playout_config: PlayoutConfig | None = None,
         provider_capabilities: ProviderAudioCapabilities | None = None,
+        on_stream_start: callable | None = None,
     ):
         self.acs_outbound_bus = acs_outbound_bus
         self.session_metadata = session_metadata
@@ -59,6 +60,8 @@ class AudioDeltaHandler:
         self.store = store or PlayoutStore()
         self.publisher = publisher or AcsAudioPublisher(acs_outbound_bus)
         self.playout_engine = playout_engine or PacedPlayoutEngine(self.publisher, playout_config)
+        self._started_keys: set[str] = set()
+        self._on_stream_start = on_stream_start
 
     def can_handle(self, event: ProviderOutputEvent) -> bool:
         """Check if this handler can process the event."""
@@ -136,6 +139,18 @@ class AudioDeltaHandler:
         )
 
         self.playout_engine.ensure_task(buffer_key, state)
+
+        # Notify turn controller when a new outbound stream starts
+        if self._on_stream_start and buffer_key not in self._started_keys:
+            self._started_keys.add(buffer_key)
+            try:
+                await self._on_stream_start(event, buffer_key)
+            except Exception:
+                logger.exception("on_stream_start callback failed for %s", buffer_key)
+
+    def clear_stream(self, buffer_key: str) -> None:
+        """Clear bookkeeping for a stream after completion/cancel."""
+        self._started_keys.discard(buffer_key)
 
     @property
     def target_format(self):
