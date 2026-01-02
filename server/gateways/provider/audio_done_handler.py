@@ -18,12 +18,14 @@ class AudioDoneHandler:
     def __init__(
         self,
         audio_delta_handler: AudioDeltaHandler,
+        on_stream_done=None,
     ):
         self.audio_delta_handler = audio_delta_handler
         self.stream_key_builder = audio_delta_handler.stream_key_builder
         self.store: PlayoutStore = audio_delta_handler.store
         self.playout_engine: PacedPlayoutEngine = audio_delta_handler.playout_engine
         self.publisher: AcsAudioPublisher = audio_delta_handler.publisher
+        self._on_stream_done = on_stream_done
 
     def can_handle(self, event: ProviderOutputEvent) -> bool:
         """Check if this handler can process the event."""
@@ -57,6 +59,7 @@ class AudioDoneHandler:
         if state.resampler:
             state.resampler.reset()
         self.store.remove(buffer_key)
+        self.audio_delta_handler.clear_stream(buffer_key)
 
         logger.info(
             "Audio stream completed for session=%s participant=%s commit=%s",
@@ -64,3 +67,9 @@ class AudioDoneHandler:
             event.participant_id,
             event.commit_id
         )
+
+        if self._on_stream_done:
+            try:
+                await self._on_stream_done(event, buffer_key)
+            except Exception:
+                logger.exception("on_stream_done callback failed for %s", buffer_key)

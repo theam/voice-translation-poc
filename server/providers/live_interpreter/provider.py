@@ -362,3 +362,25 @@ class LiveInterpreterProvider:
         if self._recognizer:
             return "ok"
         return "initializing"
+
+    async def cancel_response(self) -> None:
+        """Best-effort cancel by restarting recognizer and push stream."""
+        if self._closed:
+            return
+        try:
+            if self._recognizer:
+                self._recognizer.stop_continuous_recognition_async().get()
+            if self._push_stream:
+                try:
+                    self._push_stream.close()
+                except Exception:
+                    logger.debug("Push stream close failed during cancel", exc_info=True)
+
+            # Recreate push stream and recognizer to realign state
+            self._push_stream = self._create_push_stream()
+            self._recognizer = self._create_recognizer(self._push_stream)
+            self._attach_event_handlers()
+            self._start_recognition()
+            logger.info("Live Interpreter recognizer restarted after cancel")
+        except Exception:
+            logger.exception("Live Interpreter cancel_response failed")

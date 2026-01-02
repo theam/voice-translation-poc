@@ -17,6 +17,8 @@ from ..gateways.acs.inbound_handler import AcsInboundMessageHandler
 from ..core.queues import OverflowPolicy
 from ..gateways.provider.audio import AcsFormatResolver
 from ..providers.capabilities import get_provider_capabilities
+from .session_activity import SessionActivity
+from .turn_controller import TurnController
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,11 @@ class SessionPipeline:
 
         # Handlers
         self._translation_handler: Optional[AcsInboundMessageHandler] = None
+
+        # Activity callbacks (phase 0/1: instrumentation hooks only)
+        self._activity: Optional[SessionActivity] = None
+        self._turn_controller = TurnController(session_id, on_barge_in=self._handle_barge_in)
+        self._provider_output_handler: Optional[ProviderOutputHandler] = None
 
         # Pipeline stage tracking
         self._stage = PipelineStage.NOT_STARTED
@@ -159,6 +166,10 @@ class SessionPipeline:
 
         # 1. Translation dispatch handler (processes test settings, audio metadata, audio data)
         # This handler includes a callback to trigger provider initialization
+        if self._activity is None:
+            self._activity = SessionActivity(self.session_id, listener=self._turn_controller.on_inbound_activity)
+            await self._activity.start()
+
         self._translation_handler = AcsInboundMessageHandler(
             HandlerSettings(
                 name="translation",
@@ -171,6 +182,7 @@ class SessionPipeline:
             session_metadata=self.metadata,
             translation_settings=self.translation_settings,
             pipeline_completion_callback=self.start_provider_processing,
+            activity_callback=self._activity.sink,
         )
 
         await self.acs_inbound_bus.register_handler(
@@ -201,18 +213,9 @@ class SessionPipeline:
                 overflow_policy=overflow_policy,
                 concurrency=1
             ),
-            ProviderOutputHandler(
-                HandlerSettings(
-                    name=f"provider_output_{self.session_id}",
-                    queue_max=self.config.buffering.egress_queue_max,
-                    overflow_policy=str(self.config.buffering.overflow_policy)
-                ),
-                acs_outbound_bus=self.acs_outbound_bus,
-                translation_settings=self.translation_settings,
-                session_metadata=self.metadata,
-                provider_capabilities=self.provider_capabilities,
-            )
+            self._build_provider_output_handler()
         )
+        # Handler reference already created
 
         logger.info("Session %s provider handlers registered", self.session_id)
 
@@ -236,6 +239,11 @@ class SessionPipeline:
         if self._translation_handler:
             await self._translation_handler.shutdown()
 
+        if self._activity:
+            await self._activity.shutdown()
+
+        await self._turn_controller.shutdown()
+
         # Shutdown provider
         if self.provider_adapter:
             await self.provider_adapter.close()
@@ -247,3 +255,40 @@ class SessionPipeline:
         await self.acs_outbound_bus.shutdown()
 
         logger.info("Session %s pipeline cleaned up", self.session_id)
+
+    def _build_provider_output_handler(self) -> ProviderOutputHandler:
+        handler = ProviderOutputHandler(
+            HandlerSettings(
+                name=f"provider_output_{self.session_id}",
+                queue_max=self.config.buffering.egress_queue_max,
+                overflow_policy=str(self.config.buffering.overflow_policy)
+            ),
+            acs_outbound_bus=self.acs_outbound_bus,
+            translation_settings=self.translation_settings,
+            session_metadata=self.metadata,
+            provider_capabilities=self.provider_capabilities,
+            turn_controller=self._turn_controller,
+        )
+        self._provider_output_handler = handler
+        return handler
+
+    async def _handle_barge_in(self, activity: AudioActivityEvent, stream_key: str) -> None:
+        """Stop outbound audio and cancel provider response on barge-in."""
+        logger.info(
+            "Handling barge-in: session=%s participant=%s stream=%s",
+            self.session_id,
+            activity.participant_id,
+            stream_key,
+        )
+        # Stop ACS playout for the active stream
+        if self._provider_output_handler:
+            await self._provider_output_handler.stop_active_stream(stream_key)
+
+        # Attempt provider-side cancel if supported
+        cancel_method = getattr(self.provider_adapter, "cancel_response", None)
+        if cancel_method:
+            try:
+                await cancel_method()
+            except Exception:
+                logger.exception("Provider cancel_response failed for session=%s", self.session_id)
+        await self._turn_controller.mark_barge_handled()

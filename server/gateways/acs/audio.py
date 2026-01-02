@@ -6,10 +6,12 @@ import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
+
+import numpy as np
 
 from ...config import BatchingConfig
-from ...audio import Base64AudioCodec
+from ...audio import Base64AudioCodec, PcmConverter
 from ...models.gateway_input_event import GatewayInputEvent
 from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderInputEvent
@@ -28,6 +30,23 @@ class ParticipantState:
     accumulated_duration_ms: float = 0.0  # Audio duration in milliseconds
     last_message_time: float = 0.0  # Monotonic time of last audio chunk
     idle_timer_task: Optional[asyncio.Task] = None  # Async task for idle timeout
+    # Lightweight audio activity tracking (for barge-in detection)
+    last_activity_time: float = 0.0
+    is_active: bool = False
+    last_rms: float = 0.0
+
+
+@dataclass
+class AudioActivityEvent:
+    """Lightweight activity signal emitted from inbound ACS audio."""
+
+    session_id: str
+    participant_id: Optional[str]
+    rms: float
+    peak: int
+    timestamp_monotonic: float
+    received_at_utc: str
+    frame_bytes: int
 
 
 class AudioMessageHandler:
@@ -36,13 +55,18 @@ class AudioMessageHandler:
     def __init__(
         self,
         provider_outbound_bus: EventBus,
-        batching_config: BatchingConfig
+        batching_config: BatchingConfig,
+        *,
+        activity_callback: Optional[Callable[[AudioActivityEvent], Awaitable[None]]] = None,
     ):
         self._provider_outbound_bus = provider_outbound_bus
         self._batching_config = batching_config
         self._buffers: Dict[AudioKey, List[bytes]] = defaultdict(list)
         self._participant_state: Dict[AudioKey, ParticipantState] = defaultdict(ParticipantState)
         self._lock = asyncio.Lock()
+        self._activity_callback = activity_callback
+        self._energy_rms_threshold = 300.0  # Rough gate for 16-bit PCM
+        self._converter = PcmConverter()
 
     def can_handle(self, event: GatewayInputEvent) -> bool:
         payload = event.payload or {}
@@ -74,6 +98,9 @@ class AudioMessageHandler:
         except Exception as exc:
             logger.warning("Skipping audio chunk with invalid base64: %s", exc)
             return
+
+        # Emit lightweight activity signal if above threshold
+        await self._maybe_emit_activity(event, participant_id, chunk_pcm)
 
         async with self._lock:
             self._buffers[key].append(chunk_pcm)
@@ -193,3 +220,56 @@ class AudioMessageHandler:
         if tasks_to_cancel:
             await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
             logger.info("Cancelled %d idle timers during shutdown", len(tasks_to_cancel))
+
+    async def _maybe_emit_activity(self, event: GatewayInputEvent, participant_id: Optional[str], chunk_pcm: bytes) -> None:
+        """Compute lightweight energy metrics and emit activity callback when speech starts."""
+
+        # Avoid expensive work if no listener
+        if not self._activity_callback:
+            return
+
+        rms, peak = self._compute_rms_peak(chunk_pcm)
+        frame_bytes = len(chunk_pcm)
+        now = time.monotonic()
+
+        async with self._lock:
+            state = self._participant_state[(event.session_id, participant_id)]
+            # Detect transition from quiet → active
+            became_active = (not state.is_active) and rms >= self._energy_rms_threshold
+            if became_active:
+                state.is_active = True
+                state.last_activity_time = now
+            state.last_rms = rms
+
+        if not became_active:
+            return
+
+        activity = AudioActivityEvent(
+            session_id=event.session_id,
+            participant_id=participant_id,
+            rms=rms,
+            peak=peak,
+            timestamp_monotonic=now,
+            received_at_utc=event.received_at_utc,
+            frame_bytes=frame_bytes,
+        )
+        try:
+            await self._activity_callback(activity)
+        except Exception:
+            logger.exception("Activity callback failed for session=%s participant=%s", event.session_id, participant_id)
+
+    def _compute_rms_peak(self, pcm: bytes) -> tuple[float, int]:
+        """Compute RMS and peak for 16-bit PCM (little-endian) leveraging shared PCM utilities."""
+
+        if not pcm:
+            return 0.0, 0
+
+        # Default ACS capture is mono PCM16. If ACS metadata adds channels later,
+        # consider plumbing that through the handler and passing channels here.
+        rms = self._converter.rms_pcm16(pcm, channels=1)
+
+        samples = np.frombuffer(pcm, dtype="<i2")
+        if samples.size == 0:
+            return rms, 0
+        peak = int(np.max(np.abs(samples)))
+        return rms, peak
