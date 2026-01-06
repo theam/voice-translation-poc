@@ -17,7 +17,7 @@ from ..core.queues import OverflowPolicy
 from ..core.websocket_server import WebSocketServer
 from ..utils.dict_utils import normalize_keys
 from .session_pipeline import SessionPipeline
-from .control_plane import AcsOutboundGateHandler, ControlPlaneTapHandler
+from .control_plane import AcsOutboundGateHandler, ControlPlaneBusHandler
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +200,7 @@ class Session:
             send_callable=send_to_acs,
             gate_is_open=pipeline.is_outbound_gate_open,
             control_plane=pipeline.control_plane,
+            on_audio_dropped=lambda reason: pipeline.control_plane.mark_playback_inactive(reason or "gate_drop"),
         )
 
         # Register handler on pipeline's outbound bus
@@ -216,20 +217,19 @@ class Session:
         # Tap outbound ACS messages for control plane state
         await pipeline.acs_outbound_bus.register_handler(
             HandlerConfig(
-                name=f"control_tap_acs_out_{pipeline.pipeline_id}",
+                name=f"control_plane_acs_out_{pipeline.pipeline_id}",
                 queue_max=200,
                 overflow_policy=OverflowPolicy.DROP_NEWEST,
                 concurrency=1,
             ),
-            ControlPlaneTapHandler(
+            ControlPlaneBusHandler(
                 HandlerSettings(
-                    name=f"control_tap_acs_out_{pipeline.pipeline_id}",
+                    name=f"control_plane_acs_out_{pipeline.pipeline_id}",
                     queue_max=200,
                     overflow_policy=str(OverflowPolicy.DROP_NEWEST),
                 ),
                 control_plane=pipeline.control_plane,
-                session_id=pipeline.session_id,
-                allow_outbound_payloads=True,
+                source="acs_outbound",
             ),
         )
 

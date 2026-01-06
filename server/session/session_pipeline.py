@@ -19,7 +19,7 @@ from ..gateways.provider.audio import AcsFormatResolver
 from ..providers.capabilities import get_provider_capabilities
 from .control_plane import (
     AcsOutboundGateHandler,
-    ControlPlaneTapHandler,
+    ControlPlaneBusHandler,
     SessionControlPlane,
 )
 
@@ -90,7 +90,6 @@ class SessionPipeline:
             return
 
         # Start control plane and register ACS handlers (they will queue messages until provider is ready)
-        await self.control_plane.start()
         await self._register_acs_handlers()
 
         self._stage = PipelineStage.ACS_PROCESSING
@@ -197,22 +196,21 @@ class SessionPipeline:
             self._translation_handler
         )
 
-        # Tap ACS inbound events into the control plane (best-effort, drop on overflow)
         await self.acs_inbound_bus.register_handler(
             HandlerConfig(
-                name=f"control_tap_acs_in_{self.session_id}",
-                queue_max=100,
+                name=f"control_plane_acs_in_{self.session_id}",
+                queue_max=200,
                 overflow_policy=OverflowPolicy.DROP_NEWEST,
                 concurrency=1,
             ),
-            ControlPlaneTapHandler(
+            ControlPlaneBusHandler(
                 HandlerSettings(
-                    name=f"control_tap_acs_in_{self.session_id}",
-                    queue_max=100,
+                    name=f"control_plane_acs_in_{self.session_id}",
+                    queue_max=200,
                     overflow_policy=str(OverflowPolicy.DROP_NEWEST),
                 ),
                 control_plane=self.control_plane,
-                session_id=self.session_id,
+                source="acs_inbound",
             ),
         )
 
@@ -249,22 +247,21 @@ class SessionPipeline:
             self._provider_output_handler
         )
 
-        # Tap provider inbound events into the control plane
         await self.provider_inbound_bus.register_handler(
             HandlerConfig(
-                name=f"control_tap_provider_in_{self.session_id}",
-                queue_max=100,
+                name=f"control_plane_provider_in_{self.session_id}",
+                queue_max=200,
                 overflow_policy=OverflowPolicy.DROP_NEWEST,
                 concurrency=1,
             ),
-            ControlPlaneTapHandler(
+            ControlPlaneBusHandler(
                 HandlerSettings(
-                    name=f"control_tap_provider_in_{self.session_id}",
-                    queue_max=100,
+                    name=f"control_plane_provider_in_{self.session_id}",
+                    queue_max=200,
                     overflow_policy=str(OverflowPolicy.DROP_NEWEST),
                 ),
                 control_plane=self.control_plane,
-                session_id=self.session_id,
+                source="provider_inbound",
             ),
         )
 
@@ -287,6 +284,8 @@ class SessionPipeline:
             reason,
             correlation_id,
         )
+        if not self._outbound_gate_open:
+            self.control_plane.mark_playback_inactive(reason or "gate_closed", correlation_id)
 
     async def drop_outbound_audio(self, reason: str, correlation_id: Optional[str] = None) -> None:
         handler = self._provider_output_handler
@@ -308,6 +307,7 @@ class SessionPipeline:
             reason,
             correlation_id,
         )
+        self.control_plane.mark_playback_inactive(reason or "dropped_outbound_audio", correlation_id)
 
     async def cancel_provider_response(self, provider_response_id: str, reason: str) -> None:
         adapter = self.provider_adapter
@@ -362,8 +362,6 @@ class SessionPipeline:
 
     async def cleanup(self):
         """Cleanup session pipeline."""
-        await self.control_plane.stop()
-
         # Shutdown translation handler
         if self._translation_handler:
             await self._translation_handler.shutdown()

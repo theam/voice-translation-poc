@@ -1,13 +1,8 @@
-import asyncio
 import pytest
 
 from server.gateways.base import HandlerSettings
-from server.models.gateway_input_event import GatewayInputEvent, Trace
-from server.session.control_plane import (
-    AcsOutboundGateHandler,
-    ControlPlaneTapHandler,
-    SessionControlPlane,
-)
+from server.models.provider_events import ProviderOutputEvent
+from server.session.control_plane import AcsOutboundGateHandler, SessionControlPlane
 
 
 class _StubActuator:
@@ -24,54 +19,54 @@ class _StubActuator:
         return None
 
 
-def _gateway_event(seq: int = 1) -> GatewayInputEvent:
-    trace = Trace(sequence=seq, ingress_ws_id="ingress", received_at_utc="now", call_correlation_id=None)
-    return GatewayInputEvent(
-        event_id=f"e{seq}",
-        source="acs",
-        content_type="application/json",
+def _provider_event(event_type: str, payload=None, provider_response_id: str | None = None):
+    return ProviderOutputEvent(
+        commit_id="c1",
         session_id="session-1",
-        received_at_utc="now",
-        payload={"kind": "AudioData", "audioData": {"participantRawId": "p1", "data": "abc"}},
-        trace=trace,
+        participant_id="p1",
+        event_type=event_type,
+        payload=payload or {},
+        provider="mock",
+        stream_id="s1",
+        provider_response_id=provider_response_id or "resp-1",
     )
 
 
 @pytest.mark.asyncio
-async def test_control_plane_tap_drops_on_full_queue():
-    control_plane = SessionControlPlane("session-1", _StubActuator(), queue_max=1)
-    handler = ControlPlaneTapHandler(
-        HandlerSettings(name="tap", queue_max=1, overflow_policy="DROP_NEWEST"),
-        control_plane=control_plane,
-        session_id="session-1",
-    )
+async def test_playback_state_transitions_on_provider_audio_events():
+    control_plane = SessionControlPlane("session-1", _StubActuator())
 
-    await handler.handle(_gateway_event(1))
-    await asyncio.wait_for(handler.handle(_gateway_event(2)), timeout=0.1)
+    await control_plane.process_provider(_provider_event("audio.delta"))
+    assert control_plane.playback_active is True
 
-    assert control_plane.dropped_events == 1
-    assert control_plane._queue.qsize() == 1  # type: ignore[attr-defined]
+    await control_plane.process_provider(_provider_event("audio.done"))
+    assert control_plane.playback_active is False
 
 
 @pytest.mark.asyncio
-async def test_outbound_gate_drops_audio_when_closed():
+async def test_outbound_gate_drops_audio_and_marks_inactive():
     sent = []
     gate_open = False
 
     async def _send(payload):
         sent.append(payload)
 
-    control_plane = SessionControlPlane("session-1", _StubActuator(), queue_max=4)
+    control_plane = SessionControlPlane("session-1", _StubActuator())
+    await control_plane.process_outbound_payload({"kind": "audioData", "audioData": {"data": "abc"}})
+    assert control_plane.playback_active is True
+
     handler = AcsOutboundGateHandler(
         HandlerSettings(name="gate", queue_max=10, overflow_policy="DROP_OLDEST"),
         send_callable=_send,
         gate_is_open=lambda: gate_open,
         control_plane=control_plane,
+        on_audio_dropped=control_plane.mark_playback_inactive,
     )
 
     payload = {"kind": "audioData", "audioData": {"data": "abc"}}
     await handler.handle(payload)
     assert sent == []
+    assert control_plane.playback_active is False
 
     gate_open = True
     await handler.handle(payload)

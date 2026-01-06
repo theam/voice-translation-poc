@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple, Type
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from ..gateways.base import Handler, HandlerSettings
 from ..models.gateway_input_event import GatewayInputEvent
@@ -85,132 +84,128 @@ class SessionControlPlane:
         self,
         session_id: str,
         pipeline_actuator: "SessionPipelineProtocol",
-        *,
-        queue_max: int = 256,
     ) -> None:
         self.session_id = session_id
         self._pipeline = pipeline_actuator
-        self._queue: asyncio.Queue[ControlEvent] = asyncio.Queue(maxsize=queue_max)
-        self._task: Optional[asyncio.Task] = None
         self.playback_active: bool = False
         self.active_speaker_id: Optional[str] = None
         self.current_provider_response_id: Optional[str] = None
         self.barge_in_armed: bool = False
-        self._dropped_events: int = 0
+        self._last_audio_sent_ms: Optional[int] = None
 
-    @property
-    def dropped_events(self) -> int:
-        return self._dropped_events
+    async def process_gateway(self, event: GatewayInputEvent) -> None:
+        control_event = control_event_from_gateway(event)
+        self._log_debug_unhandled(control_event.kind)
 
-    def publish_event(self, event: ControlEvent) -> bool:
-        """Enqueue control event without blocking. Drops on overflow."""
+    async def process_provider(self, event: ProviderOutputEvent) -> None:
+        control_event = control_event_from_provider(event)
+        kind = control_event.kind
 
-        try:
-            self._queue.put_nowait(event)
-            return True
-        except asyncio.QueueFull:
-            self._dropped_events += 1
-            logger.warning(
-                "control_event_dropped session=%s kind=%s dropped=%s",
-                self.session_id,
-                event.kind,
-                self._dropped_events,
-            )
-            return False
-
-    async def start(self) -> None:
-        if self._task and not self._task.done():
+        if kind == "provider.audio.delta":
+            self.current_provider_response_id = control_event.provider_response_id or control_event.commit_id
+            self._set_playback_active(True, "provider_audio_delta", control_event.provider_response_id)
             return
-        self._task = asyncio.create_task(self._run(), name=f"control-plane-{self.session_id}")
-        logger.info("control_plane_started session=%s", self.session_id)
 
-    async def stop(self) -> None:
-        if not self._task:
+        if kind == "provider.audio.done":
+            self._set_playback_active(False, "provider_audio_done", control_event.provider_response_id)
             return
-        self._task.cancel()
-        await asyncio.gather(self._task, return_exceptions=True)
-        self._task = None
-        logger.info("control_plane_stopped session=%s", self.session_id)
 
-    async def _run(self) -> None:
-        try:
-            while True:
-                event = await self._queue.get()
-                await self._process_event(event)
-        except asyncio.CancelledError:
-            logger.debug("Control plane run loop cancelled for session=%s", self.session_id)
+        if kind == "provider.control":
+            action = control_event.payload.get("action") if isinstance(control_event.payload, dict) else None
+            if action == "stop_audio":
+                self._set_playback_active(False, "provider_stop_audio", control_event.provider_response_id)
+            else:
+                self._log_debug_unhandled(f"{kind}:{action}")
+            return
 
-    async def _process_event(self, event: ControlEvent) -> None:
-        """Update control state and issue actions."""
+        self._log_debug_unhandled(kind)
 
-        if event.kind.startswith("provider.audio"):
+    async def process_outbound_payload(self, payload: Dict[str, Any]) -> None:
+        if not isinstance(payload, dict):
+            self._log_debug_unhandled("acs_outbound.unknown")
+            return
+
+        if self._is_audio_payload(payload):
+            self._last_audio_sent_ms = MonotonicClock.now_ms()
+            self._set_playback_active(True, "acs_outbound_audio", self.current_provider_response_id)
+            return
+
+        payload_type = payload.get("type")
+        if payload_type in {"control.stop_audio", "control.test.response.audio_done"}:
+            self._set_playback_active(False, payload_type, payload.get("stream_id") or payload.get("commit_id"))
+            return
+
+        self._log_debug_unhandled(f"acs_outbound:{payload_type}")
+
+    def mark_playback_inactive(self, reason: str, correlation_id: Optional[str] = None) -> None:
+        self._set_playback_active(False, reason, correlation_id or self.current_provider_response_id)
+
+    def _set_playback_active(self, active: bool, reason: str, correlation_id: Optional[str]) -> None:
+        if active:
+            if not self.playback_active:
+                logger.info(
+                    "playback_active_started session=%s reason=%s correlation_id=%s",
+                    self.session_id,
+                    reason,
+                    correlation_id,
+                )
             self.playback_active = True
-            self.current_provider_response_id = event.provider_response_id or event.commit_id
-        elif event.kind in {"provider.audio.done", "provider.control", "acs_outbound.audio"}:
-            self.playback_active = False
+            return
 
-        if event.kind == "command.outbound_gate":
-            enabled = bool(event.payload.get("enabled", True))
-            reason = event.payload.get("reason", "control_event")
-            correlation_id = event.provider_response_id or event.commit_id
-            self._pipeline.set_outbound_gate(enabled=enabled, reason=reason, correlation_id=correlation_id)
-
-        if event.kind == "command.drop_outbound_audio":
-            reason = event.payload.get("reason", "control_event")
-            correlation_id = event.provider_response_id or event.commit_id
-            await self._pipeline.drop_outbound_audio(reason=reason, correlation_id=correlation_id)
-
-        if event.kind == "command.cancel_provider_response" and event.provider_response_id:
-            await self._pipeline.cancel_provider_response(
-                provider_response_id=event.provider_response_id,
-                reason=event.payload.get("reason", "control_event"),
+        if self.playback_active:
+            logger.info(
+                "playback_active_stopped session=%s reason=%s correlation_id=%s",
+                self.session_id,
+                reason,
+                correlation_id,
             )
+        self.playback_active = False
 
-        if event.kind == "command.flush_inbound_buffers":
-            await self._pipeline.flush_inbound_buffers(
-                participant_id=event.participant_id,
-                keep_after_ts_ms=event.payload.get("keep_after_ts_ms"),
-            )
+    def _log_debug_unhandled(self, kind: str) -> None:
+        logger.debug("control_plane_ignored session=%s kind=%s", self.session_id, kind)
+
+    @staticmethod
+    def _is_audio_payload(payload: Dict[str, Any]) -> bool:
+        kind = payload.get("kind") or payload.get("type")
+        if kind in {"audioData", "audio.data"}:
+            return True
+        audio_data = payload.get("audioData") or payload.get("audio_data")
+        return isinstance(audio_data, dict) and "data" in audio_data
 
 
-class ControlPlaneTapHandler(Handler):
-    """Lightweight tap that forwards internal events into the control plane."""
+class ControlPlaneBusHandler(Handler):
+    """EventBus handler that forwards envelopes to the session control plane."""
 
     def __init__(
         self,
         settings: HandlerSettings,
-        control_plane: SessionControlPlane,
         *,
-        session_id: str,
-        allow_outbound_payloads: bool = False,
+        control_plane: SessionControlPlane,
+        source: str,
     ) -> None:
         super().__init__(settings)
-        self.control_plane = control_plane
-        self.session_id = session_id
-        self.allow_outbound_payloads = allow_outbound_payloads
-        self._event_types: Tuple[Type[Any], ...] = (GatewayInputEvent, ProviderOutputEvent)
+        self._control_plane = control_plane
+        self._source = source
 
-    def can_handle(self, event: object) -> bool:  # type: ignore[override]
-        if isinstance(event, self._event_types):
-            return True
-        if self.allow_outbound_payloads and isinstance(event, dict):
-            return True
-        return False
-
-    async def handle(self, event: object) -> None:  # type: ignore[override]
-        control_event: Optional[ControlEvent] = None
-
-        if isinstance(event, GatewayInputEvent):
-            control_event = control_event_from_gateway(event)
-        elif isinstance(event, ProviderOutputEvent):
-            control_event = control_event_from_provider(event)
-        elif self.allow_outbound_payloads and isinstance(event, dict):
-            control_event = control_event_from_acs_outbound(self.session_id, event)
-
-        if not control_event:
+    async def handle(self, envelope: object) -> None:  # type: ignore[override]
+        if isinstance(envelope, GatewayInputEvent):
+            await self._control_plane.process_gateway(envelope)
             return
 
-        self.control_plane.publish_event(control_event)
+        if isinstance(envelope, ProviderOutputEvent):
+            await self._control_plane.process_provider(envelope)
+            return
+
+        if isinstance(envelope, dict):
+            await self._control_plane.process_outbound_payload(envelope)
+            return
+
+        logger.debug(
+            "control_plane_unknown_envelope session=%s source=%s type=%s",
+            self._control_plane.session_id,
+            self._source,
+            type(envelope),
+        )
 
 
 class AcsOutboundGateHandler(Handler):
@@ -223,11 +218,13 @@ class AcsOutboundGateHandler(Handler):
         send_callable: Callable[[Dict[str, Any]], Awaitable[None]],
         gate_is_open: Callable[[], bool],
         control_plane: SessionControlPlane,
+        on_audio_dropped: Optional[Callable[[str], None]] = None,
     ) -> None:
         super().__init__(settings)
         self._send = send_callable
         self._gate_is_open = gate_is_open
         self._control_plane = control_plane
+        self._on_audio_dropped = on_audio_dropped
 
     async def handle(self, payload: Dict[str, Any]) -> None:  # type: ignore[override]
         is_audio = self._is_audio_payload(payload)
@@ -237,6 +234,8 @@ class AcsOutboundGateHandler(Handler):
                 "outbound_gate_closed session=%s dropping_audio=True",
                 self._control_plane.session_id,
             )
+            if self._on_audio_dropped:
+                self._on_audio_dropped("gate_closed")
             return
 
         await self._send(payload)
