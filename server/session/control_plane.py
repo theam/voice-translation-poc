@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple, Type
 
 from ..gateways.base import Handler, HandlerSettings
 from ..models.gateway_input_event import GatewayInputEvent
 from ..models.provider_events import ProviderOutputEvent
+from ..utils.time_utils import MonotonicClock
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +26,6 @@ class ControlEvent:
     timestamp_ms: Optional[int] = None
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
 def control_event_from_gateway(event: GatewayInputEvent) -> ControlEvent:
     payload = event.payload or {}
     participant_id = None
@@ -43,7 +39,7 @@ def control_event_from_gateway(event: GatewayInputEvent) -> ControlEvent:
         kind="gateway.input",
         payload=payload,
         participant_id=participant_id,
-        timestamp_ms=_now_ms(),
+        timestamp_ms=MonotonicClock.now_ms(),
     )
 
 
@@ -78,7 +74,7 @@ def control_event_from_acs_outbound(session_id: str, payload: Dict[str, Any]) ->
         participant_id=participant_id,
         kind="acs_outbound.audio",
         payload=payload,
-        timestamp_ms=_now_ms(),
+        timestamp_ms=MonotonicClock.now_ms(),
     )
 
 
