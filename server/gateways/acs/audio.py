@@ -193,3 +193,22 @@ class AudioMessageHandler:
         if tasks_to_cancel:
             await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
             logger.info("Cancelled %d idle timers during shutdown", len(tasks_to_cancel))
+
+    async def flush(self, participant_id: Optional[str] = None) -> None:
+        """Clear buffered audio (best effort, used by control plane)."""
+        async with self._lock:
+            tasks_to_cancel = []
+            keys = list(self._buffers.keys())
+            for key in keys:
+                _, pid = key
+                if participant_id is not None and pid != participant_id:
+                    continue
+                state = self._participant_state.pop(key, None)
+                if state and state.idle_timer_task and not state.idle_timer_task.done():
+                    state.idle_timer_task.cancel()
+                    tasks_to_cancel.append(state.idle_timer_task)
+                self._buffers.pop(key, None)
+
+        if tasks_to_cancel:
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            logger.info("Flushed %d participant buffers (participant=%s)", len(tasks_to_cancel), participant_id)
