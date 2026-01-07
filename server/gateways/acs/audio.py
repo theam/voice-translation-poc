@@ -173,14 +173,20 @@ class AudioMessageHandler:
         if isinstance(audio_data, dict):
             participant_id = audio_data.get("participantrawid")
             timestamp_utc = audio_data.get("timestamp") or timestamp_utc
-        is_silence = self._is_silence(raw_audio)
+        rms = self._pcm_converter.rms_pcm16(raw_audio, self._resolve_channels())
+        is_silence = rms < self.SILENCE_RMS_THRESHOLD
         audio_b64 = Base64AudioCodec.encode(raw_audio)
         request = ProviderInputEvent(
             commit_id=commit_id,
             session_id=event.session_id,
             participant_id=participant_id,
             b64_audio_string=audio_b64,
-            metadata={"timestamp_utc": timestamp_utc, "message_id": event.event_id},
+            metadata={
+                "timestamp_utc": timestamp_utc,
+                "message_id": event.event_id,
+                "rms_pcm16": rms,
+                "is_silence": is_silence,
+            },
             is_silence=is_silence,
         )
 
@@ -221,7 +227,7 @@ class AudioMessageHandler:
             await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
             logger.info("Flushed %d participant buffers (participant=%s)", len(tasks_to_cancel), participant_id)
 
-    def _is_silence(self, pcm16: bytes) -> bool:
+    def _resolve_channels(self) -> int:
         channels = 1
         format_info = self._session_metadata.get("acs_audio", {}).get("format", {})
         if isinstance(format_info, dict):
@@ -232,5 +238,4 @@ class AudioMessageHandler:
             channels = 1
         if channels not in (1, 2):
             channels = 1
-        rms = self._pcm_converter.rms_pcm16(pcm16, channels)
-        return rms < self.SILENCE_RMS_THRESHOLD
+        return channels

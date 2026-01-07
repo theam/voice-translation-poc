@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from ...models.gateway_input_event import GatewayInputEvent
-from ...models.provider_events import ProviderOutputEvent
+from ...models.provider_events import ProviderInputEvent, ProviderOutputEvent
 from ...utils.time_utils import MonotonicClock
 from .control_event import ControlEvent
 from .input_state import InputState, InputStatus
@@ -74,6 +74,11 @@ class SessionControlPlane:
             return
 
         self._log_debug_unhandled(kind)
+
+    async def process_provider_input(self, event: ProviderInputEvent) -> None:
+        now_ms = MonotonicClock.now_ms()
+        self._check_idle_timeout(now_ms)
+        self._log_debug_unhandled("provider_input")
 
     async def process_outbound_payload(self, payload: Dict[str, Any]) -> None:
         now_ms = MonotonicClock.now_ms()

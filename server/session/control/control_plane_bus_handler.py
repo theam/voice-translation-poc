@@ -4,6 +4,7 @@ import logging
 
 from ...gateways.base import Handler, HandlerSettings
 from ...models.gateway_input_event import GatewayInputEvent
+from ...models.provider_events import ProviderInputEvent
 from ...models.provider_events import ProviderOutputEvent
 from .session_control_plane import SessionControlPlane
 
@@ -31,6 +32,10 @@ class ControlPlaneBusHandler(Handler):
 
         if isinstance(envelope, ProviderOutputEvent):
             await self._control_plane.process_provider(envelope)
+            return
+
+        if isinstance(envelope, ProviderInputEvent):
+            await self._control_plane.process_provider_input(envelope)
             return
 
         if isinstance(envelope, dict):
