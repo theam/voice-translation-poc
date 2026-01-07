@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
-from ...gateways.base import Handler, HandlerSettings
 from ...models.gateway_input_event import GatewayInputEvent
 from ...models.provider_events import ProviderOutputEvent
-from .control_event import ControlEvent
 from ...utils.time_utils import MonotonicClock
+from .control_event import ControlEvent
 
 logger = logging.getLogger(__name__)
 
@@ -108,84 +107,6 @@ class SessionControlPlane:
         return isinstance(audio_data, dict) and "data" in audio_data
 
 
-class ControlPlaneBusHandler(Handler):
-    """EventBus handler that forwards envelopes to the session control plane."""
-
-    def __init__(
-        self,
-        settings: HandlerSettings,
-        *,
-        control_plane: SessionControlPlane,
-        source: str,
-    ) -> None:
-        super().__init__(settings)
-        self._control_plane = control_plane
-        self._source = source
-
-    async def handle(self, envelope: object) -> None:  # type: ignore[override]
-        if isinstance(envelope, GatewayInputEvent):
-            await self._control_plane.process_gateway(envelope)
-            return
-
-        if isinstance(envelope, ProviderOutputEvent):
-            await self._control_plane.process_provider(envelope)
-            return
-
-        if isinstance(envelope, dict):
-            await self._control_plane.process_outbound_payload(envelope)
-            return
-
-        logger.debug(
-            "control_plane_unknown_envelope session=%s source=%s type=%s",
-            self._control_plane.session_id,
-            self._source,
-            type(envelope),
-        )
-
-
-class AcsOutboundGateHandler(Handler):
-    """Choke point for outbound ACS messages controlled by the control plane."""
-
-    def __init__(
-        self,
-        settings: HandlerSettings,
-        *,
-        send_callable: Callable[[Dict[str, Any]], Awaitable[None]],
-        gate_is_open: Callable[[], bool],
-        control_plane: SessionControlPlane,
-        on_audio_dropped: Optional[Callable[[str], None]] = None,
-    ) -> None:
-        super().__init__(settings)
-        self._send = send_callable
-        self._gate_is_open = gate_is_open
-        self._control_plane = control_plane
-        self._on_audio_dropped = on_audio_dropped
-
-    async def handle(self, payload: Dict[str, Any]) -> None:  # type: ignore[override]
-        is_audio = self._is_audio_payload(payload)
-
-        if is_audio and not self._gate_is_open():
-            logger.info(
-                "outbound_gate_closed session=%s dropping_audio=True",
-                self._control_plane.session_id,
-            )
-            if self._on_audio_dropped:
-                self._on_audio_dropped("gate_closed")
-            return
-
-        await self._send(payload)
-
-    @staticmethod
-    def _is_audio_payload(payload: Dict[str, Any]) -> bool:
-        if not isinstance(payload, dict):
-            return False
-        kind = payload.get("kind") or payload.get("type")
-        if kind in {"audioData", "audio.data"}:
-            return True
-        audio_data = payload.get("audioData") or payload.get("audio_data")
-        return isinstance(audio_data, dict) and "data" in audio_data
-
-
 class SessionPipelineProtocol:
     """Protocol subset used by the control plane (runtime duck typing)."""
 
@@ -198,9 +119,4 @@ class SessionPipelineProtocol:
     async def flush_inbound_buffers(self, participant_id: Optional[str], keep_after_ts_ms: Optional[int]) -> None: ...
 
 
-__all__ = [
-    "AcsOutboundGateHandler",
-    "ControlPlaneBusHandler",
-    "SessionControlPlane",
-    "SessionPipelineProtocol",
-]
+__all__ = ["SessionControlPlane", "SessionPipelineProtocol"]
