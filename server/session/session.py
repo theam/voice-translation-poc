@@ -17,7 +17,7 @@ from ..core.queues import OverflowPolicy
 from ..core.websocket_server import WebSocketServer
 from ..utils.dict_utils import normalize_keys
 from .session_pipeline import SessionPipeline
-from .control_plane import AcsOutboundGateHandler, ControlPlaneBusHandler
+from .control import AcsOutboundGateHandler, ControlPlaneBusHandler
 
 logger = logging.getLogger(__name__)
 

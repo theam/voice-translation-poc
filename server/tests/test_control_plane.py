@@ -2,7 +2,7 @@ import pytest
 
 from server.gateways.base import HandlerSettings
 from server.models.provider_events import ProviderOutputEvent
-from server.session.control_plane import AcsOutboundGateHandler, SessionControlPlane
+from server.session.control import AcsOutboundGateHandler, SessionControlPlane
 
 
 class _StubActuator:
