@@ -18,6 +18,7 @@ class SessionControlPlane:
 
     PLAYBACK_IDLE_TIMEOUT_MS = 500
     INPUT_SILENCE_TIMEOUT_MS = 350
+    INPUT_VOICE_HYSTERESIS_MS = 100
 
     def __init__(
         self,
@@ -171,7 +172,7 @@ class SessionControlPlane:
     def _maybe_update_input_state(self, event: ControlEvent, now_ms: int) -> None:
         old_status = self.input_state.status
         if self._detect_voice_signal(event.payload):
-            self.input_state.on_voice_detected(now_ms)
+            self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
         if old_status != self.input_state.status:
             logger.info(
                 "input_state_changed session=%s from=%s to=%s reason=voice_detected participant_id=%s",

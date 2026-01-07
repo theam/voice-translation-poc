@@ -109,7 +109,10 @@ def test_input_state_transitions_and_timeout():
     state = InputState()
     assert state.status == InputStatus.SILENCE
 
-    state.on_voice_detected(100)
+    state.on_voice_detected(100, hysteresis_ms=200)
+    assert state.status == InputStatus.SILENCE
+
+    state.on_voice_detected(350, hysteresis_ms=200)
     assert state.status == InputStatus.SPEAKING
 
     timed_out = state.maybe_timeout_silence(1000, silence_timeout_ms=350)
@@ -118,8 +121,14 @@ def test_input_state_transitions_and_timeout():
 
 
 @pytest.mark.asyncio
-async def test_control_plane_updates_input_state_on_voice_signal():
+async def test_control_plane_updates_input_state_on_voice_signal(monkeypatch):
     control_plane = SessionControlPlane("session-1", _StubActuator())
     payload = {"kind": "AudioData", "audioData": {"participantRawId": "p1", "speech": True}}
+    times = iter([0, 0, 400, 400, 400])
+    monkeypatch.setattr("server.session.control.session_control_plane.MonotonicClock.now_ms", lambda: next(times))
+
+    await control_plane.process_gateway(_gateway_event(payload))
+    assert control_plane.input_state.is_speaking is False
+
     await control_plane.process_gateway(_gateway_event(payload))
     assert control_plane.input_state.is_speaking is True
