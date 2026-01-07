@@ -32,9 +32,9 @@ class InputState:
         self.last_voice_ms = now_ms
         self.voice_detected_ms = now_ms
 
-    def maybe_timeout_silence(self, now_ms: int, silence_timeout_ms: int) -> bool:
+    def on_silence_detected(self, now_ms: int, silence_threshold: int) -> bool:
         if self.status == InputStatus.SPEAKING and self.last_voice_ms:
-            if (now_ms - self.last_voice_ms) > silence_timeout_ms:
+            if (now_ms - self.last_voice_ms) > silence_threshold:
                 self.status = InputStatus.SILENCE
                 self.voice_detected_ms = None
                 return True

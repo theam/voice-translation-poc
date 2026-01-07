@@ -70,8 +70,7 @@ class SessionControlPlane:
     async def process_provider_input(self, event: ProviderInputEvent) -> None:
         now_ms = MonotonicClock.now_ms()
         self._check_idle_timeout(now_ms)
-        self._check_input_silence_timeout(now_ms)
-        self._maybe_update_input_state(event, now_ms)
+        self._update_input_state(event, now_ms)
 
     async def process_outbound_payload(self, payload: Dict[str, Any]) -> None:
         now_ms = MonotonicClock.now_ms()
@@ -148,29 +147,25 @@ class SessionControlPlane:
             if old_status != self.playback.status:
                 self._log_playback_transition(old_status, self.playback.status, "idle_timeout", self.playback.current_response_id)
 
-    def _check_input_silence_timeout(self, now_ms: int) -> None:
+    def _update_input_state(self, event: ProviderInputEvent, now_ms: int) -> None:
         old_status = self.input_state.status
-        timed_out = self.input_state.maybe_timeout_silence(now_ms, self.INPUT_SILENCE_TIMEOUT_MS)
-        if timed_out and old_status != self.input_state.status:
-            logger.info(
-                "input_state_changed session=%s from=%s to=%s reason=timeout last_voice_ms=%s timeout_ms=%s",
-                self.session_id,
-                old_status,
-                self.input_state.status,
-                self.input_state.last_voice_ms,
-                self.INPUT_SILENCE_TIMEOUT_MS,
-            )
-
-    def _maybe_update_input_state(self, event: ProviderInputEvent, now_ms: int) -> None:
-        old_status = self.input_state.status
-        if self._detect_voice_signal(event.metadata):
-            self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
+        is_silence = event.metadata.get("is_silence") if isinstance(event.metadata, dict) else None
+        if isinstance(is_silence, bool):
+            if is_silence:
+                self.input_state.on_silence_detected(now_ms, self.INPUT_SILENCE_TIMEOUT_MS)
+            else:
+                self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
+        else:
+            if self._detect_voice_signal(event.metadata):
+                self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
         if old_status != self.input_state.status:
+            reason = "silence_detected" if is_silence else "voice_detected"
             logger.info(
-                "input_state_changed session=%s from=%s to=%s reason=voice_detected participant_id=%s",
+                "input_state_changed session=%s from=%s to=%s reason=%s participant_id=%s",
                 self.session_id,
                 old_status,
                 self.input_state.status,
+                reason,
                 event.participant_id,
             )
 

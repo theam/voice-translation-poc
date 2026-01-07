@@ -111,7 +111,7 @@ def test_input_state_transitions_and_timeout():
     state.on_voice_detected(350, hysteresis_ms=200)
     assert state.status == InputStatus.SPEAKING
 
-    timed_out = state.maybe_timeout_silence(1000, silence_timeout_ms=350)
+    timed_out = state.on_silence_detected(1000, silence_threshold=350)
     assert timed_out is True
     assert state.status == InputStatus.SILENCE
 
