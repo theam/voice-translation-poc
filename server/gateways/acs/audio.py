@@ -187,7 +187,6 @@ class AudioMessageHandler:
                 "rms_pcm16": rms,
                 "is_silence": is_silence,
             },
-            is_silence=is_silence,
         )
 
         logger.info("Publishing audio request to provider - commit=%s bytes=%s", commit_id, len(raw_audio))

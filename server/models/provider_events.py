@@ -18,7 +18,6 @@ class ProviderInputEvent:
     participant_id: Optional[str]
     b64_audio_string: str  # base64-encoded PCM audio (string)
     metadata: Dict[str, Any]
-    is_silence: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -28,7 +27,6 @@ class ProviderInputEvent:
             "participant_id": self.participant_id,
             "b64_audio_string": self.b64_audio_string,
             "metadata": self.metadata,
-            "is_silence": self.is_silence,
         }
 
 
