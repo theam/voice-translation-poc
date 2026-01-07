@@ -7,6 +7,7 @@ from ...models.gateway_input_event import GatewayInputEvent
 from ...models.provider_events import ProviderOutputEvent
 from ...utils.time_utils import MonotonicClock
 from .control_event import ControlEvent
+from .input_state import InputState, InputStatus
 from .playback_state import PlaybackState, PlaybackStatus
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ class SessionControlPlane:
     """Per-session control plane consuming internal events and issuing actions."""
 
     PLAYBACK_IDLE_TIMEOUT_MS = 500
+    INPUT_SILENCE_TIMEOUT_MS = 350
 
     def __init__(
         self,
@@ -25,6 +27,7 @@ class SessionControlPlane:
         self.session_id = session_id
         self._pipeline = pipeline_actuator
         self.playback = PlaybackState()
+        self.input_state = InputState()
         self.active_speaker_id: Optional[str] = None
         self.current_provider_response_id: Optional[str] = None
         self.barge_in_armed: bool = False
@@ -32,7 +35,9 @@ class SessionControlPlane:
     async def process_gateway(self, event: GatewayInputEvent) -> None:
         now_ms = MonotonicClock.now_ms()
         self._check_idle_timeout(now_ms)
+        self._check_input_silence_timeout(now_ms)
         control_event = ControlEvent.from_gateway(event)
+        self._maybe_update_input_state(control_event, now_ms)
         self._log_debug_unhandled(control_event.kind)
 
     async def process_provider(self, event: ProviderOutputEvent) -> None:
@@ -145,6 +150,32 @@ class SessionControlPlane:
             if old_status != self.playback.status:
                 self._log_playback_transition(old_status, self.playback.status, "idle_timeout", self.playback.current_response_id)
 
+    def _check_input_silence_timeout(self, now_ms: int) -> None:
+        old_status = self.input_state.status
+        timed_out = self.input_state.maybe_timeout_silence(now_ms, self.INPUT_SILENCE_TIMEOUT_MS)
+        if timed_out and old_status != self.input_state.status:
+            logger.info(
+                "input_state_changed session=%s from=%s to=%s reason=timeout last_voice_ms=%s timeout_ms=%s",
+                self.session_id,
+                old_status,
+                self.input_state.status,
+                self.input_state.last_voice_ms,
+                self.INPUT_SILENCE_TIMEOUT_MS,
+            )
+
+    def _maybe_update_input_state(self, event: ControlEvent, now_ms: int) -> None:
+        old_status = self.input_state.status
+        if self._detect_voice_signal(event.payload):
+            self.input_state.on_voice_detected(now_ms)
+        if old_status != self.input_state.status:
+            logger.info(
+                "input_state_changed session=%s from=%s to=%s reason=voice_detected participant_id=%s",
+                self.session_id,
+                old_status,
+                self.input_state.status,
+                event.participant_id,
+            )
+
     def _log_playback_transition(
         self,
         old_status: PlaybackStatus,
@@ -171,6 +202,23 @@ class SessionControlPlane:
             return True
         audio_data = payload.get("audioData") or payload.get("audio_data")
         return isinstance(audio_data, dict) and "data" in audio_data
+
+    @staticmethod
+    def _detect_voice_signal(payload: Dict[str, Any]) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        audio_data = payload.get("audiodata") or payload.get("audioData") or {}
+        if isinstance(audio_data, dict):
+            speech_flag = audio_data.get("speech")
+            if isinstance(speech_flag, bool):
+                return speech_flag
+            vad_flag = audio_data.get("vad")
+            if isinstance(vad_flag, bool):
+                return vad_flag
+            is_silent = audio_data.get("issilent")
+            if isinstance(is_silent, bool):
+                return not is_silent
+        return False
 
 
 class SessionPipelineProtocol:

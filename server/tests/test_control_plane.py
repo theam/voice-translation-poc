@@ -3,7 +3,9 @@ import pytest
 from server.gateways.base import HandlerSettings
 from server.models.provider_events import ProviderOutputEvent
 from server.gateways.acs.outbound_gate_handler import AcsOutboundGateHandler
+from server.models.gateway_input_event import GatewayInputEvent, Trace
 from server.session.control import PlaybackStatus, SessionControlPlane
+from server.session.control.input_state import InputState, InputStatus
 from server.session.control.playback_state import PlaybackState
 
 
@@ -31,6 +33,19 @@ def _provider_event(event_type: str, payload=None, provider_response_id: str | N
         provider="mock",
         stream_id="s1",
         provider_response_id=provider_response_id or "resp-1",
+    )
+
+
+def _gateway_event(payload: dict) -> GatewayInputEvent:
+    trace = Trace(sequence=1, ingress_ws_id="ingress", received_at_utc="now", call_correlation_id=None)
+    return GatewayInputEvent(
+        event_id="e1",
+        source="acs",
+        content_type="application/json",
+        session_id="session-1",
+        received_at_utc="now",
+        payload=payload,
+        trace=trace,
     )
 
 
@@ -88,3 +103,23 @@ def test_playback_state_transitions_and_timeout():
     timed_out = state.maybe_timeout_idle(1000, idle_timeout_ms=500)
     assert timed_out is True
     assert state.status == PlaybackStatus.IDLE
+
+
+def test_input_state_transitions_and_timeout():
+    state = InputState()
+    assert state.status == InputStatus.SILENCE
+
+    state.on_voice_detected(100)
+    assert state.status == InputStatus.SPEAKING
+
+    timed_out = state.maybe_timeout_silence(1000, silence_timeout_ms=350)
+    assert timed_out is True
+    assert state.status == InputStatus.SILENCE
+
+
+@pytest.mark.asyncio
+async def test_control_plane_updates_input_state_on_voice_signal():
+    control_plane = SessionControlPlane("session-1", _StubActuator())
+    payload = {"kind": "AudioData", "audioData": {"participantRawId": "p1", "speech": True}}
+    await control_plane.process_gateway(_gateway_event(payload))
+    assert control_plane.input_state.is_speaking is True
