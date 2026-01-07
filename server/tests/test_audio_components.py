@@ -319,6 +319,7 @@ async def test_voicelive_outbound_handler_resamples_to_provider_input():
         participant_id=None,
         b64_audio_string=Base64AudioCodec.encode(audio_bytes),
         metadata={},
+        is_silence=False,
     )
 
     await handler.handle(event)
