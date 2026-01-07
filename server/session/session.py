@@ -17,7 +17,8 @@ from ..core.queues import OverflowPolicy
 from ..core.websocket_server import WebSocketServer
 from ..utils.dict_utils import normalize_keys
 from .session_pipeline import SessionPipeline
-from .control import AcsOutboundGateHandler, ControlPlaneBusHandler
+from .control import ControlPlaneBusHandler
+from ..gateways.acs.outbound_gate_handler import AcsOutboundGateHandler
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,7 @@ class Session:
             ),
             send_callable=send_to_acs,
             gate_is_open=pipeline.is_outbound_gate_open,
-            control_plane=pipeline.control_plane,
+            session_id=pipeline.session_id,
             on_audio_dropped=lambda reason: pipeline.control_plane.mark_playback_inactive(reason or "gate_drop"),
         )
 

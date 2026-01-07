@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Awaitable, Callable, Dict, Optional
 
-from ...gateways.base import Handler, HandlerSettings
-from .session_control_plane import SessionControlPlane
+from ..base import Handler, HandlerSettings
 
 logger = logging.getLogger(__name__)
 
@@ -18,13 +17,13 @@ class AcsOutboundGateHandler(Handler):
         *,
         send_callable: Callable[[Dict[str, Any]], Awaitable[None]],
         gate_is_open: Callable[[], bool],
-        control_plane: SessionControlPlane,
+        session_id: str,
         on_audio_dropped: Optional[Callable[[str], None]] = None,
     ) -> None:
         super().__init__(settings)
         self._send = send_callable
         self._gate_is_open = gate_is_open
-        self._control_plane = control_plane
+        self._session_id = session_id
         self._on_audio_dropped = on_audio_dropped
 
     async def handle(self, payload: Dict[str, Any]) -> None:  # type: ignore[override]
@@ -33,7 +32,7 @@ class AcsOutboundGateHandler(Handler):
         if is_audio and not self._gate_is_open():
             logger.info(
                 "outbound_gate_closed session=%s dropping_audio=True",
-                self._control_plane.session_id,
+                self._session_id,
             )
             if self._on_audio_dropped:
                 self._on_audio_dropped("gate_closed")

@@ -18,7 +18,6 @@ from ..core.queues import OverflowPolicy
 from ..gateways.provider.audio import AcsFormatResolver
 from ..providers.capabilities import get_provider_capabilities
 from .control import (
-    AcsOutboundGateHandler,
     ControlPlaneBusHandler,
     SessionControlPlane,
 )

@@ -2,7 +2,8 @@ import pytest
 
 from server.gateways.base import HandlerSettings
 from server.models.provider_events import ProviderOutputEvent
-from server.session.control import AcsOutboundGateHandler, SessionControlPlane
+from server.gateways.acs.outbound_gate_handler import AcsOutboundGateHandler
+from server.session.control import SessionControlPlane
 
 
 class _StubActuator:
@@ -59,7 +60,7 @@ async def test_outbound_gate_drops_audio_and_marks_inactive():
         HandlerSettings(name="gate", queue_max=10, overflow_policy="DROP_OLDEST"),
         send_callable=_send,
         gate_is_open=lambda: gate_open,
-        control_plane=control_plane,
+        session_id="session-1",
         on_audio_dropped=control_plane.mark_playback_inactive,
     )
 
