@@ -1,9 +1,8 @@
 import pytest
 
 from server.gateways.base import HandlerSettings
-from server.models.provider_events import ProviderOutputEvent
+from server.models.provider_events import ProviderInputEvent, ProviderOutputEvent
 from server.gateways.acs.outbound_gate_handler import AcsOutboundGateHandler
-from server.models.gateway_input_event import GatewayInputEvent, Trace
 from server.session.control import PlaybackStatus, SessionControlPlane
 from server.session.control.input_state import InputState, InputStatus
 from server.session.control.playback_state import PlaybackState
@@ -36,16 +35,13 @@ def _provider_event(event_type: str, payload=None, provider_response_id: str | N
     )
 
 
-def _gateway_event(payload: dict) -> GatewayInputEvent:
-    trace = Trace(sequence=1, ingress_ws_id="ingress", received_at_utc="now", call_correlation_id=None)
-    return GatewayInputEvent(
-        event_id="e1",
-        source="acs",
-        content_type="application/json",
+def _provider_input_event(metadata: dict) -> ProviderInputEvent:
+    return ProviderInputEvent(
+        commit_id="commit-1",
         session_id="session-1",
-        received_at_utc="now",
-        payload=payload,
-        trace=trace,
+        participant_id="p1",
+        b64_audio_string="",
+        metadata=metadata,
     )
 
 
@@ -56,7 +52,7 @@ async def test_playback_state_transitions_on_provider_audio_events():
     await control_plane.process_outbound_payload({"kind": "audioData", "audioData": {"data": "abc"}})
     assert control_plane.playback.status == PlaybackStatus.PLAYING
 
-    await control_plane.process_provider(_provider_event("audio.done"))
+    await control_plane.process_provider_output(_provider_event("audio.done"))
     assert control_plane.playback.status == PlaybackStatus.DRAINING
 
 
@@ -123,12 +119,11 @@ def test_input_state_transitions_and_timeout():
 @pytest.mark.asyncio
 async def test_control_plane_updates_input_state_on_voice_signal(monkeypatch):
     control_plane = SessionControlPlane("session-1", _StubActuator())
-    payload = {"kind": "AudioData", "audioData": {"participantRawId": "p1", "speech": True}}
-    times = iter([0, 0, 400, 400, 400])
+    times = iter([0, 400])
     monkeypatch.setattr("server.session.control.session_control_plane.MonotonicClock.now_ms", lambda: next(times))
 
-    await control_plane.process_gateway(_gateway_event(payload))
+    await control_plane.process_provider_input(_provider_input_event({"is_silence": False}))
     assert control_plane.input_state.is_speaking is False
 
-    await control_plane.process_gateway(_gateway_event(payload))
+    await control_plane.process_provider_input(_provider_input_event({"is_silence": False}))
     assert control_plane.input_state.is_speaking is True

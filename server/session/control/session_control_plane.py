@@ -3,11 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from ...models.gateway_input_event import GatewayInputEvent
 from ...models.provider_events import ProviderInputEvent, ProviderOutputEvent
 from ...utils.time_utils import MonotonicClock
 from .control_event import ControlEvent
-from .input_state import InputState, InputStatus
+from .input_state import InputState
 from .playback_state import PlaybackState, PlaybackStatus
 
 logger = logging.getLogger(__name__)
@@ -33,15 +32,7 @@ class SessionControlPlane:
         self.current_provider_response_id: Optional[str] = None
         self.barge_in_armed: bool = False
 
-    async def process_gateway(self, event: GatewayInputEvent) -> None:
-        now_ms = MonotonicClock.now_ms()
-        self._check_idle_timeout(now_ms)
-        self._check_input_silence_timeout(now_ms)
-        control_event = ControlEvent.from_gateway(event)
-        self._maybe_update_input_state(control_event, now_ms)
-        self._log_debug_unhandled(control_event.type)
-
-    async def process_provider(self, event: ProviderOutputEvent) -> None:
+    async def process_provider_output(self, event: ProviderOutputEvent) -> None:
         now_ms = MonotonicClock.now_ms()
         self._check_idle_timeout(now_ms)
         control_event = ControlEvent.from_provider(event)
@@ -79,7 +70,8 @@ class SessionControlPlane:
     async def process_provider_input(self, event: ProviderInputEvent) -> None:
         now_ms = MonotonicClock.now_ms()
         self._check_idle_timeout(now_ms)
-        self._log_debug_unhandled("provider_input")
+        self._check_input_silence_timeout(now_ms)
+        self._maybe_update_input_state(event, now_ms)
 
     async def process_outbound_payload(self, payload: Dict[str, Any]) -> None:
         now_ms = MonotonicClock.now_ms()
@@ -169,9 +161,9 @@ class SessionControlPlane:
                 self.INPUT_SILENCE_TIMEOUT_MS,
             )
 
-    def _maybe_update_input_state(self, event: ControlEvent, now_ms: int) -> None:
+    def _maybe_update_input_state(self, event: ProviderInputEvent, now_ms: int) -> None:
         old_status = self.input_state.status
-        if self._detect_voice_signal(event.payload):
+        if self._detect_voice_signal(event.metadata):
             self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
         if old_status != self.input_state.status:
             logger.info(
@@ -198,8 +190,8 @@ class SessionControlPlane:
             response_id,
         )
 
-    def _log_debug_unhandled(self, kind: str) -> None:
-        logger.debug("control_plane_ignored session=%s kind=%s", self.session_id, kind)
+    def _log_debug_unhandled(self, event_type: str) -> None:
+        logger.debug("control_plane_ignored session=%s type=%s", self.session_id, event_type)
 
     @staticmethod
     def _is_audio_payload(payload: Dict[str, Any]) -> bool:
@@ -210,20 +202,12 @@ class SessionControlPlane:
         return isinstance(audio_data, dict) and "data" in audio_data
 
     @staticmethod
-    def _detect_voice_signal(payload: Dict[str, Any]) -> bool:
-        if not isinstance(payload, dict):
+    def _detect_voice_signal(metadata: Dict[str, Any]) -> bool:
+        if not isinstance(metadata, dict):
             return False
-        audio_data = payload.get("audiodata") or payload.get("audioData") or {}
-        if isinstance(audio_data, dict):
-            speech_flag = audio_data.get("speech")
-            if isinstance(speech_flag, bool):
-                return speech_flag
-            vad_flag = audio_data.get("vad")
-            if isinstance(vad_flag, bool):
-                return vad_flag
-            is_silent = audio_data.get("issilent")
-            if isinstance(is_silent, bool):
-                return not is_silent
+        is_silence = metadata.get("is_silence")
+        if isinstance(is_silence, bool):
+            return not is_silence
         return False
 
 

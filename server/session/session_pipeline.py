@@ -195,24 +195,6 @@ class SessionPipeline:
             self._translation_handler
         )
 
-        await self.acs_inbound_bus.register_handler(
-            HandlerConfig(
-                name=f"control_plane_acs_in_{self.session_id}",
-                queue_max=200,
-                overflow_policy=OverflowPolicy.DROP_NEWEST,
-                concurrency=1,
-            ),
-            ControlPlaneBusHandler(
-                HandlerSettings(
-                    name=f"control_plane_acs_in_{self.session_id}",
-                    queue_max=200,
-                    overflow_policy=str(OverflowPolicy.DROP_NEWEST),
-                ),
-                control_plane=self.control_plane,
-                source="acs_inbound",
-            ),
-        )
-
         logger.info("Session %s ACS handlers registered", self.session_id)
 
     async def _register_provider_handlers(self):

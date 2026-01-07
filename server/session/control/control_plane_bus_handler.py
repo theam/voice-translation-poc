@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 
 from ...gateways.base import Handler, HandlerSettings
-from ...models.gateway_input_event import GatewayInputEvent
 from ...models.provider_events import ProviderInputEvent
 from ...models.provider_events import ProviderOutputEvent
 from .session_control_plane import SessionControlPlane
@@ -26,12 +25,8 @@ class ControlPlaneBusHandler(Handler):
         self._source = source
 
     async def handle(self, envelope: object) -> None:  # type: ignore[override]
-        if isinstance(envelope, GatewayInputEvent):
-            await self._control_plane.process_gateway(envelope)
-            return
-
         if isinstance(envelope, ProviderOutputEvent):
-            await self._control_plane.process_provider(envelope)
+            await self._control_plane.process_provider_output(envelope)
             return
 
         if isinstance(envelope, ProviderInputEvent):
