@@ -149,15 +149,11 @@ class SessionControlPlane:
 
     def _update_input_state(self, event: ProviderInputEvent, now_ms: int) -> None:
         old_status = self.input_state.status
-        is_silence = event.metadata.get("is_silence") if isinstance(event.metadata, dict) else None
-        if isinstance(is_silence, bool):
-            if is_silence:
-                self.input_state.on_silence_detected(now_ms, self.INPUT_SILENCE_TIMEOUT_MS)
-            else:
-                self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
+        is_silence = event.metadata["is_silence"]
+        if is_silence:
+            self.input_state.on_silence_detected(now_ms, self.INPUT_SILENCE_TIMEOUT_MS)
         else:
-            if self._detect_voice_signal(event.metadata):
-                self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
+            self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
         if old_status != self.input_state.status:
             reason = "silence_detected" if is_silence else "voice_detected"
             logger.info(
@@ -195,16 +191,6 @@ class SessionControlPlane:
             return True
         audio_data = payload.get("audioData") or payload.get("audio_data")
         return isinstance(audio_data, dict) and "data" in audio_data
-
-    @staticmethod
-    def _detect_voice_signal(metadata: Dict[str, Any]) -> bool:
-        if not isinstance(metadata, dict):
-            return False
-        is_silence = metadata.get("is_silence")
-        if isinstance(is_silence, bool):
-            return not is_silence
-        return False
-
 
 class SessionPipelineProtocol:
     """Protocol subset used by the control plane (runtime duck typing)."""
