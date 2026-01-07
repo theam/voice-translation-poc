@@ -3,7 +3,8 @@ import pytest
 from server.gateways.base import HandlerSettings
 from server.models.provider_events import ProviderOutputEvent
 from server.gateways.acs.outbound_gate_handler import AcsOutboundGateHandler
-from server.session.control import SessionControlPlane
+from server.session.control import PlaybackStatus, SessionControlPlane
+from server.session.control.playback_state import PlaybackState
 
 
 class _StubActuator:
@@ -37,11 +38,11 @@ def _provider_event(event_type: str, payload=None, provider_response_id: str | N
 async def test_playback_state_transitions_on_provider_audio_events():
     control_plane = SessionControlPlane("session-1", _StubActuator())
 
-    await control_plane.process_provider(_provider_event("audio.delta"))
-    assert control_plane.playback_active is True
+    await control_plane.process_outbound_payload({"kind": "audioData", "audioData": {"data": "abc"}})
+    assert control_plane.playback.status == PlaybackStatus.PLAYING
 
     await control_plane.process_provider(_provider_event("audio.done"))
-    assert control_plane.playback_active is False
+    assert control_plane.playback.status == PlaybackStatus.DRAINING
 
 
 @pytest.mark.asyncio
@@ -54,7 +55,7 @@ async def test_outbound_gate_drops_audio_and_marks_inactive():
 
     control_plane = SessionControlPlane("session-1", _StubActuator())
     await control_plane.process_outbound_payload({"kind": "audioData", "audioData": {"data": "abc"}})
-    assert control_plane.playback_active is True
+    assert control_plane.playback.is_active is True
 
     handler = AcsOutboundGateHandler(
         HandlerSettings(name="gate", queue_max=10, overflow_policy="DROP_OLDEST"),
@@ -67,8 +68,23 @@ async def test_outbound_gate_drops_audio_and_marks_inactive():
     payload = {"kind": "audioData", "audioData": {"data": "abc"}}
     await handler.handle(payload)
     assert sent == []
-    assert control_plane.playback_active is False
+    assert control_plane.playback.status == PlaybackStatus.IDLE
 
     gate_open = True
     await handler.handle(payload)
     assert sent == [payload]
+
+
+def test_playback_state_transitions_and_timeout():
+    state = PlaybackState()
+    assert state.status == PlaybackStatus.IDLE
+
+    state.on_outbound_audio_sent(1, response_id="r1")
+    assert state.status == PlaybackStatus.PLAYING
+
+    state.on_provider_done(response_id="r1")
+    assert state.status == PlaybackStatus.DRAINING
+
+    timed_out = state.maybe_timeout_idle(1000, idle_timeout_ms=500)
+    assert timed_out is True
+    assert state.status == PlaybackStatus.IDLE

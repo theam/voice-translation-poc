@@ -283,7 +283,10 @@ class SessionPipeline:
             reason,
             correlation_id,
         )
-        if not self._outbound_gate_open:
+        if self._outbound_gate_open:
+            self.control_plane.on_gate_opened()
+        else:
+            self.control_plane.on_gate_closed()
             self.control_plane.mark_playback_inactive(reason or "gate_closed", correlation_id)
 
     async def drop_outbound_audio(self, reason: str, correlation_id: Optional[str] = None) -> None:

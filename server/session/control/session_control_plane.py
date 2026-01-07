@@ -7,12 +7,15 @@ from ...models.gateway_input_event import GatewayInputEvent
 from ...models.provider_events import ProviderOutputEvent
 from ...utils.time_utils import MonotonicClock
 from .control_event import ControlEvent
+from .playback_state import PlaybackState, PlaybackStatus
 
 logger = logging.getLogger(__name__)
 
 
 class SessionControlPlane:
     """Per-session control plane consuming internal events and issuing actions."""
+
+    PLAYBACK_IDLE_TIMEOUT_MS = 500
 
     def __init__(
         self,
@@ -21,33 +24,46 @@ class SessionControlPlane:
     ) -> None:
         self.session_id = session_id
         self._pipeline = pipeline_actuator
-        self.playback_active: bool = False
+        self.playback = PlaybackState()
         self.active_speaker_id: Optional[str] = None
         self.current_provider_response_id: Optional[str] = None
         self.barge_in_armed: bool = False
-        self._last_audio_sent_ms: Optional[int] = None
 
     async def process_gateway(self, event: GatewayInputEvent) -> None:
+        now_ms = MonotonicClock.now_ms()
+        self._check_idle_timeout(now_ms)
         control_event = ControlEvent.from_gateway(event)
         self._log_debug_unhandled(control_event.kind)
 
     async def process_provider(self, event: ProviderOutputEvent) -> None:
+        now_ms = MonotonicClock.now_ms()
+        self._check_idle_timeout(now_ms)
         control_event = ControlEvent.from_provider(event)
         kind = control_event.kind
 
         if kind == "provider.audio.delta":
             self.current_provider_response_id = control_event.provider_response_id or control_event.commit_id
-            self._set_playback_active(True, "provider_audio_delta", control_event.provider_response_id)
             return
 
         if kind == "provider.audio.done":
-            self._set_playback_active(False, "provider_audio_done", control_event.provider_response_id)
+            self._transition_playback(
+                lambda: self.playback.on_provider_done(control_event.provider_response_id),
+                reason="provider_audio_done",
+                response_id=control_event.provider_response_id,
+            )
             return
 
         if kind == "provider.control":
             action = control_event.payload.get("action") if isinstance(control_event.payload, dict) else None
             if action == "stop_audio":
-                self._set_playback_active(False, "provider_stop_audio", control_event.provider_response_id)
+                self._transition_playback(
+                    lambda: self.playback.on_explicit_playback_end(
+                        reason="provider_stop_audio",
+                        response_id=control_event.provider_response_id,
+                    ),
+                    reason="provider_stop_audio",
+                    response_id=control_event.provider_response_id,
+                )
             else:
                 self._log_debug_unhandled(f"{kind}:{action}")
             return
@@ -55,45 +71,95 @@ class SessionControlPlane:
         self._log_debug_unhandled(kind)
 
     async def process_outbound_payload(self, payload: Dict[str, Any]) -> None:
+        now_ms = MonotonicClock.now_ms()
+        self._check_idle_timeout(now_ms)
         if not isinstance(payload, dict):
             self._log_debug_unhandled("acs_outbound.unknown")
             return
 
         if self._is_audio_payload(payload):
-            self._last_audio_sent_ms = MonotonicClock.now_ms()
-            self._set_playback_active(True, "acs_outbound_audio", self.current_provider_response_id)
+            self._transition_playback(
+                lambda: self.playback.on_outbound_audio_sent(
+                    now_ms,
+                    response_id=self.current_provider_response_id,
+                ),
+                reason="acs_outbound_audio",
+                response_id=self.current_provider_response_id,
+            )
             return
 
         payload_type = payload.get("type")
         if payload_type in {"control.stop_audio", "control.test.response.audio_done"}:
-            self._set_playback_active(False, payload_type, payload.get("stream_id") or payload.get("commit_id"))
+            response_id = payload.get("stream_id") or payload.get("commit_id")
+            self._transition_playback(
+                lambda: self.playback.on_explicit_playback_end(
+                    reason=payload_type,
+                    response_id=response_id,
+                ),
+                reason=payload_type,
+                response_id=response_id,
+            )
             return
 
         self._log_debug_unhandled(f"acs_outbound:{payload_type}")
 
     def mark_playback_inactive(self, reason: str, correlation_id: Optional[str] = None) -> None:
-        self._set_playback_active(False, reason, correlation_id or self.current_provider_response_id)
+        response_id = correlation_id or self.current_provider_response_id
+        self._transition_playback(
+            lambda: self.playback.on_explicit_playback_end(reason=reason, response_id=response_id),
+            reason=reason,
+            response_id=response_id,
+        )
 
-    def _set_playback_active(self, active: bool, reason: str, correlation_id: Optional[str]) -> None:
-        if active:
-            if not self.playback_active:
-                logger.info(
-                    "playback_active_started session=%s reason=%s correlation_id=%s",
-                    self.session_id,
-                    reason,
-                    correlation_id,
-                )
-            self.playback_active = True
-            return
+    def on_gate_closed(self) -> None:
+        self._transition_playback(
+            self.playback.on_gate_closed,
+            reason="gate_closed",
+            response_id=self.current_provider_response_id,
+        )
 
-        if self.playback_active:
+    def on_gate_opened(self) -> None:
+        self._transition_playback(
+            self.playback.on_gate_opened,
+            reason="gate_opened",
+            response_id=self.current_provider_response_id,
+        )
+
+    def _transition_playback(self, updater, *, reason: str, response_id: Optional[str]) -> None:
+        old_status = self.playback.status
+        updater()
+        new_status = self.playback.status
+        if old_status != new_status:
+            self._log_playback_transition(old_status, new_status, reason, response_id)
+
+    def _check_idle_timeout(self, now_ms: int) -> None:
+        old_status = self.playback.status
+        timed_out = self.playback.maybe_timeout_idle(now_ms, self.PLAYBACK_IDLE_TIMEOUT_MS)
+        if timed_out:
             logger.info(
-                "playback_active_stopped session=%s reason=%s correlation_id=%s",
+                "playback_idle_timeout session=%s last_audio_sent_ms=%s response_id=%s",
                 self.session_id,
-                reason,
-                correlation_id,
+                self.playback.last_audio_sent_ms,
+                self.playback.current_response_id,
             )
-        self.playback_active = False
+            if old_status != self.playback.status:
+                self._log_playback_transition(old_status, self.playback.status, "idle_timeout", self.playback.current_response_id)
+
+    def _log_playback_transition(
+        self,
+        old_status: PlaybackStatus,
+        new_status: PlaybackStatus,
+        reason: str,
+        response_id: Optional[str],
+    ) -> None:
+        logger.info(
+            "playback_status_changed session=%s from=%s to=%s reason=%s response_id=%s",
+            self.session_id,
+            old_status,
+            new_status,
+            reason,
+            response_id,
+        )
 
     def _log_debug_unhandled(self, kind: str) -> None:
         logger.debug("control_plane_ignored session=%s kind=%s", self.session_id, kind)
