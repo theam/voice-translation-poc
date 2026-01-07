@@ -38,19 +38,19 @@ class SessionControlPlane:
         self._check_input_silence_timeout(now_ms)
         control_event = ControlEvent.from_gateway(event)
         self._maybe_update_input_state(control_event, now_ms)
-        self._log_debug_unhandled(control_event.kind)
+        self._log_debug_unhandled(control_event.type)
 
     async def process_provider(self, event: ProviderOutputEvent) -> None:
         now_ms = MonotonicClock.now_ms()
         self._check_idle_timeout(now_ms)
         control_event = ControlEvent.from_provider(event)
-        kind = control_event.kind
+        event_type = control_event.type
 
-        if kind == "provider.audio.delta":
+        if event_type == "provider.audio.delta":
             self.current_provider_response_id = control_event.provider_response_id or control_event.commit_id
             return
 
-        if kind == "provider.audio.done":
+        if event_type == "provider.audio.done":
             self._transition_playback(
                 lambda: self.playback.on_provider_done(control_event.provider_response_id),
                 reason="provider_audio_done",
@@ -58,7 +58,7 @@ class SessionControlPlane:
             )
             return
 
-        if kind == "provider.control":
+        if event_type == "provider.control":
             action = control_event.payload.get("action") if isinstance(control_event.payload, dict) else None
             if action == "stop_audio":
                 self._transition_playback(
@@ -70,10 +70,10 @@ class SessionControlPlane:
                     response_id=control_event.provider_response_id,
                 )
             else:
-                self._log_debug_unhandled(f"{kind}:{action}")
+                self._log_debug_unhandled(f"{event_type}:{action}")
             return
 
-        self._log_debug_unhandled(kind)
+        self._log_debug_unhandled(event_type)
 
     async def process_provider_input(self, event: ProviderInputEvent) -> None:
         now_ms = MonotonicClock.now_ms()

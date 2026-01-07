@@ -13,7 +13,7 @@ class ControlEvent:
     """Normalized control-plane event extracted from internal envelopes."""
 
     session_id: str
-    kind: str
+    type: str
     payload: Dict[str, Any]
     participant_id: Optional[str] = None
     provider_response_id: Optional[str] = None
@@ -31,7 +31,7 @@ class ControlEvent:
 
         return cls(
             session_id=event.session_id,
-            kind="gateway.input",
+            type="gateway.input",
             payload=payload,
             participant_id=participant_id,
             timestamp_ms=MonotonicClock.now_ms(),
@@ -39,11 +39,11 @@ class ControlEvent:
 
     @classmethod
     def from_provider(cls, event: ProviderOutputEvent) -> "ControlEvent":
-        kind = f"provider.{event.event_type}" if event.event_type else "provider.unknown"
+        event_type = f"provider.{event.event_type}" if event.event_type else "provider.unknown"
         return cls(
             session_id=event.session_id,
             participant_id=event.participant_id,
-            kind=kind,
+            type=event_type,
             payload=event.payload or {},
             provider_response_id=event.provider_response_id or event.stream_id,
             commit_id=event.commit_id,
@@ -55,8 +55,8 @@ class ControlEvent:
         if not isinstance(payload, dict):
             return None
 
-        kind = payload.get("kind")
-        if kind not in {"audioData", "audio.data"}:
+        payload_type = payload.get("kind")
+        if payload_type not in {"audioData", "audio.data"}:
             return None
 
         audio_data = payload.get("audioData") or payload.get("audio_data") or {}
@@ -67,7 +67,7 @@ class ControlEvent:
         return cls(
             session_id=session_id,
             participant_id=participant_id,
-            kind="acs_outbound.audio",
+            type="acs_outbound.audio",
             payload=payload,
             timestamp_ms=MonotonicClock.now_ms(),
         )
