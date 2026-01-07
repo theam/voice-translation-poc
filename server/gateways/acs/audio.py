@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from ...config import BatchingConfig
-from ...audio import Base64AudioCodec
+from ...audio import Base64AudioCodec, PcmConverter
 from ...models.gateway_input_event import GatewayInputEvent
 from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderInputEvent
@@ -33,13 +33,19 @@ class ParticipantState:
 class AudioMessageHandler:
     """Consumes audio envelopes, buffers audio, and dispatches to provider."""
 
+    SILENCE_RMS_THRESHOLD = 50.0
+
     def __init__(
         self,
         provider_outbound_bus: EventBus,
-        batching_config: BatchingConfig
+        batching_config: BatchingConfig,
+        session_metadata: Optional[Dict[str, Any]] = None,
+        pcm_converter: Optional[PcmConverter] = None,
     ):
         self._provider_outbound_bus = provider_outbound_bus
         self._batching_config = batching_config
+        self._session_metadata = session_metadata or {}
+        self._pcm_converter = pcm_converter or PcmConverter()
         self._buffers: Dict[AudioKey, List[bytes]] = defaultdict(list)
         self._participant_state: Dict[AudioKey, ParticipantState] = defaultdict(ParticipantState)
         self._lock = asyncio.Lock()
@@ -167,13 +173,20 @@ class AudioMessageHandler:
         if isinstance(audio_data, dict):
             participant_id = audio_data.get("participantrawid")
             timestamp_utc = audio_data.get("timestamp") or timestamp_utc
+        rms = self._pcm_converter.rms_pcm16(raw_audio, self._resolve_channels())
+        is_silence = rms < self.SILENCE_RMS_THRESHOLD
         audio_b64 = Base64AudioCodec.encode(raw_audio)
         request = ProviderInputEvent(
             commit_id=commit_id,
             session_id=event.session_id,
             participant_id=participant_id,
             b64_audio_string=audio_b64,
-            metadata={"timestamp_utc": timestamp_utc, "message_id": event.event_id},
+            metadata={
+                "timestamp_utc": timestamp_utc,
+                "message_id": event.event_id,
+                "rms_pcm16": rms,
+                "is_silence": is_silence,
+            },
         )
 
         logger.info("Publishing audio request to provider - commit=%s bytes=%s", commit_id, len(raw_audio))
@@ -193,3 +206,35 @@ class AudioMessageHandler:
         if tasks_to_cancel:
             await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
             logger.info("Cancelled %d idle timers during shutdown", len(tasks_to_cancel))
+
+    async def flush(self, participant_id: Optional[str] = None) -> None:
+        """Clear buffered audio (best effort, used by control plane)."""
+        async with self._lock:
+            tasks_to_cancel = []
+            keys = list(self._buffers.keys())
+            for key in keys:
+                _, pid = key
+                if participant_id is not None and pid != participant_id:
+                    continue
+                state = self._participant_state.pop(key, None)
+                if state and state.idle_timer_task and not state.idle_timer_task.done():
+                    state.idle_timer_task.cancel()
+                    tasks_to_cancel.append(state.idle_timer_task)
+                self._buffers.pop(key, None)
+
+        if tasks_to_cancel:
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            logger.info("Flushed %d participant buffers (participant=%s)", len(tasks_to_cancel), participant_id)
+
+    def _resolve_channels(self) -> int:
+        channels = 1
+        format_info = self._session_metadata.get("acs_audio", {}).get("format", {})
+        if isinstance(format_info, dict):
+            channels = format_info.get("channels") or channels
+        try:
+            channels = int(channels)
+        except (TypeError, ValueError):
+            channels = 1
+        if channels not in (1, 2):
+            channels = 1
+        return channels

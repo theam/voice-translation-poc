@@ -17,6 +17,8 @@ from ..core.queues import OverflowPolicy
 from ..core.websocket_server import WebSocketServer
 from ..utils.dict_utils import normalize_keys
 from .session_pipeline import SessionPipeline
+from .control import ControlPlaneBusHandler
+from ..gateways.acs.outbound_gate_handler import AcsOutboundGateHandler
 
 logger = logging.getLogger(__name__)
 
@@ -190,12 +192,17 @@ class Session:
                 )
 
         # Create inline handler for sending to WebSocket
-        class ACSWebSocketSender(Handler):
-            def __init__(self, settings: HandlerSettings):
-                super().__init__(settings)
-
-            async def handle(self, payload: Dict[str, Any]):
-                await send_to_acs(payload)
+        gate_handler = AcsOutboundGateHandler(
+            HandlerSettings(
+                name=f"acs_outbound_gate_{pipeline.pipeline_id}",
+                queue_max=1000,
+                overflow_policy="DROP_OLDEST",
+            ),
+            send_callable=send_to_acs,
+            gate_is_open=pipeline.is_outbound_gate_open,
+            session_id=pipeline.session_id,
+            on_audio_dropped=lambda reason: pipeline.control_plane.mark_playback_inactive(reason or "gate_drop"),
+        )
 
         # Register handler on pipeline's outbound bus
         await pipeline.acs_outbound_bus.register_handler(
@@ -205,13 +212,26 @@ class Session:
                 overflow_policy=OverflowPolicy.DROP_OLDEST,
                 concurrency=1
             ),
-            ACSWebSocketSender(
+            gate_handler,
+        )
+
+        # Tap outbound ACS messages for control plane state
+        await pipeline.acs_outbound_bus.register_handler(
+            HandlerConfig(
+                name=f"control_plane_acs_out_{pipeline.pipeline_id}",
+                queue_max=200,
+                overflow_policy=OverflowPolicy.DROP_NEWEST,
+                concurrency=1,
+            ),
+            ControlPlaneBusHandler(
                 HandlerSettings(
-                    name=f"acs_websocket_send_{pipeline.pipeline_id}",
-                    queue_max=1000,
-                    overflow_policy="DROP_OLDEST"
-                )
-            )
+                    name=f"control_plane_acs_out_{pipeline.pipeline_id}",
+                    queue_max=200,
+                    overflow_policy=str(OverflowPolicy.DROP_NEWEST),
+                ),
+                control_plane=pipeline.control_plane,
+                source="acs_outbound",
+            ),
         )
 
     async def cleanup(self):
