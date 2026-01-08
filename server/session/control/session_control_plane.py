@@ -150,12 +150,15 @@ class SessionControlPlane:
     def _update_input_state(self, event: ProviderInputEvent, now_ms: int) -> None:
         old_status = self.input_state.status
         is_silence = event.metadata["is_silence"]
+
         if is_silence:
-            self.input_state.on_silence_detected(now_ms, self.INPUT_SILENCE_TIMEOUT_MS)
+            transitioned = self.input_state.on_silence_detected(now_ms, self.INPUT_SILENCE_TIMEOUT_MS)
+            reason = "silence_detected"
         else:
-            self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
-        if old_status != self.input_state.status:
-            reason = "silence_detected" if is_silence else "voice_detected"
+            transitioned = self.input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
+            reason = "voice_detected"
+
+        if transitioned:
             logger.info(
                 "input_state_changed session=%s from=%s to=%s reason=%s participant_id=%s",
                 self.session_id,

@@ -1,84 +1,128 @@
-# Server Architecture Design (From Scratch)
+# Voice Translation Server Architecture
 
-## Core Concept
+This document provides a comprehensive technical overview of the Voice Translation Server architecture, design patterns, and implementation details.
 
-The service is a **WebSocket server** that listens for incoming ACS connections. Each connection represents an independent translation session with its own state, gateways, and provider connection.
+## Table of Contents
 
-## Key Principles
+- [Core Principles](#core-principles)
+- [Architecture Overview](#architecture-overview)
+- [Component Hierarchy](#component-hierarchy)
+- [Event-Driven Architecture](#event-driven-architecture)
+- [Session Lifecycle](#session-lifecycle)
+- [Provider System](#provider-system)
+- [Control Plane](#control-plane)
+- [Audio Processing Pipeline](#audio-processing-pipeline)
+- [Configuration System](#configuration-system)
+- [Message Flow Examples](#message-flow-examples)
+- [Testing Strategy](#testing-strategy)
+- [Design Patterns](#design-patterns)
 
-1. **Server-Side Architecture**: Service listens for ACS connections (not connecting out)
-2. **Session Isolation**: Each ACS connection is completely independent
-3. **Dynamic Routing Strategy**: Message routing chosen based on metadata from first ACS message:
-   - **Shared Pipeline** (default): All participants share one pipeline
-   - **Per-Participant Pipeline**: Each participant gets isolated pipeline
-4. **Dynamic Provider Selection**: Provider chosen based on metadata from first ACS message
-5. **Bidirectional Streaming**: Symmetric flow in both directions (ACS ↔ Provider)
+---
+
+## Core Principles
+
+### 1. Server-Side WebSocket Architecture
+
+The service **listens** for incoming ACS (Azure Communication Services) WebSocket connections rather than connecting out to external services. This is a fundamental architectural pattern:
+
+- **Correct**: Service listens on port 8080, ACS clients connect to us
+- **Incorrect**: Service connects out to ACS endpoints
+
+### 2. Complete Session Isolation
+
+Each ACS WebSocket connection represents one **independent session** with:
+- Dedicated `SessionPipeline` with 4 event buses
+- Independent provider connection (not shared across sessions)
+- Isolated state (control plane, buffers, queues)
+- No cross-session contamination
+
+**Key Insight**: Multiple concurrent sessions can use different providers simultaneously without interference.
+
+### 3. Event-Driven Processing
+
+All communication within a session flows through **event buses** using fan-out pub/sub:
+- Handlers subscribe to buses with independent queues
+- Configurable overflow policies (DROP_OLDEST, DROP_NEWEST)
+- Async-safe with bounded queues
+- Clean separation between producers and consumers
+
+### 4. Dynamic Provider Selection
+
+Provider is selected **per session** based on priority:
+1. Test settings (`control.test.settings` message)
+2. Session metadata (`metadata.provider`)
+3. Feature flags (`metadata.feature_flags.use_voicelive`)
+4. Config default (`dispatch.default_provider`)
+
+**Result**: Sessions can use different providers concurrently (e.g., session A uses OpenAI, session B uses Voice Live).
+
+### 5. Bidirectional Streaming
+
+Symmetric message flow in both directions:
+```
+ACS → Session → Provider → Translation
+ACS ← Session ← Provider ← Results
+```
+
+Real-time processing with minimal buffering except for batching optimization.
+
+---
 
 ## Architecture Overview
 
+### High-Level Component Flow
+
 ```
-                    ┌──────────────────────────┐
-                    │   ACS WebSocket Server   │
-                    │  (websockets.serve:8080) │
-                    └────────────┬─────────────┘
-                                 │ Incoming connections
-                    ┌────────────┴─────────────┐
-                    │    Session Manager       │
-                    │  (tracks active sessions)│
-                    └────────────┬─────────────┘
-                                 │ Creates session per connection
-                    ┌────────────┴─────────────┐
-                    │        Session           │
-                    │  (one per ACS connection)│
-                    └────────────┬─────────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    │                         │
-                    ▼                         ▼
-              ACS Receive                ACS Send
-                 Loop                      Loop
-                    │                         ▲
-                    │ Routes by               │
-                    │ participant_id          │
-                    ▼                         │
-         ┌──────────────────────┐            │
-         │ Participant Pipelines│            │
-         │  (per participant_id)│            │
-         └──────────┬───────────┘            │
-                    │                         │
-    ┌───────────────┼────────────┐           │
-    ▼               ▼            ▼           │
-Participant     Participant  Participant     │
-  "user-123"     "user-456"   "user-789"     │
-    │               │            │           │
-    ▼               ▼            ▼           │
-Event Buses    Event Buses  Event Buses      │
-(4 buses)      (4 buses)    (4 buses)        │
-    │               │            │           │
-    ▼               ▼            ▼           │
-Gateways       Gateways     Gateways         │
-(4 gateways)   (4 gateways) (4 gateways)     │
-    │               │            │           │
-    ▼               ▼            ▼           │
-Provider       Provider     Provider         │
-VoiceLive      LiveInterp   Mock             │
-    │               │            │           │
-    └───────────────┴────────────┴───────────┘
-                    │
-                    └─────► Merged back to ACS send loop
+┌─────────────────────────────────────────────────────────────┐
+│                    ACS WebSocket Server                      │
+│                   (listens on port 8080)                     │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ Accepts connections
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     SessionManager                           │
+│              (tracks all active sessions)                    │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ Creates Session per connection
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                   ▼
+   ┌────────┐         ┌────────┐         ┌────────┐
+   │Session │         │Session │         │Session │
+   │  #1    │         │  #2    │         │  #3    │
+   └────┬───┘         └────┬───┘         └────┬───┘
+        │                  │                   │
+        ▼                  ▼                   ▼
+   SessionPipeline    SessionPipeline    SessionPipeline
+   ├─ acs_inbound_bus    │                   │
+   ├─ provider_out_bus   │                   │
+   ├─ provider_in_bus    │                   │
+   ├─ acs_outbound_bus   │                   │
+   └─ ControlPlane       │                   │
+        │                  │                   │
+        ▼                  ▼                   ▼
+   OpenAI Provider   Voice Live Provider  Mock Provider
 ```
 
-**Key Enhancement**: Each participant gets their own isolated pipeline with independent:
-- Event buses (4 per participant)
-- Gateways (4 instances per participant)
-- Provider (can be different per participant)
-- Auto-commit state and buffering
+### Key Architectural Layers
 
-## Components
+| Layer | Component | Responsibility |
+|-------|-----------|---------------|
+| **Network** | ACSServer | Accept WebSocket connections |
+| **Session Management** | SessionManager | Track active sessions, coordinate shutdown |
+| **Connection** | Session | Manage one WebSocket connection, run receive/send loops |
+| **Pipeline** | SessionPipeline | Route messages through event buses |
+| **Event Distribution** | EventBus | Fan-out pub/sub with bounded queues |
+| **Protocol Adapters** | Gateways | Convert between ACS ↔ internal ↔ provider formats |
+| **Translation** | Provider | Connect to external translation service |
+| **State Management** | ControlPlane | Track playback/input state, orchestrate actions |
 
-### 1. ACS Server (`acs_server.py`)
+---
 
-**Responsibility**: WebSocket server that accepts incoming ACS connections.
+## Component Hierarchy
+
+### 1. ACSServer (`core/acs_server.py`)
+
+**Entry point for the entire service.**
 
 ```python
 class ACSServer:
@@ -89,49 +133,69 @@ class ACSServer:
         self.session_manager = SessionManager(config)
 
     async def start(self):
-        """Start WebSocket server."""
+        """Start WebSocket server and run forever."""
         async with websockets.serve(
             self._handle_connection,
             self.host,
             self.port
         ):
             logger.info(f"ACS server listening on {self.host}:{self.port}")
-            await asyncio.Future()  # Run forever
+            await asyncio.Future()  # Run indefinitely
 
     async def _handle_connection(
         self,
         websocket: WebSocketServerProtocol,
         path: str
     ):
-        """Handle incoming ACS connection."""
-        session = await self.session_manager.create_session(websocket)
+        """Handle incoming ACS WebSocket connection."""
+        # Extract connection headers (call_connection_id, correlation_id)
+        connection_ctx = ConnectionContext.from_headers(websocket.request_headers)
+
+        # Create session
+        session = await self.session_manager.create_session(
+            websocket,
+            connection_ctx
+        )
+
         try:
-            await session.run()
+            await session.run()  # Run until disconnect
         except Exception as e:
-            logger.exception(f"Session {session.session_id} error: {e}")
+            logger.exception(f"Session error: {e}")
         finally:
             await self.session_manager.remove_session(session.session_id)
 ```
 
-**Key Points**:
-- Uses `websockets.serve()` to listen for connections
-- Each connection handed to `SessionManager`
-- Session runs until ACS disconnects
+**Key Responsibilities**:
+- Listen on configured host/port
+- Accept WebSocket connections
+- Extract connection metadata from headers
+- Delegate to SessionManager
+- Handle errors and cleanup
 
-### 2. Session Manager (`session_manager.py`)
+**Startup Sequence**:
+1. Load configuration (YAML + environment overrides)
+2. Create SessionManager
+3. Start WebSocket server with `websockets.serve()`
+4. Wait indefinitely (until KeyboardInterrupt)
+5. Graceful shutdown of all sessions
 
-**Responsibility**: Tracks active sessions, creates/removes sessions.
+---
+
+### 2. SessionManager (`session/session_manager.py`)
+
+**Tracks all active sessions.**
 
 ```python
 class SessionManager:
     def __init__(self, config: Config):
         self.config = config
         self.sessions: Dict[str, Session] = {}
-        self._lock = asyncio.Lock()
+        self._lock = asyncio.Lock()  # Thread-safe access
 
     async def create_session(
         self,
-        websocket: WebSocketServerProtocol
+        websocket: WebSocketServerProtocol,
+        connection_ctx: ConnectionContext
     ) -> Session:
         """Create new session for ACS connection."""
         async with self._lock:
@@ -139,81 +203,52 @@ class SessionManager:
             session = Session(
                 session_id=session_id,
                 websocket=websocket,
-                config=self.config
+                config=self.config,
+                connection_ctx=connection_ctx
             )
             self.sessions[session_id] = session
-            logger.info(f"Created session {session_id}")
+            logger.info(f"session_created id={session_id} count={len(self.sessions)}")
             return session
 
     async def remove_session(self, session_id: str):
-        """Remove session and cleanup."""
+        """Remove session and cleanup resources."""
         async with self._lock:
             session = self.sessions.pop(session_id, None)
             if session:
                 await session.cleanup()
-                logger.info(f"Removed session {session_id}")
+                logger.info(f"session_removed id={session_id} count={len(self.sessions)}")
 
     async def shutdown_all(self):
-        """Shutdown all active sessions."""
+        """Shutdown all active sessions (graceful server shutdown)."""
         async with self._lock:
+            logger.info(f"Shutting down {len(self.sessions)} active sessions")
             for session in list(self.sessions.values()):
                 await session.cleanup()
             self.sessions.clear()
+
+    def get_active_count(self) -> int:
+        """Return number of active sessions."""
+        return len(self.sessions)
 ```
 
-**Key Points**:
-- One session per ACS connection
-- Thread-safe session tracking
-- Handles cleanup on disconnect
+**Key Responsibilities**:
+- Create sessions with unique IDs
+- Track all active sessions in dictionary
+- Thread-safe session access (asyncio.Lock)
+- Coordinate graceful shutdown
+- Provide session metrics (active count)
 
-### 3. Session Pipeline (`session_pipeline.py`)
+**Session Tracking**:
+- Key: `session_id` (UUID)
+- Value: `Session` instance
+- Cleanup on disconnect or error
+- No session reuse (create fresh per connection)
 
-**Responsibility**: Manages translation pipeline for ONE ACS session and accepts events from all participants.
+---
 
-```python
-class SessionPipeline:
-    """Translation pipeline shared across all participants in an ACS session."""
+### 3. Session (`session/session.py`)
 
-    def __init__(
-        self,
-        session_id: str,
-        config: Config,
-        provider_name: str,
-        metadata: Dict[str, Any],
-        translation_settings: Dict[str, Any],
-    ):
-        self.session_id = session_id
-        self.config = config
-        self.provider_name = provider_name
-        self.metadata = metadata
-        self.translation_settings = translation_settings
-
-        self.acs_inbound_bus = EventBus(f"acs_in_{session_id}")
-        self.provider_outbound_bus = EventBus(f"prov_out_{session_id}")
-        self.provider_inbound_bus = EventBus(f"prov_in_{session_id}")
-        self.acs_outbound_bus = EventBus(f"acs_out_{session_id}")
-
-    async def start(self):
-        """Start session pipeline: create provider and register handlers."""
-        self.provider_adapter = ProviderFactory.create_provider(
-            config=self.config,
-            provider_name=self.provider_name,
-            outbound_bus=self.provider_outbound_bus,
-            inbound_bus=self.provider_inbound_bus,
-            session_metadata=self.metadata,
-        )
-        await self.provider_adapter.start()
-        await self._register_handlers()
-```
-
-**Key Points**:
-- Single pipeline per ACS session
-- Event buses are scoped to the session
-- Provider instance is shared by all participants in the session
-
-### 4. Session (`session.py`)
-
-**Responsibility**: Manages one ACS connection, initializes a single session-scoped pipeline, and forwards all inbound events to it.
+**Manages one ACS WebSocket connection.**
 
 ```python
 class Session:
@@ -222,487 +257,1626 @@ class Session:
         session_id: str,
         websocket: WebSocketServerProtocol,
         config: Config,
-        connection_ctx: ConnectionContext,
+        connection_ctx: ConnectionContext
     ):
         self.session_id = session_id
         self.websocket = websocket
         self.config = config
         self.connection_ctx = connection_ctx
-        self.canonical_session_id = connection_ctx.call_connection_id or connection_ctx.ingress_ws_id
 
+        # Extracted from ACS messages
         self.metadata: Dict[str, Any] = {}
         self.translation_settings: Dict[str, Any] = {}
+
+        # Pipeline (created on first message)
         self.pipeline: Optional[SessionPipeline] = None
 
-        self._initialized = False
-        self._sequence = 0
+        # Tasks
         self._receive_task: Optional[asyncio.Task] = None
-        self._send_task: Optional[asyncio.Task] = None
+
+    async def run(self):
+        """Run session until disconnect."""
+        try:
+            # Initialize ACS processing (before provider ready)
+            await self._initialize_acs_processing()
+
+            # Start receive loop
+            self._receive_task = asyncio.create_task(self._acs_receive_loop())
+            await self._receive_task
+
+        except websockets.exceptions.ConnectionClosed:
+            logger.info(f"session_disconnected id={self.session_id}")
+        except Exception as e:
+            logger.exception(f"session_error id={self.session_id} error={e}")
 
     async def _acs_receive_loop(self):
-        """Receive messages from ACS WebSocket and route to pipeline."""
+        """Receive messages from ACS WebSocket."""
         async for raw_message in self.websocket:
-            data = json.loads(raw_message)
-            if not self._initialized:
-                await self._initialize_from_first_message(data)
+            try:
+                data = json.loads(raw_message)
 
-            self._sequence += 1
-            event = GatewayInputEvent.from_acs_frame(
-                data,
-                sequence=self._sequence,
-                ctx=self.connection_ctx,
-            )
-            await self._route_message(event)
+                # Create event envelope
+                event = GatewayInputEvent.from_acs_message(
+                    payload=data,
+                    session_id=self.session_id,
+                    connection_ctx=self.connection_ctx
+                )
 
-    async def _route_message(self, envelope: GatewayInputEvent):
-        if self.pipeline is None:
-            return
-        await self.pipeline.process_message(envelope)
+                # Route to pipeline
+                await self.pipeline.process_message(event)
 
-    async def _initialize_from_first_message(self, data: Dict[str, Any]):
-        self.metadata = data.get("metadata", {})
-        provider_name = self._select_provider(self.metadata)
+            except Exception as e:
+                logger.exception(f"message_processing_error id={self.session_id} error={e}")
 
+    async def _initialize_acs_processing(self):
+        """Create pipeline and register ACS handlers (before provider ready)."""
         self.pipeline = SessionPipeline(
-            session_id=self.canonical_session_id,
+            session_id=self.session_id,
             config=self.config,
-            provider_name=provider_name,
             metadata=self.metadata,
-            translation_settings=self.translation_settings,
+            translation_settings=self.translation_settings
         )
-        await self.pipeline.start()
-        await self._subscribe_to_pipeline_output(self.pipeline)
-        self._initialized = True
 
-    async def _subscribe_to_pipeline_output(self, pipeline: SessionPipeline):
+        # Phase 1: Register ACS handlers
+        await self.pipeline.start_acs_processing()
+
+        # Subscribe to outbound bus for sending to ACS
+        await self._subscribe_to_pipeline_output()
+
+    async def _subscribe_to_pipeline_output(self):
+        """Register handler to send pipeline output to ACS WebSocket."""
         async def send_to_acs(payload: Dict[str, Any]):
             await self.websocket.send(json.dumps(payload))
 
-        class ACSWebSocketSender(Handler):
-            async def handle(self, payload: Dict[str, Any]):
-                await send_to_acs(payload)
-
-        await pipeline.acs_outbound_bus.register_handler(
+        await self.pipeline.acs_outbound_bus.register_handler(
             HandlerConfig(
-                name=f"acs_websocket_send_{pipeline.pipeline_id}",
+                name=f"acs_websocket_send_{self.session_id}",
                 queue_max=1000,
                 overflow_policy=OverflowPolicy.DROP_OLDEST,
                 concurrency=1
             ),
-            ACSWebSocketSender(
-                HandlerSettings(
-                    name=f"acs_websocket_send_{pipeline.pipeline_id}",
-                    queue_max=1000,
-                    overflow_policy="DROP_OLDEST"
-                )
-            )
+            send_to_acs
         )
 
     async def cleanup(self):
+        """Cleanup session resources."""
         if self._receive_task:
             self._receive_task.cancel()
-        if self._send_task:
-            self._send_task.cancel()
+
         if self.pipeline:
             await self.pipeline.cleanup()
+
         await self.websocket.close()
+        logger.info(f"session_cleanup_complete id={self.session_id}")
 ```
 
-**Key Points**:
-- Exactly one pipeline per ACS WebSocket session
-- Participant identity is preserved on envelopes; the pipeline reads it from the event payloads
-- Outbound ACS messaging uses the pipeline's `acs_outbound_bus` with a single WebSocket sender subscription
-- Cleanup covers the session tasks, the session pipeline, and the WebSocket connection
+**Key Responsibilities**:
+- Run receive loop (ACS → Pipeline)
+- Create SessionPipeline on startup
+- Subscribe to pipeline output (Pipeline → ACS)
+- Handle WebSocket close/errors
+- Cleanup on disconnect
 
-### 5. Main Entry Point (`main.py`)
+**Initialization Flow**:
+1. Create `SessionPipeline`
+2. Call `pipeline.start_acs_processing()` (register ACS handlers)
+3. Subscribe to `acs_outbound_bus` for sending to ACS
+4. Start receive loop
+5. Wait for disconnect or error
+6. Cleanup pipeline and WebSocket
+
+---
+
+### 4. SessionPipeline (`session/session_pipeline.py`)
+
+**Event-driven message routing for one session.**
 
 ```python
-async def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    )
+class SessionPipeline:
+    """One pipeline per ACS WebSocket session (shared by all participants)."""
 
-    # Load config (single file)
-    config = Config.from_yaml([Path("config.yaml")])
+    # Pipeline stages
+    NOT_STARTED = "not_started"
+    ACS_PROCESSING = "acs_processing"
+    PROVIDER_PROCESSING = "provider_processing"
 
-    # Or load and merge multiple configs
-    config = Config.from_yaml([Path("base.yaml"), Path("overrides.yaml")])
+    def __init__(
+        self,
+        session_id: str,
+        config: Config,
+        metadata: Dict[str, Any],
+        translation_settings: Dict[str, Any]
+    ):
+        self.session_id = session_id
+        self.config = config
+        self.metadata = metadata
+        self.translation_settings = translation_settings
 
-    # Create and start server
-    server = ACSServer(
-        config=config,
-        host="0.0.0.0",
-        port=8080
-    )
+        self.stage = self.NOT_STARTED
 
-    try:
-        await server.start()
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
-    finally:
-        await server.session_manager.shutdown_all()
+        # Event buses (session-scoped)
+        self.acs_inbound_bus = EventBus(f"acs_in_{session_id}")
+        self.provider_outbound_bus = EventBus(f"prov_out_{session_id}")
+        self.provider_inbound_bus = EventBus(f"prov_in_{session_id}")
+        self.acs_outbound_bus = EventBus(f"acs_out_{session_id}")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+        # Provider (created in phase 2)
+        self.provider: Optional[TranslationProvider] = None
+
+        # Control plane (state management)
+        self.control_plane = SessionControlPlane(
+            session_id=session_id,
+            pipeline_actuator=self  # Self as actuator interface
+        )
+
+    async def start_acs_processing(self):
+        """Phase 1: Register ACS handlers (before provider ready)."""
+        self.stage = self.ACS_PROCESSING
+
+        # Register ACS message handlers
+        await self._register_acs_handlers()
+
+        # Register control plane handlers (tap into buses)
+        await self._register_control_plane_handlers()
+
+        logger.info(f"pipeline_acs_processing_started session={self.session_id}")
+
+    async def start_provider_processing(self, provider_name: str):
+        """Phase 2: Create provider and register provider handlers."""
+        self.stage = self.PROVIDER_PROCESSING
+
+        # Create and start provider
+        self.provider = ProviderFactory.create_provider(
+            config=self.config,
+            provider_name=provider_name,
+            provider_outbound_bus=self.provider_outbound_bus,
+            provider_inbound_bus=self.provider_inbound_bus,
+            metadata=self.metadata,
+            translation_settings=self.translation_settings
+        )
+        await self.provider.start()
+
+        # Register provider handlers
+        await self._register_provider_handlers()
+
+        logger.info(f"pipeline_provider_processing_started session={self.session_id} provider={provider_name}")
+
+    async def process_message(self, event: GatewayInputEvent):
+        """Publish ACS message to inbound bus."""
+        await self.acs_inbound_bus.publish(event)
+
+    async def _register_acs_handlers(self):
+        """Register handlers for ACS messages."""
+        # Audio message handler (buffering, batching)
+        await self.acs_inbound_bus.register_handler(
+            HandlerConfig(
+                name=f"audio_handler_{self.session_id}",
+                queue_max=self.config.buffering.ingress_queue_max,
+                overflow_policy=OverflowPolicy.DROP_OLDEST,
+                concurrency=1
+            ),
+            AudioMessageHandler(
+                pipeline=self,
+                config=self.config
+            )
+        )
+
+        # Audio metadata handler (triggers provider init)
+        await self.acs_inbound_bus.register_handler(
+            HandlerConfig(
+                name=f"metadata_handler_{self.session_id}",
+                queue_max=100,
+                overflow_policy=OverflowPolicy.DROP_OLDEST,
+                concurrency=1
+            ),
+            AudioMetadataHandler(
+                pipeline=self,
+                metadata=self.metadata
+            )
+        )
+
+        # Test settings handler (hot config reload)
+        await self.acs_inbound_bus.register_handler(
+            HandlerConfig(
+                name=f"test_settings_{self.session_id}",
+                queue_max=100,
+                overflow_policy=OverflowPolicy.DROP_OLDEST,
+                concurrency=1
+            ),
+            TestSettingsHandler(
+                translation_settings=self.translation_settings,
+                session_metadata=self.metadata
+            )
+        )
+
+    async def _register_provider_handlers(self):
+        """Register handlers for provider responses."""
+        # Provider output handler (formats responses for ACS)
+        await self.provider_inbound_bus.register_handler(
+            HandlerConfig(
+                name=f"provider_output_{self.session_id}",
+                queue_max=self.config.buffering.egress_queue_max,
+                overflow_policy=OverflowPolicy.DROP_OLDEST,
+                concurrency=1
+            ),
+            ProviderOutputHandler(
+                acs_outbound_bus=self.acs_outbound_bus
+            )
+        )
+
+        # Gate handler (sends to ACS with gate control)
+        await self.acs_outbound_bus.register_handler(
+            HandlerConfig(
+                name=f"acs_gate_{self.session_id}",
+                queue_max=self.config.buffering.egress_queue_max,
+                overflow_policy=OverflowPolicy.DROP_OLDEST,
+                concurrency=1
+            ),
+            AcsOutboundGateHandler(
+                websocket=self.websocket,
+                control_plane=self.control_plane
+            )
+        )
+
+    async def _register_control_plane_handlers(self):
+        """Register control plane handlers (tap into buses for state tracking)."""
+        # Tap provider input bus for input state
+        await self.provider_inbound_bus.register_handler(
+            HandlerConfig(
+                name=f"control_plane_input_{self.session_id}",
+                queue_max=100,
+                overflow_policy=OverflowPolicy.DROP_OLDEST,
+                concurrency=1
+            ),
+            ControlPlaneBusHandler(
+                control_plane=self.control_plane,
+                event_type="provider_input"
+            )
+        )
+
+        # Tap provider output bus for playback state
+        await self.provider_inbound_bus.register_handler(
+            HandlerConfig(
+                name=f"control_plane_output_{self.session_id}",
+                queue_max=100,
+                overflow_policy=OverflowPolicy.DROP_OLDEST,
+                concurrency=1
+            ),
+            ControlPlaneBusHandler(
+                control_plane=self.control_plane,
+                event_type="provider_output"
+            )
+        )
+
+    # Pipeline Actuator Interface (for control plane)
+
+    def set_outbound_gate(self, enabled: bool, reason: str, correlation_id: Optional[str] = None):
+        """Control playback gate (open/close)."""
+        # Implementation: Set flag that gate handler checks
+        self._gate_enabled = enabled
+        logger.info(f"gate_set session={self.session_id} enabled={enabled} reason={reason}")
+
+    async def drop_outbound_audio(self, reason: str, correlation_id: Optional[str] = None):
+        """Drop buffered outbound audio."""
+        # Implementation: Clear audio queues
+        logger.info(f"audio_dropped session={self.session_id} reason={reason}")
+
+    async def cancel_provider_response(self, provider_response_id: str, reason: str):
+        """Cancel in-flight provider response."""
+        if self.provider:
+            await self.provider.cancel_response(provider_response_id)
+        logger.info(f"response_cancelled session={self.session_id} response_id={provider_response_id} reason={reason}")
+
+    async def flush_inbound_buffers(self, participant_id: Optional[str], keep_after_ts_ms: Optional[int]):
+        """Clear audio buffers."""
+        # Implementation: Clear audio buffers in audio handler
+        logger.info(f"buffers_flushed session={self.session_id} participant={participant_id}")
+
+    async def cleanup(self):
+        """Shutdown pipeline resources."""
+        if self.provider:
+            await self.provider.close()
+
+        await self.acs_inbound_bus.shutdown()
+        await self.provider_outbound_bus.shutdown()
+        await self.provider_inbound_bus.shutdown()
+        await self.acs_outbound_bus.shutdown()
+
+        logger.info(f"pipeline_cleanup_complete session={self.session_id}")
 ```
 
-## Routing Strategy Comparison
+**Key Responsibilities**:
+- Manage 4 event buses per session
+- Two-phase initialization (ACS → Provider)
+- Register all handlers
+- Provide pipeline actuator interface for control plane
+- Cleanup on session end
 
-### Scenario: 3-Participant Conference Call
+**Two-Phase Initialization**:
 
-#### Shared Pipeline Mode (Default)
+**Phase 1: ACS Processing** (before provider ready)
+- Register ACS handlers (audio, metadata, control)
+- Messages can be queued
+- Provider not yet selected
 
-```
-First message metadata: {"routing": "shared"}
+**Phase 2: Provider Processing** (after first AudioMetadata message)
+- Provider selected based on priority
+- Provider created and started
+- Provider handlers registered
+- Queued messages consumed
 
-Session creates:
-  └── Shared Pipeline (all participants)
-      ├── Event buses (4)
-      ├── Handlers (4)
-      └── Provider: VoiceLive
+**Why Two-Phase?**
+- Provider selection based on actual metadata (not hardcoded)
+- Allows buffering messages before provider ready
+- Clean separation of concerns
 
-Message flow:
-  Participant A audio → Shared Pipeline → VoiceLive
-  Participant B audio → Shared Pipeline → VoiceLive (same connection)
-  Participant C audio → Shared Pipeline → VoiceLive (same connection)
+---
 
-Resources: 1 pipeline, 1 provider connection, 4 event buses
-```
+## Event-Driven Architecture
 
-**Pros**:
-- Minimal overhead
-- Efficient resource usage
-- Simple state management
+### Event Bus Implementation (`core/event_bus.py`)
 
-**Cons**:
-- All participants must use same provider
-- No isolation if one participant causes issues
-- Shared auto-commit buffers (may not be ideal for all scenarios)
+**Fan-out pub/sub with bounded queues.**
 
-#### Session Pipeline Mode
+```python
+class EventBus:
+    """Fan-out event bus: each handler gets independent queue."""
 
-```
-First message metadata: {
-  "routing": "shared" // routing hints are ignored; one pipeline per session
-}
+    def __init__(self, name: str):
+        self.name = name
+        self.handlers: List[HandlerEntry] = []
+        self._lock = asyncio.Lock()
 
-Session constructs one pipeline and all participants share it:
-  └── Session Pipeline
-      ├── Event buses (4)
-      ├── Handlers (4)
-      └── Provider: VoiceLive
+    async def register_handler(
+        self,
+        config: HandlerConfig,
+        handler_func: Callable
+    ):
+        """Register handler with independent queue."""
+        queue = BoundedQueue(
+            max_size=config.queue_max,
+            overflow_policy=config.overflow_policy
+        )
 
-Message flow:
-  Participant A audio → Session Pipeline → VoiceLive
-  Participant B audio → Session Pipeline → VoiceLive
-  Participant C audio → Session Pipeline → VoiceLive
+        # Start worker tasks
+        workers = []
+        for i in range(config.concurrency):
+            worker = asyncio.create_task(
+                self._worker(handler_func, queue, f"{config.name}_worker_{i}")
+            )
+            workers.append(worker)
 
-Resources: 1 pipeline, 1 provider connection, 4 event buses
-```
+        async with self._lock:
+            self.handlers.append(HandlerEntry(
+                name=config.name,
+                queue=queue,
+                workers=workers,
+                handler_func=handler_func
+            ))
 
-**Pros**:
-- Minimal overhead while supporting multiple participants
-- Simple state management; participant_id stays on the envelope
-- Outbound ACS wiring stays centralized
+    async def publish(self, message: Any):
+        """Publish message to all handlers (fan-out)."""
+        async with self._lock:
+            for handler in self.handlers:
+                await handler.queue.put(message)  # Non-blocking
 
-**Cons / Notes**:
-- Provider choice is made once per session (config/metadata driven)
-- Provider fan-out to multiple downstream clients is handled separately
+    async def _worker(
+        self,
+        handler_func: Callable,
+        queue: BoundedQueue,
+        worker_name: str
+    ):
+        """Worker task: consume from queue, call handler."""
+        while True:
+            try:
+                message = await queue.get()
+                await handler_func(message)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.exception(f"worker_error name={worker_name} error={e}")
 
-## Message Flow Examples
-
-### Example 1: Shared Pipeline Flow
-
-**First Message**:
-```json
-{
-  "kind": "AudioData",
-  "metadata": {"routing": "shared", "provider": "voicelive"},
-  "audioData": {
-    "participantRawID": "user-123",
-    "data": "UklGR..."
-  }
-}
-```
-
-**Flow**:
-1. Session receives message
-2. Initializes the session pipeline with VoiceLive provider (from metadata)
-3. All subsequent messages (any participant) → session pipeline
-4. Single VoiceLive connection handles all participants
-
-### Example 2: Multi-Participant Session Flow
-
-**First Message** (participant A):
-```json
-{
-  "kind": "AudioData",
-  "metadata": {"provider": "voicelive"},
-  "audioData": {"participantRawID": "user-123", "data": "UklGR..."}
-}
-```
-
-**Second Message** (participant B):
-```json
-{
-  "kind": "AudioData",
-  "metadata": {"provider": "voicelive"},
-  "audioData": {"participantRawID": "user-456", "data": "UklGR..."}
-}
+    async def shutdown(self):
+        """Cancel all worker tasks."""
+        async with self._lock:
+            for handler in self.handlers:
+                for worker in handler.workers:
+                    worker.cancel()
 ```
 
-**Flow**:
-1. Session receives first message and starts one session pipeline with VoiceLive provider
-2. user-123 audio routed to the pipeline; participant_id stays on the envelope
-3. user-456 message arrives later; routed to the same pipeline
-4. Provider receives both participants' audio streams on a single connection
+**Key Features**:
+- **Fan-Out**: Each handler gets independent queue (not shared)
+- **Bounded Queues**: Configurable max size per handler
+- **Overflow Policies**: DROP_OLDEST (default), DROP_NEWEST
+- **Concurrency**: Multiple workers per handler
+- **Async-Safe**: All operations use asyncio.Lock
 
-### Example 3: Complete End-to-End Flow
+**Example Usage**:
+```python
+bus = EventBus("example_bus")
+
+await bus.register_handler(
+    HandlerConfig(
+        name="handler_1",
+        queue_max=1000,
+        overflow_policy=OverflowPolicy.DROP_OLDEST,
+        concurrency=1
+    ),
+    async_handler_function_1
+)
+
+await bus.register_handler(
+    HandlerConfig(
+        name="handler_2",
+        queue_max=500,
+        overflow_policy=OverflowPolicy.DROP_OLDEST,
+        concurrency=2
+    ),
+    async_handler_function_2
+)
+
+# Publish to all handlers
+await bus.publish(message)
+```
+
+### Four Event Buses Per Session
+
+| Bus | Producer | Consumer | Messages |
+|-----|----------|----------|----------|
+| **acs_inbound_bus** | Session receive loop | ACS handlers (audio, metadata, control) | `GatewayInputEvent` |
+| **provider_outbound_bus** | Audio handler (after batching) | Provider egress handler | `ProviderInputEvent` |
+| **provider_inbound_bus** | Provider ingress handler | Provider output handlers, control plane | `ProviderOutputEvent` |
+| **acs_outbound_bus** | Provider output handler | ACS gate handler (sends to WebSocket) | ACS-formatted payloads |
+
+### Message Flow Through Buses
 
 ```
-1. ACS connects
-   ↓
-2. Session created
-   ↓
-3. ACS sends first message:
-   {
-     "kind": "AudioData",
-     "metadata": {"provider": "voicelive", "customer_id": "acme"},
-     "audioData": {"data": "...", "participantRawID": "user-123"}
-   }
-   ↓
-4. Session extracts metadata → selects "voicelive" provider
-   ↓
-5. VoiceLiveProvider created and started
-   ↓
-6. Handlers registered on session buses
-   ↓
-7. Message converted to GatewayInputEvent, published to acs_inbound_bus
-   ↓
-8. AuditHandler logs it
-   ↓
-9. TranslationDispatchHandler buffers audio
-   ↓
-10. Auto-commit triggered (size/duration/idle)
+ACS WebSocket
     ↓
-11. ProviderInputEvent published to provider_outbound_bus
+GatewayInputEvent
     ↓
-12. VoiceLiveProvider egress loop consumes, sends to VoiceLive WebSocket
+acs_inbound_bus (fan-out)
+    ├─> AudioMessageHandler (buffer, batch)
+    ├─> AudioMetadataHandler (trigger provider init)
+    ├─> TestSettingsHandler (update settings)
+    └─> ControlPlaneBusHandler (tap for state)
     ↓
-13. VoiceLive responds with translation/audio deltas
+ProviderInputEvent (after auto-commit)
     ↓
-14. VoiceLiveProvider ingress loop receives, publishes ProviderOutputEvent
+provider_outbound_bus
+    ├─> Provider Egress Handler
     ↓
-15. ProviderResultHandler consumes, converts to ACS format
+Provider WebSocket (OpenAI, Voice Live, etc.)
     ↓
-16. Published to acs_outbound_bus
+ProviderOutputEvent (translation, audio)
     ↓
-17. ACS send loop consumes, sends to ACS WebSocket
+provider_inbound_bus (fan-out)
+    ├─> ProviderOutputHandler (format for ACS)
+    └─> ControlPlaneBusHandler (update playback state)
     ↓
-18. ACS receives translation result
+ACS-formatted payload
+    ↓
+acs_outbound_bus
+    ├─> AcsOutboundGateHandler (with gate control)
+    ↓
+ACS WebSocket
 ```
 
-## Key Differences from Previous Design
-
-### Previous Design (Incorrect)
-- ❌ ACS gateways were WebSocket **clients** (connecting out)
-- ❌ Global event buses shared across all sessions
-- ❌ Provider selected globally via static config
-- ❌ No per-session isolation
-- ❌ No dynamic provider selection
-
-### New Design (Correct)
-- ✅ ACS server is WebSocket **server** (listening for connections)
-- ✅ Per-session event buses (complete isolation)
-- ✅ Per-session providers
-- ✅ Provider selected dynamically from ACS metadata
-- ✅ Each session completely independent
-- ✅ Symmetric bidirectional flow (ACS ↔ Provider)
-
-## Configuration
-
-### Sample `config.yaml`
-
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8080
-
-dispatch:
-  provider: "mock"  # Default if not specified in metadata
-  batching:
-    enabled: true
-    max_batch_ms: 200
-    max_batch_bytes: 65536
-    idle_timeout_ms: 500
-
-providers:
-  voicelive:
-    endpoint: "wss://voicelive.example.com/v1/realtime"
-    api_key: "${VOICELIVE_API_KEY}"
-
-buffering:
-  ingress_queue_max: 1000
-  egress_queue_max: 1000
-  overflow_policy: "DROP_OLDEST"
-```
-
-## Routing Strategy
-
-The server now uses a single session-scoped pipeline for every ACS WebSocket connection. Incoming events from any participant are forwarded to that one pipeline. Metadata routing hints (e.g., `routing: per_participant`) are ignored; participant isolation is handled inside the pipeline by reading `participant_id` on each `GatewayInputEvent`.
-
-**Implications**:
-- Only one pipeline (and one provider connection) exists per session
-- Participant-specific behavior should be driven by event payloads instead of pipeline creation
-- Downstream provider fan-out to multiple clients is handled separately from session routing
-
-## Provider Selection Strategies
-
-Provider selection works **within** the chosen routing strategy.
-
-### 1. Explicit Provider in Metadata
-```json
-{
-  "metadata": {"provider": "voicelive"}
-}
-```
-All participants use VoiceLive.
-
-### 2. Participant Overrides (Legacy)
-```json
-{
-  "metadata": {
-    "participant_providers": {
-      "user-123": "voicelive",
-      "user-456": "mock"
-    }
-  }
-}
-```
-These hints are ignored in the current single-pipeline flow; the provider is selected once per session.
-
-### 3. Customer-Based Routing
-```json
-{
-  "metadata": {"customer_id": "acme-corp"}
-}
-```
-Map customer → provider in config or database.
-
-### 4. Feature Flags
-```json
-{
-  "metadata": {
-    "feature_flags": {"use_voicelive": true}
-  }
-}
-```
-
-### 5. A/B Testing
-```json
-{
-  "metadata": {"experiment_group": "treatment_b"}
-}
-```
+---
 
 ## Session Lifecycle
 
+### Complete Session Lifecycle Diagram
+
 ```
-┌─────────────────┐
-│ ACS Connects    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Create Session  │
-│ - Generate ID   │
-│ - Create buses  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────────┐
-│ First Message       │
-│ - Extract metadata  │
-│ - Select provider   │
-│ - Create provider   │
-│ - Register gateways │
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Process Messages│
-│ (bidirectional) │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ ACS Disconnects │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Cleanup Session │
-│ - Stop provider │
-│ - Shutdown buses│
-│ - Close WebSocket│
-└─────────────────┘
+┌──────────────────────┐
+│  ACS Connects        │
+│  (WebSocket)         │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ ConnectionContext    │
+│ - Extract headers    │
+│ - call_connection_id │
+│ - correlation_id     │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ SessionManager       │
+│ - Generate UUID      │
+│ - Create Session     │
+│ - Track in dict      │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────────────────────┐
+│ Session.run()                        │
+│ ┌──────────────────────────────────┐ │
+│ │ Phase 1: ACS Processing          │ │
+│ │ - Create SessionPipeline         │ │
+│ │ - Register ACS handlers          │ │
+│ │ - Subscribe to acs_outbound_bus  │ │
+│ │ - Stage: ACS_PROCESSING          │ │
+│ └──────────────────────────────────┘ │
+│ ┌──────────────────────────────────┐ │
+│ │ Receive Loop                     │ │
+│ │ - Wait for messages              │ │
+│ │ - Parse JSON                     │ │
+│ │ - Create GatewayInputEvent       │ │
+│ │ - Publish to pipeline            │ │
+│ └──────────────────────────────────┘ │
+└──────────────────┬───────────────────┘
+                   │
+        ┌──────────┴──────────┐
+        │                     │
+        ▼                     ▼
+┌────────────────┐    ┌────────────────┐
+│ Regular Message│    │ AudioMetadata  │
+│ - Process      │    │ Message        │
+│ - Route to     │    │                │
+│   handlers     │    └────────┬───────┘
+└────────────────┘             │
+                               ▼
+                    ┌──────────────────────────────┐
+                    │ Phase 2: Provider Processing │
+                    │ - Select provider (priority) │
+                    │ - Create provider            │
+                    │ - Start provider connection  │
+                    │ - Register provider handlers │
+                    │ - Stage: PROVIDER_PROCESSING │
+                    └──────────┬───────────────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Process Messages     │
+                    │ (bidirectional)      │
+                    │ - ACS → Provider     │
+                    │ - Provider → ACS     │
+                    └──────────┬───────────┘
+                               │
+                ┌──────────────┴──────────────┐
+                │                             │
+                ▼                             ▼
+        ┌────────────────┐          ┌────────────────┐
+        │ ACS Disconnect │          │ Error/Timeout  │
+        └────────┬───────┘          └────────┬───────┘
+                 │                           │
+                 └─────────────┬─────────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │ Session.cleanup()    │
+                    │ - Cancel tasks       │
+                    │ - Stop provider      │
+                    │ - Shutdown buses     │
+                    │ - Close WebSocket    │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ SessionManager       │
+                    │ - Remove from dict   │
+                    │ - Log metrics        │
+                    └──────────────────────┘
 ```
+
+### State Transitions
+
+**Pipeline Stages**:
+```
+NOT_STARTED
+    ↓ (start_acs_processing)
+ACS_PROCESSING
+    ↓ (start_provider_processing)
+PROVIDER_PROCESSING
+```
+
+**Why Staged Initialization?**
+1. **Flexibility**: Provider selection based on actual metadata
+2. **Buffering**: Can queue messages before provider ready
+3. **Error Handling**: Clean failure modes
+4. **Separation**: ACS protocol vs provider protocol decoupled
+
+---
+
+## Provider System
+
+### Provider Factory (`providers/provider_factory.py`)
+
+**Dynamic provider selection with priority-based logic.**
+
+```python
+class ProviderFactory:
+    @staticmethod
+    def create_provider(
+        config: Config,
+        provider_name: str,
+        provider_outbound_bus: EventBus,
+        provider_inbound_bus: EventBus,
+        metadata: Dict[str, Any],
+        translation_settings: Dict[str, Any]
+    ) -> TranslationProvider:
+        """Create provider instance based on name."""
+
+        # Priority 1: Test settings override
+        if "provider" in translation_settings:
+            provider_name = translation_settings["provider"]
+            logger.info(f"provider_selected source=test_settings provider={provider_name}")
+
+        # Priority 2: Session metadata
+        elif "provider" in metadata:
+            provider_name = metadata["provider"]
+            logger.info(f"provider_selected source=metadata provider={provider_name}")
+
+        # Priority 3: Feature flags (legacy)
+        elif metadata.get("feature_flags", {}).get("use_voicelive"):
+            provider_name = "voicelive"
+            logger.info(f"provider_selected source=feature_flag provider={provider_name}")
+
+        # Priority 4: Config default
+        else:
+            provider_name = config.dispatch.default_provider
+            logger.info(f"provider_selected source=config_default provider={provider_name}")
+
+        # Create provider instance
+        provider_config = config.providers.get(provider_name)
+        if not provider_config:
+            raise ValueError(f"Provider '{provider_name}' not found in config")
+
+        provider_type = provider_config.type
+
+        if provider_type == "mock":
+            return MockProvider(
+                config=provider_config,
+                provider_inbound_bus=provider_inbound_bus
+            )
+        elif provider_type == "openai":
+            return OpenAIProvider(
+                config=provider_config,
+                provider_outbound_bus=provider_outbound_bus,
+                provider_inbound_bus=provider_inbound_bus,
+                metadata=metadata
+            )
+        elif provider_type == "voice_live":
+            return VoiceLiveProvider(
+                config=provider_config,
+                provider_outbound_bus=provider_outbound_bus,
+                provider_inbound_bus=provider_inbound_bus,
+                metadata=metadata
+            )
+        elif provider_type == "live_interpreter":
+            return LiveInterpreterProvider(
+                config=provider_config,
+                provider_outbound_bus=provider_outbound_bus,
+                provider_inbound_bus=provider_inbound_bus,
+                metadata=metadata
+            )
+        elif provider_type == "role_based":
+            return RoleBasedProvider(
+                config=provider_config,
+                all_providers=config.providers,
+                provider_outbound_bus=provider_outbound_bus,
+                provider_inbound_bus=provider_inbound_bus,
+                metadata=metadata
+            )
+        else:
+            raise ValueError(f"Unknown provider type: {provider_type}")
+```
+
+### Provider Protocol
+
+All providers implement this interface:
+
+```python
+class TranslationProvider(Protocol):
+    async def start(self) -> None:
+        """Connect to external service, initialize resources."""
+
+    async def close(self) -> None:
+        """Disconnect, cleanup resources."""
+
+    async def health(self) -> str:
+        """Return health status."""
+
+    async def cancel_response(self, response_id: str) -> None:
+        """Cancel in-flight response (optional)."""
+```
+
+### Available Providers
+
+#### 1. Mock Provider
+
+**Configuration**:
+```yaml
+providers:
+  mock:
+    type: mock
+```
+
+**Behavior**:
+- No external calls
+- 50ms simulated delay
+- Generates partial + final transcripts
+- Ideal for testing
+
+#### 2. OpenAI Realtime
+
+**Configuration**:
+```yaml
+providers:
+  openai:
+    type: openai
+    endpoint: wss://api.openai.com/v1/realtime
+    api_key: ${OPENAI_API_KEY}
+    settings:
+      model: gpt-4o-realtime-preview-2024-10-01
+      deployment: gpt-4o-realtime-preview
+```
+
+**Features**:
+- GPT-based translation
+- 24 kHz PCM16 audio
+- Server VAD
+- Customizable prompts
+
+#### 3. Voice Live
+
+**Configuration**:
+```yaml
+providers:
+  voicelive:
+    type: voice_live
+    endpoint: wss://example.cognitiveservices.azure.com/openai/realtime
+    api_key: ${VOICELIVE_API_KEY}
+    region: eastus
+    settings:
+      model: gpt-realtime-mini
+      session_options:
+        voice: alloy
+```
+
+**Features**:
+- Azure AI Foundry Realtime API
+- 24 kHz PCM16 audio
+- Built-in neural voices
+- Conversational AI
+
+#### 4. Live Interpreter (v2)
+
+**Configuration**:
+```yaml
+providers:
+  live_interpreter:
+    type: live_interpreter
+    region: eastus2
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    settings:
+      languages: [en-US, es-ES, fr-FR]
+      voice: es-ES-ElviraNeural
+```
+
+**Features**:
+- **Automatic language detection** (76+ languages)
+- No source language config needed
+- Real-time language switching
+- 16 kHz PCM16 audio
+- Neural voice synthesis
+
+#### 5. Role-Based Provider
+
+**Configuration**:
+```yaml
+providers:
+  role_based:
+    type: role_based
+    settings:
+      role_providers:
+        agent: live_interpreter_spanish
+        caller: live_interpreter_english
+```
+
+**Features**:
+- Routes by participant role
+- Different provider per role
+- Asymmetric translation
+
+---
+
+## Control Plane
+
+### SessionControlPlane (`session/control/session_control_plane.py`)
+
+**Tracks session state for intelligent orchestration.**
+
+```python
+class SessionControlPlane:
+    """Per-session control plane for state tracking and orchestration."""
+
+    # Constants
+    PLAYBACK_IDLE_TIMEOUT_MS = 500
+    INPUT_SILENCE_TIMEOUT_MS = 350
+    INPUT_VOICE_HYSTERESIS_MS = 100
+
+    def __init__(
+        self,
+        session_id: str,
+        pipeline_actuator: SessionPipelineProtocol
+    ):
+        self.session_id = session_id
+        self._pipeline = pipeline_actuator
+
+        # State machines
+        self.playback = PlaybackState()
+        self.input_state = InputState()
+
+        # Session state
+        self.active_speaker_id: Optional[str] = None
+        self.current_provider_response_id: Optional[str] = None
+        self.barge_in_armed: bool = False
+
+    async def process_provider_input(self, event: ProviderInputEvent):
+        """Update input state based on audio metadata."""
+        now_ms = MonotonicClock.now_ms()
+        self._check_idle_timeout(now_ms)
+        self._update_input_state(event, now_ms)
+
+    async def process_provider_output(self, event: ProviderOutputEvent):
+        """Update playback state based on provider responses."""
+        now_ms = MonotonicClock.now_ms()
+        self._check_idle_timeout(now_ms)
+
+        control_event = ControlEvent.from_provider(event)
+        event_type = control_event.type
+
+        if event_type == "provider.audio.delta":
+            self.current_provider_response_id = control_event.provider_response_id
+            return
+
+        if event_type == "provider.audio.done":
+            self._transition_playback(
+                lambda: self.playback.on_provider_done(control_event.provider_response_id),
+                reason="provider_audio_done",
+                response_id=control_event.provider_response_id
+            )
+
+    def _update_input_state(self, event: ProviderInputEvent, now_ms: int):
+        """Update input state machine."""
+        old_status = self.input_state.status
+        is_silence = event.metadata["is_silence"]
+
+        if is_silence:
+            transitioned = self.input_state.on_silence_detected(
+                now_ms,
+                self.INPUT_SILENCE_TIMEOUT_MS
+            )
+        else:
+            transitioned = self.input_state.on_voice_detected(
+                now_ms,
+                self.INPUT_VOICE_HYSTERESIS_MS
+            )
+
+        if transitioned:
+            logger.info(
+                f"input_state_changed session={self.session_id} "
+                f"from={old_status} to={self.input_state.status}"
+            )
+
+    def _transition_playback(self, updater, *, reason: str, response_id: Optional[str]):
+        """Update playback state machine."""
+        old_status = self.playback.status
+        updater()
+        new_status = self.playback.status
+
+        if old_status != new_status:
+            logger.info(
+                f"playback_status_changed session={self.session_id} "
+                f"from={old_status} to={new_status} reason={reason}"
+            )
+
+    def _check_idle_timeout(self, now_ms: int):
+        """Check for playback idle timeout."""
+        old_status = self.playback.status
+        timed_out = self.playback.maybe_timeout_idle(
+            now_ms,
+            self.PLAYBACK_IDLE_TIMEOUT_MS
+        )
+
+        if timed_out:
+            logger.info(
+                f"playback_idle_timeout session={self.session_id} "
+                f"last_audio_sent_ms={self.playback.last_audio_sent_ms}"
+            )
+```
+
+### PlaybackState (`session/control/playback_state.py`)
+
+**Tracks outbound audio state.**
+
+```python
+@dataclass
+class PlaybackState:
+    """Tracks whether outbound audio is playing."""
+
+    status: PlaybackStatus = PlaybackStatus.IDLE
+    current_response_id: Optional[str] = None
+    last_audio_sent_ms: int = 0
+    provider_done: bool = False
+    gate_closed: bool = False
+
+    def on_outbound_audio_sent(self, now_ms: int, response_id: Optional[str]) -> bool:
+        """Transition to SPEAKING when audio sent."""
+        if self.status == PlaybackStatus.IDLE:
+            self.status = PlaybackStatus.SPEAKING
+            self.current_response_id = response_id
+            self.last_audio_sent_ms = now_ms
+            return True  # Transitioned
+        self.last_audio_sent_ms = now_ms
+        return False
+
+    def on_provider_done(self, response_id: Optional[str]) -> bool:
+        """Mark provider as done."""
+        if self.current_response_id == response_id:
+            self.provider_done = True
+        return False
+
+    def maybe_timeout_idle(self, now_ms: int, timeout_ms: int) -> bool:
+        """Check for idle timeout."""
+        if self.status == PlaybackStatus.SPEAKING:
+            if (now_ms - self.last_audio_sent_ms) > timeout_ms:
+                self.status = PlaybackStatus.IDLE
+                self.current_response_id = None
+                self.provider_done = False
+                return True
+        return False
+```
+
+**States**:
+- `IDLE`: No audio in playback
+- `SPEAKING`: Audio being sent to ACS
+- `FINISHED`: Provider sent done signal
+- `GATE_CLOSED`: Gate explicitly closed
+
+### InputState (`session/control/input_state.py`)
+
+**Tracks voice activity.**
+
+```python
+@dataclass
+class InputState:
+    """Tracks whether inbound audio contains speech."""
+
+    status: InputStatus = InputStatus.SILENT
+    voice_detected_from_ms: Optional[int] = None  # Onset time
+    voice_detected_last_ms: int = 0  # Most recent
+
+    def on_voice_detected(self, now_ms: int, hysteresis_ms: int = 0) -> bool:
+        """Transition to SPEAKING (with hysteresis)."""
+        if self.status == InputStatus.SILENT:
+            # First voice detection
+            if self.voice_detected_from_ms is None:
+                self.voice_detected_from_ms = now_ms
+
+            # Check hysteresis
+            elapsed = now_ms - self.voice_detected_from_ms
+            if elapsed < hysteresis_ms:
+                return False  # Not enough sustained voice
+
+            # Transition to SPEAKING
+            self.status = InputStatus.SPEAKING
+            self.voice_detected_last_ms = now_ms
+            return True
+
+        # Already speaking - just update timestamp
+        self.voice_detected_last_ms = now_ms
+        return False
+
+    def on_silence_detected(self, now_ms: int, silence_threshold: int) -> bool:
+        """Transition to SILENT."""
+        if self.status == InputStatus.SPEAKING:
+            if (now_ms - self.voice_detected_last_ms) > silence_threshold:
+                self.status = InputStatus.SILENT
+                self.voice_detected_from_ms = None
+                return True
+        return False
+```
+
+**States**:
+- `SILENT`: No voice detected
+- `SPEAKING`: Voice detected (with hysteresis)
+
+**Transitions**:
+- Voice detected (100ms hysteresis) → `SPEAKING`
+- Silence detected (350ms threshold) → `SILENT`
+
+---
+
+## Audio Processing Pipeline
+
+### Audio Batching (`gateways/acs/audio.py`)
+
+**Auto-commit on three triggers.**
+
+```python
+class AudioMessageHandler:
+    """Buffer and batch audio per participant."""
+
+    def __init__(self, pipeline: SessionPipeline, config: Config):
+        self.pipeline = pipeline
+        self.config = config
+        self.batching = config.dispatch.batching
+
+        # Per-participant buffers
+        self.buffers: Dict[Tuple[str, str], ParticipantBuffer] = {}
+
+    async def handle(self, event: GatewayInputEvent):
+        """Handle audio message: buffer, check triggers, auto-commit."""
+        participant_id = event.payload["audioData"]["participantRawID"]
+        audio_data = event.payload["audioData"]["data"]  # Base64
+
+        # Decode base64 → PCM bytes
+        pcm_bytes = base64.b64decode(audio_data)
+
+        # Get or create buffer
+        key = (event.session_id, participant_id)
+        if key not in self.buffers:
+            self.buffers[key] = ParticipantBuffer()
+
+        buffer = self.buffers[key]
+
+        # Append to buffer
+        buffer.append(pcm_bytes)
+
+        # Calculate duration
+        duration_ms = AudioDurationCalculator.calculate(
+            byte_count=len(buffer.data),
+            sample_rate=16000,
+            channels=1
+        )
+
+        # Check auto-commit triggers
+        trigger = self._check_triggers(buffer, duration_ms)
+
+        if trigger:
+            await self._commit(event.session_id, participant_id, buffer, trigger)
+            buffer.clear()
+
+    def _check_triggers(self, buffer: ParticipantBuffer, duration_ms: float) -> Optional[str]:
+        """Check if any trigger condition met."""
+        now_ms = MonotonicClock.now_ms()
+
+        # Trigger 1: Size
+        if len(buffer.data) >= self.batching.max_batch_bytes:
+            return "size_threshold"
+
+        # Trigger 2: Duration
+        if duration_ms >= self.batching.max_batch_ms:
+            return "duration_threshold"
+
+        # Trigger 3: Idle
+        if buffer.last_append_ms:
+            idle_ms = now_ms - buffer.last_append_ms
+            if idle_ms >= self.batching.idle_timeout_ms:
+                return "idle_timeout"
+
+        return None
+
+    async def _commit(
+        self,
+        session_id: str,
+        participant_id: str,
+        buffer: ParticipantBuffer,
+        trigger: str
+    ):
+        """Commit buffer to provider."""
+        commit_id = str(uuid.uuid4())
+
+        # Encode PCM → Base64
+        b64_audio = base64.b64encode(buffer.data).decode("utf-8")
+
+        # Calculate silence (RMS energy)
+        rms = calculate_rms(buffer.data)
+        is_silence = rms < 50.0
+
+        # Create provider input event
+        event = ProviderInputEvent(
+            commit_id=commit_id,
+            session_id=session_id,
+            participant_id=participant_id,
+            b64_audio_string=b64_audio,
+            metadata={
+                "timestamp": MonotonicClock.now_ms(),
+                "rms": rms,
+                "is_silence": is_silence,
+                "trigger": trigger
+            }
+        )
+
+        # Publish to provider outbound bus
+        await self.pipeline.provider_outbound_bus.publish(event)
+
+        logger.info(
+            f"auto_commit_triggered session={session_id} participant={participant_id} "
+            f"trigger={trigger} bytes={len(buffer.data)} is_silence={is_silence}"
+        )
+```
+
+**Three Auto-Commit Triggers**:
+1. **Size**: `accumulated_bytes >= max_batch_bytes` (default: 65536)
+2. **Duration**: `accumulated_duration_ms >= max_batch_ms` (default: 200ms)
+3. **Idle**: No new audio for `>= idle_timeout_ms` (default: 500ms)
+
+### Silence Detection
+
+**RMS Energy Calculation**:
+```python
+def calculate_rms(pcm_bytes: bytes) -> float:
+    """Calculate RMS energy of PCM16 audio."""
+    samples = np.frombuffer(pcm_bytes, dtype=np.int16)
+    rms = np.sqrt(np.mean(samples.astype(np.float32) ** 2))
+    return float(rms)
+```
+
+**Threshold**: 50.0
+- Below threshold → `is_silence = True`
+- Above threshold → `is_silence = False`
+
+**Usage**: Control plane uses `is_silence` flag for input state transitions.
+
+### Audio Format Conversion
+
+**PCM Utilities** (`audio/pcm.py`):
+```python
+class PcmConverter:
+    @staticmethod
+    def mono_to_stereo(mono_pcm: bytes) -> bytes:
+        """Duplicate mono channel to create stereo."""
+
+    @staticmethod
+    def stereo_to_mono(stereo_pcm: bytes) -> bytes:
+        """Average left and right channels."""
+
+    @staticmethod
+    def resample(pcm: bytes, from_rate: int, to_rate: int, channels: int) -> bytes:
+        """Resample audio using audioop.ratecv."""
+```
+
+**Format Resolution** (`gateways/provider/audio/format_resolver.py`):
+- Detect ACS format from metadata
+- Detect provider format from provider type
+- Determine if conversion needed
+
+---
+
+## Configuration System
+
+### Three-Layer Configuration
+
+**Priority (highest to lowest)**:
+1. **Environment Variables** (`VT_*` prefix)
+2. **YAML Files** (merged left-to-right)
+3. **Default Config** (hardcoded)
+
+### YAML Configuration Format
+
+```yaml
+system:
+  log_level: INFO             # DEBUG, INFO, WARNING, ERROR
+  log_wire: false             # Enable wire-level logging
+  log_wire_dir: logs/server   # Wire log directory
+
+dispatch:
+  default_provider: mock      # Default provider name
+  batching:
+    enabled: true
+    max_batch_ms: 200         # Duration trigger
+    max_batch_bytes: 65536    # Size trigger
+    idle_timeout_ms: 500      # Idle trigger
+
+providers:
+  mock:
+    type: mock
+
+  openai:
+    type: openai
+    endpoint: wss://api.openai.com/v1/realtime
+    api_key: ${OPENAI_API_KEY}
+    settings:
+      model: gpt-4o-realtime-preview-2024-10-01
+
+  voicelive:
+    type: voice_live
+    endpoint: wss://example.cognitiveservices.azure.com/openai/realtime
+    api_key: ${VOICELIVE_API_KEY}
+    region: eastus
+    resource: voicelive-resource
+    settings:
+      model: gpt-realtime-mini
+      api_version: 2024-10-01-preview
+      deployment: gpt-realtime-mini
+      session_options:
+        voice: alloy
+        temperature: 0.8
+
+  live_interpreter:
+    type: live_interpreter
+    region: eastus2
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    settings:
+      languages: [en-US, es-ES, fr-FR, de-DE]
+      voice: es-ES-ElviraNeural
+
+buffering:
+  ingress_queue_max: 2000     # Max ACS inbound queue size
+  egress_queue_max: 2000      # Max ACS outbound queue size
+  overflow_policy: DROP_OLDEST
+```
+
+### Environment Variable Overrides
+
+**Format**: `VT_{SECTION}_{SUBSECTION}_{PROPERTY}`
+
+**Examples**:
+```bash
+# System
+VT_SYSTEM_LOG_LEVEL=DEBUG
+VT_SYSTEM_LOG_WIRE=true
+
+# Provider
+VT_DISPATCH_DEFAULT_PROVIDER=voicelive
+VT_PROVIDERS_VOICELIVE_API_KEY=your-api-key
+VT_PROVIDERS_VOICELIVE_SETTINGS_MODEL=gpt-realtime-mini
+
+# Batching
+VT_DISPATCH_BATCHING_ENABLED=true
+VT_DISPATCH_BATCHING_MAX_BATCH_MS=300
+
+# Buffering
+VT_BUFFERING_INGRESS_QUEUE_MAX=5000
+```
+
+**Type Conversion**:
+- Boolean: `true/false`, `yes/no`, `1/0`, `on/off`
+- Integer: `123`, `-456`
+- Float: `1.5`, `0.8`
+- String: passthrough
+- None: `null`, `none`, `""` (empty)
+
+**Implementation**: `utils/env_config.py` with `apply_env_overrides()`.
+
+See [ENV_CONFIG.md](ENV_CONFIG.md) for complete reference.
+
+---
+
+## Message Flow Examples
+
+### Example 1: Complete Translation Flow
+
+```
+1. ACS Client → WebSocket Connect
+   ↓
+2. ACSServer accepts connection
+   ↓
+3. SessionManager creates Session with UUID
+   ↓
+4. Session.run() starts
+   ├─ Create SessionPipeline
+   ├─ Call start_acs_processing()
+   ├─ Subscribe to acs_outbound_bus
+   └─ Start receive loop
+   ↓
+5. ACS Client → First AudioData message:
+   {
+     "kind": "AudioData",
+     "metadata": {"provider": "voicelive"},
+     "audioData": {
+       "participantRawID": "user-123",
+       "data": "UklGR...",  // Base64 PCM
+       "sampleRate": 16000,
+       "channels": 1
+     }
+   }
+   ↓
+6. Session receive loop:
+   ├─ Parse JSON
+   ├─ Create GatewayInputEvent
+   └─ Publish to acs_inbound_bus
+   ↓
+7. AudioMetadataHandler:
+   ├─ Extract metadata: provider=voicelive
+   ├─ Call pipeline.start_provider_processing("voicelive")
+   ├─ VoiceLiveProvider created and started
+   └─ Provider handlers registered
+   ↓
+8. AudioMessageHandler (subsequent messages):
+   ├─ Decode Base64 → PCM bytes
+   ├─ Append to participant buffer
+   ├─ Check auto-commit triggers
+   └─ Commit triggered (duration: 220ms >= 200ms)
+   ↓
+9. Create ProviderInputEvent:
+   {
+     commit_id: "abc-123",
+     session_id: "sess-001",
+     participant_id: "user-123",
+     b64_audio_string: "UklGR...",
+     metadata: {
+       timestamp: 1234567890,
+       rms: 150.5,
+       is_silence: false,
+       trigger: "duration_threshold"
+     }
+   }
+   ↓
+10. Publish to provider_outbound_bus
+    ↓
+11. VoiceLiveProvider egress handler:
+    ├─ Consume from bus
+    ├─ Format for Voice Live protocol
+    └─ Send via WebSocket to Voice Live
+    ↓
+12. Voice Live processes audio
+    ↓
+13. Voice Live → Translation response:
+    {
+      "type": "response.audio_transcript.delta",
+      "delta": "Hola, ¿cómo estás?"
+    }
+    ↓
+14. VoiceLiveProvider ingress handler:
+    ├─ Receive from WebSocket
+    ├─ Create ProviderOutputEvent
+    └─ Publish to provider_inbound_bus
+    ↓
+15. ProviderOutputHandler:
+    ├─ Consume from bus
+    ├─ Convert to ACS format
+    └─ Publish to acs_outbound_bus
+    ↓
+16. AcsOutboundGateHandler:
+    ├─ Consume from bus
+    ├─ Check gate status (OPEN)
+    └─ Send via WebSocket to ACS
+    ↓
+17. ACS Client ← Translation result:
+    {
+      "type": "translation.text_delta",
+      "participantRawID": "user-123",
+      "text": "Hola, ¿cómo estás?"
+    }
+```
+
+### Example 2: Provider Selection Priority
+
+**Scenario A: Test Settings Override**
+```json
+// First message
+{"kind": "AudioData", "metadata": {"provider": "openai"}}
+
+// Later: Control message
+{"type": "control.test.settings", "provider": "voicelive"}
+
+// Result: Provider switches to voicelive
+```
+
+**Scenario B: Metadata Provider**
+```json
+// First message
+{"kind": "AudioData", "metadata": {"provider": "voicelive"}}
+
+// Result: Uses voicelive (no test settings)
+```
+
+**Scenario C: Feature Flag**
+```json
+// First message
+{"kind": "AudioData", "metadata": {"feature_flags": {"use_voicelive": true}}}
+
+// Result: Uses voicelive (legacy support)
+```
+
+**Scenario D: Config Default**
+```yaml
+# config.yml
+dispatch:
+  default_provider: mock
+```
+```json
+// First message (no metadata)
+{"kind": "AudioData", "audioData": {...}}
+
+// Result: Uses mock provider
+```
+
+---
 
 ## Testing Strategy
 
 ### Unit Tests
-- Test Session creation/cleanup
-- Test provider selection logic
-- Test handler registration
+
+**Components to Test**:
+- SessionManager (create, remove, shutdown)
+- EventBus (publish, fan-out, overflow)
+- BoundedQueue (overflow policies)
+- AudioBatching (trigger detection)
+- InputState (state transitions with hysteresis)
+- PlaybackState (state transitions)
+- Environment config (type conversion, overrides)
+
+**Example**:
+```python
+@pytest.mark.asyncio
+async def test_session_manager_create():
+    config = Config()
+    manager = SessionManager(config)
+
+    session = await manager.create_session(mock_websocket, mock_context)
+
+    assert session.session_id in manager.sessions
+    assert manager.get_active_count() == 1
+```
 
 ### Integration Tests with Mock Provider
+
+**Full Pipeline Test**:
 ```python
-# Start server
-server = ACSServer(config)
+@pytest.mark.asyncio
+async def test_full_translation_pipeline():
+    # Start server
+    config = Config(dispatch=DispatchConfig(default_provider="mock"))
+    server = ACSServer(config, host="127.0.0.1", port=8765)
 
-# Connect fake ACS client
-async with websockets.connect("ws://localhost:8080") as ws:
-    # Send audio message
-    await ws.send(json.dumps({
-        "kind": "AudioData",
-        "metadata": {"provider": "mock"},
-        "audioData": {"data": "...", "participantRawID": "test"}
-    }))
+    # Start server in background
+    server_task = asyncio.create_task(server.start())
 
-    # Receive translation
-    response = await ws.recv()
-    assert json.loads(response)["type"] == "translation.result"
+    # Connect as ACS client
+    async with websockets.connect("ws://127.0.0.1:8765") as ws:
+        # Send audio message
+        await ws.send(json.dumps({
+            "kind": "AudioData",
+            "metadata": {"provider": "mock"},
+            "audioData": {
+                "participantRawID": "test-user",
+                "data": base64_audio,
+                "sampleRate": 16000,
+                "channels": 1
+            }
+        }))
+
+        # Receive translation
+        response = await ws.recv()
+        result = json.loads(response)
+
+        assert result["type"] == "translation.text_final"
+        assert "translated" in result["text"]
 ```
 
 ### Load Testing
-- Multiple concurrent ACS connections
-- Verify session isolation
-- Check resource cleanup
 
-## Advantages
+**Concurrent Sessions**:
+```python
+async def test_concurrent_sessions():
+    config = Config()
+    server = ACSServer(config)
 
-1. **True Isolation**: Sessions and participants don't interfere with each other
-2. **Dynamic Routing Strategy**: Choose shared vs per-participant based on metadata
-3. **Dynamic Provider Selection**: Per-session, per-participant, per-customer, per-feature-flag
-4. **Scalability**: Each session and participant pipeline runs independently
-5. **Correct Architecture**: Server-side WebSocket pattern
-6. **Clean State Management**: Per-session/per-participant state, no global contamination
-7. **Easy Testing**: Mock provider per session or participant
-8. **Flexibility**:
-   - Different providers for different sessions simultaneously
-   - Different providers for different participants in same session
-   - Mix shared and per-participant routing across sessions
-9. **Efficiency**: Default shared mode avoids overhead when isolation not needed
-10. **Experimentation**: A/B test providers at session or participant level
+    # Start server
+    server_task = asyncio.create_task(server.start())
 
-## Migration Path
+    # Create 100 concurrent connections
+    tasks = []
+    for i in range(100):
+        task = asyncio.create_task(connect_and_translate(i))
+        tasks.append(task)
 
-If migrating from current code:
+    # Wait for all
+    await asyncio.gather(*tasks)
 
-1. Keep existing gateways (they work per-session)
-2. Keep existing providers (VoiceLiveProvider, MockProvider)
-3. Keep existing models (GatewayInputEvent, ProviderInputEvent, ProviderOutputEvent)
-4. Replace: `service.py` → `acs_server.py` + `session.py` + `session_manager.py`
-5. Remove: `providers/ingress.py`, `providers/egress.py` (no longer needed)
-6. Update: `provider_factory.py` to take `provider_type` parameter
+    # Verify isolation
+    assert server.session_manager.get_active_count() == 100
+```
+
+---
+
+## Design Patterns
+
+### 1. Event-Driven Architecture (Pub/Sub)
+
+**Pattern**: Fan-out pub/sub with independent queues per subscriber.
+
+**Benefits**:
+- Decouples producers from consumers
+- Each handler processes at own pace
+- Easy to add new handlers
+- Clean separation of concerns
+
+**Example**: `EventBus` with multiple handlers on `acs_inbound_bus`.
+
+### 2. Pipeline Pattern
+
+**Pattern**: Chain of processing stages (ACS → Pipeline → Provider → Pipeline → ACS).
+
+**Benefits**:
+- Clear data flow
+- Easy to insert new stages
+- Testable in isolation
+
+**Example**: `SessionPipeline` with 4 event buses.
+
+### 3. State Machine Pattern
+
+**Pattern**: Explicit states with defined transitions.
+
+**Benefits**:
+- Clear state representation
+- Prevents invalid transitions
+- Easy to debug
+
+**Examples**:
+- `PlaybackState` (IDLE → SPEAKING → FINISHED)
+- `InputState` (SILENT ↔ SPEAKING)
+
+### 4. Factory Pattern
+
+**Pattern**: Dynamic object creation based on type.
+
+**Benefits**:
+- Centralized creation logic
+- Easy to add new types
+- Encapsulates configuration
+
+**Example**: `ProviderFactory.create_provider()`.
+
+### 5. Protocol/Interface Pattern
+
+**Pattern**: Define interfaces without concrete implementation.
+
+**Benefits**:
+- Loose coupling
+- Substitutability (Liskov)
+- Easy mocking for tests
+
+**Examples**:
+- `TranslationProvider` protocol
+- `SessionPipelineProtocol` for control plane actuator
+
+### 6. Bounded Context Pattern
+
+**Pattern**: Complete isolation of session state.
+
+**Benefits**:
+- No cross-session contamination
+- Horizontal scalability
+- Independent failure domains
+
+**Example**: Each `Session` with own `SessionPipeline`, buses, provider.
+
+### 7. Gateway Pattern
+
+**Pattern**: Protocol adapters convert between formats.
+
+**Benefits**:
+- Isolates protocol details
+- Easy to swap protocols
+- Testable adapters
+
+**Examples**:
+- `AudioMessageHandler` (ACS → internal)
+- `ProviderOutputHandler` (provider → ACS)
+
+---
+
+## Summary
+
+The Voice Translation Server implements a **production-ready, event-driven architecture** with:
+
+✅ **Server-side WebSocket** pattern (listens for connections)
+✅ **Complete session isolation** (no cross-session state)
+✅ **Event bus fan-out** (independent handler queues)
+✅ **Dynamic provider selection** (per session, priority-based)
+✅ **Control plane** (playback/input state management)
+✅ **Audio batching** (size/duration/idle triggers)
+✅ **Configurable system** (YAML + environment overrides)
+✅ **Horizontal scalability** (stateless, session-isolated)
+✅ **Multi-provider support** (Mock, OpenAI, Voice Live, Live Interpreter, Role-Based)
+
+The architecture is designed for **production deployment** with clean abstractions, comprehensive error handling, and operational observability.

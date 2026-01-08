@@ -146,16 +146,24 @@ class Config:
 
     @classmethod
     def from_yaml(cls, paths: list[Path]) -> "Config":
-        """Load and merge multiple YAML config files.
+        """Load and merge multiple YAML config files with environment variable overrides.
 
-        Configs are merged left-to-right, with later configs overriding earlier ones.
+        Configs are merged in order:
+        1. Default config (DEFAULT_CONFIG)
+        2. YAML files (left-to-right, later overrides earlier)
+        3. Environment variables (VT_* prefix, highest priority)
 
         Args:
             paths: List of paths to YAML config files
 
         Returns:
-            Merged Config object
+            Merged Config object with environment variable overrides applied
+
+        Raises:
+            ConfigError: If environment variable parsing fails
         """
+        from .utils.env_config import apply_env_overrides, EnvConfigError
+
         # Filter out non-existent paths and log them
         valid_paths = []
         for path in paths or []:
@@ -169,6 +177,9 @@ class Config:
             logger.info("No valid config files found, using default config")
             return DEFAULT_CONFIG
 
+        # Log config files being loaded
+        config_files = ", ".join(str(p) for p in valid_paths)
+        logger.info(f"Loading config from {len(valid_paths)} file(s): {config_files}")
         # Start with DEFAULT_CONFIG as base
         merged_dict = DEFAULT_CONFIG.to_dict()
 
@@ -178,6 +189,12 @@ class Config:
             with Path(path).open("r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
             merged_dict = deep_merge(merged_dict, data)
+
+        # Apply environment variable overrides
+        try:
+            merged_dict = apply_env_overrides(merged_dict, prefix="VT")
+        except EnvConfigError as exc:
+            raise ConfigError(f"Environment variable configuration error: {exc}") from exc
 
         return cls.from_dict(merged_dict)
 
