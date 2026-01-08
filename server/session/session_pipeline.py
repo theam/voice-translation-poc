@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from ..providers.provider_factory import ProviderFactory, TranslationProvider
 from ..config import Config
@@ -17,10 +17,7 @@ from ..gateways.acs.inbound_handler import AcsInboundMessageHandler
 from ..core.queues import OverflowPolicy
 from ..gateways.provider.audio import AcsFormatResolver
 from ..providers.capabilities import get_provider_capabilities
-from .control import (
-    ControlPlaneBusHandler,
-    SessionControlPlane,
-)
+from .control.input_state import InputState
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +51,8 @@ class SessionPipeline:
         self.provider_inbound_bus = EventBus(f"prov_in_{self.pipeline_id}")
         self.acs_outbound_bus = EventBus(f"acs_out_{self.pipeline_id}")
 
-        # Control plane
-        self.control_plane = SessionControlPlane(
-            session_id=session_id,
-            pipeline_actuator=self,
-        )
-        self._outbound_gate_open = True
+        self.input_state = InputState()
+        self._input_state_listeners: list[Callable[[InputState], Awaitable[None]]] = []
 
         # Provider adapter (created in start_provider_processing)
         self.provider_adapter: Optional[TranslationProvider] = None
@@ -183,6 +176,8 @@ class SessionPipeline:
             session_metadata=self.metadata,
             translation_settings=self.translation_settings,
             pipeline_completion_callback=self.start_provider_processing,
+            input_state=self.input_state,
+            input_state_change_callback=self._notify_input_state_changed,
         )
 
         await self.acs_inbound_bus.register_handler(
@@ -228,111 +223,18 @@ class SessionPipeline:
             self._provider_output_handler
         )
 
-        await self.provider_inbound_bus.register_handler(
-            HandlerConfig(
-                name=f"control_plane_provider_in_{self.session_id}",
-                queue_max=200,
-                overflow_policy=OverflowPolicy.DROP_NEWEST,
-                concurrency=1,
-            ),
-            ControlPlaneBusHandler(
-                HandlerSettings(
-                    name=f"control_plane_provider_in_{self.session_id}",
-                    queue_max=200,
-                    overflow_policy=str(OverflowPolicy.DROP_NEWEST),
-                ),
-                control_plane=self.control_plane,
-                source="provider_inbound",
-            ),
-        )
-
         logger.info("Session %s provider handlers registered", self.session_id)
 
     async def process_message(self, envelope: GatewayInputEvent):
         """Process message from ACS for this session."""
         await self.acs_inbound_bus.publish(envelope)
 
-    # ----- Control plane actuator surface -----
-    def is_outbound_gate_open(self) -> bool:
-        return self._outbound_gate_open
+    def register_input_state_listener(self, listener: Callable[[InputState], Awaitable[None]]) -> None:
+        self._input_state_listeners.append(listener)
 
-    def set_outbound_gate(self, enabled: bool, reason: str, correlation_id: Optional[str] = None) -> None:
-        self._outbound_gate_open = bool(enabled)
-        logger.info(
-            "outbound_gate_%s session=%s reason=%s correlation_id=%s",
-            "opened" if self._outbound_gate_open else "closed",
-            self.session_id,
-            reason,
-            correlation_id,
-        )
-        if self._outbound_gate_open:
-            self.control_plane.on_gate_opened()
-        else:
-            self.control_plane.on_gate_closed()
-            self.control_plane.mark_playback_inactive(reason or "gate_closed", correlation_id)
-
-    async def drop_outbound_audio(self, reason: str, correlation_id: Optional[str] = None) -> None:
-        handler = self._provider_output_handler
-        if not handler:
-            return
-
-        store = handler.audio_delta_handler.store
-        playout_engine = handler.audio_delta_handler.playout_engine
-        for key in list(store.keys()):
-            state = store.get(key)
-            if not state:
-                continue
-            await playout_engine.cancel(key, state)
-            store.remove(key)
-
-        logger.info(
-            "dropped_outbound_audio session=%s reason=%s correlation_id=%s",
-            self.session_id,
-            reason,
-            correlation_id,
-        )
-        self.control_plane.mark_playback_inactive(reason or "dropped_outbound_audio", correlation_id)
-
-    async def cancel_provider_response(self, provider_response_id: str, reason: str) -> None:
-        adapter = self.provider_adapter
-        if adapter is None:
-            logger.debug("cancel_provider_response ignored; provider not ready")
-            return
-
-        cancel_method = getattr(adapter, "cancel_response", None)
-        if callable(cancel_method):
-            try:
-                await cancel_method(provider_response_id, reason=reason)
-                logger.info(
-                    "provider_cancel_requested session=%s response_id=%s reason=%s",
-                    self.session_id,
-                    provider_response_id,
-                    reason,
-                )
-            except Exception:
-                logger.exception(
-                    "provider_cancel_failed session=%s response_id=%s reason=%s",
-                    self.session_id,
-                    provider_response_id,
-                    reason,
-                )
-        else:
-            logger.info(
-                "provider_cancel_unsupported session=%s response_id=%s reason=%s",
-                self.session_id,
-                provider_response_id,
-                reason,
-            )
-
-    async def flush_inbound_buffers(self, participant_id: Optional[str], keep_after_ts_ms: Optional[int]) -> None:
-        if self._translation_handler and hasattr(self._translation_handler, "audio_handler"):
-            await self._translation_handler.audio_handler.flush(participant_id=participant_id)
-        logger.info(
-            "flushed_inbound_buffers session=%s participant=%s keep_after_ts_ms=%s",
-            self.session_id,
-            participant_id,
-            keep_after_ts_ms,
-        )
+    async def _notify_input_state_changed(self) -> None:
+        for listener in list(self._input_state_listeners):
+            await listener(self.input_state)
 
     def _log_audio_formats(self) -> None:
         acs_format = AcsFormatResolver(self.metadata).get_target_format()

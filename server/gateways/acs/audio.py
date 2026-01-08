@@ -6,7 +6,7 @@ import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ...config import BatchingConfig
 from ...audio import Base64AudioCodec, PcmConverter
@@ -14,6 +14,8 @@ from ...models.gateway_input_event import GatewayInputEvent
 from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderInputEvent
 from ...services.audio_duration import AudioDurationCalculator
+from ...session.control.input_state import InputState
+from ...utils.time_utils import MonotonicClock
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,8 @@ class AudioMessageHandler:
     """Consumes audio envelopes, buffers audio, and dispatches to provider."""
 
     SILENCE_RMS_THRESHOLD = 50.0
+    INPUT_SILENCE_TIMEOUT_MS = 350
+    INPUT_VOICE_HYSTERESIS_MS = 100
 
     def __init__(
         self,
@@ -41,11 +45,15 @@ class AudioMessageHandler:
         batching_config: BatchingConfig,
         session_metadata: Optional[Dict[str, Any]] = None,
         pcm_converter: Optional[PcmConverter] = None,
+        input_state: Optional[InputState] = None,
+        input_state_change_callback: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         self._provider_outbound_bus = provider_outbound_bus
         self._batching_config = batching_config
         self._session_metadata = session_metadata or {}
         self._pcm_converter = pcm_converter or PcmConverter()
+        self._input_state = input_state
+        self._input_state_change_callback = input_state_change_callback
         self._buffers: Dict[AudioKey, List[bytes]] = defaultdict(list)
         self._participant_state: Dict[AudioKey, ParticipantState] = defaultdict(ParticipantState)
         self._lock = asyncio.Lock()
@@ -175,6 +183,7 @@ class AudioMessageHandler:
             timestamp_utc = audio_data.get("timestamp") or timestamp_utc
         rms = self._pcm_converter.rms_pcm16(raw_audio, self._resolve_channels())
         is_silence = rms < self.SILENCE_RMS_THRESHOLD
+        await self._update_input_state(is_silence, participant_id)
         audio_b64 = Base64AudioCodec.encode(raw_audio)
         request = ProviderInputEvent(
             commit_id=commit_id,
@@ -191,6 +200,25 @@ class AudioMessageHandler:
 
         logger.info("Publishing audio request to provider - commit=%s bytes=%s", commit_id, len(raw_audio))
         await self._provider_outbound_bus.publish(request)
+
+    async def _update_input_state(self, is_silence: bool, participant_id: Optional[str]) -> None:
+        if not self._input_state:
+            return
+        now_ms = MonotonicClock.now_ms()
+        old_status = self._input_state.status
+        if is_silence:
+            transitioned = self._input_state.on_silence_detected(now_ms, self.INPUT_SILENCE_TIMEOUT_MS)
+        else:
+            transitioned = self._input_state.on_voice_detected(now_ms, self.INPUT_VOICE_HYSTERESIS_MS)
+        if transitioned:
+            logger.info(
+                "input_state_changed from=%s to=%s participant_id=%s",
+                old_status,
+                self._input_state.status,
+                participant_id,
+            )
+            if self._input_state_change_callback:
+                await self._input_state_change_callback()
 
     async def shutdown(self) -> None:
         """Cancel all idle timers and cleanup state."""
