@@ -57,6 +57,7 @@ class AudioMessageHandler:
         # Commit tracking for periodic logging
         self._commit_count = 0
         self._total_commits_bytes = 0
+        # TODO: Should we delete duration calculation for performance?
         self._total_commits_duration_ms = 0.0
 
     def can_handle(self, event: GatewayInputEvent) -> bool:

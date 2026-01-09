@@ -149,6 +149,9 @@ evaluations/audio/
 evaluations/results/
 evaluations/logs/
 
+#Logs
+logs/
+
 # Spyder project settings
 .spyderproject
 .spyproject
