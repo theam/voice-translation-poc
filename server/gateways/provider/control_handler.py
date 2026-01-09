@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING
 
 from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderOutputEvent
@@ -19,13 +19,15 @@ class ControlHandler:
     def __init__(
         self,
         acs_outbound_bus: EventBus,
-        audio_delta_handler: AudioDeltaHandler
+        audio_delta_handler: AudioDeltaHandler,
+        playout_store: PlayoutStore,
+        playout_engine: PacedPlayoutEngine,
     ):
         self.acs_outbound_bus = acs_outbound_bus
         self.audio_delta_handler = audio_delta_handler
         self.stream_key_builder: StreamKeyBuilder = audio_delta_handler.stream_key_builder
-        self.store: PlayoutStore = audio_delta_handler.store
-        self.playout_engine: PacedPlayoutEngine = audio_delta_handler.playout_engine
+        self.store: PlayoutStore = playout_store
+        self.playout_engine: PacedPlayoutEngine = playout_engine
 
     def can_handle(self, event: ProviderOutputEvent) -> bool:
         """Check if this handler can process the event."""
@@ -46,6 +48,7 @@ class ControlHandler:
         if state:
             await self.playout_engine.cancel(buffer_key, state)
             self.store.remove(buffer_key)
+        self.audio_delta_handler.clear_resampler(buffer_key)
 
         # Publish stop_audio control to ACS
         acs_payload = {

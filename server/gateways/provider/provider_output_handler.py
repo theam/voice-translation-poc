@@ -6,6 +6,7 @@ from typing import Any, Dict
 from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderOutputEvent
 from ..base import Handler, HandlerSettings
+from .audio import AcsAudioPublisher, PacedPlayoutEngine, PlayoutStore
 from .audio_delta_handler import AudioDeltaHandler
 from .audio_done_handler import AudioDoneHandler
 from .control_handler import ControlHandler
@@ -26,27 +27,37 @@ class ProviderOutputHandler(Handler):
         self,
         settings: HandlerSettings,
         acs_outbound_bus: EventBus,
+        provider_audio_bus: EventBus,
         translation_settings: Dict[str, Any],
         session_metadata: Dict[str, Any],
+        playout_store: PlayoutStore,
+        playout_engine: PacedPlayoutEngine,
+        audio_publisher: AcsAudioPublisher,
         provider_capabilities=None,
     ):
         super().__init__(settings)
         self.acs_outbound_bus = acs_outbound_bus
+        self.provider_audio_bus = provider_audio_bus
         self.translation_settings = translation_settings
         self.session_metadata = session_metadata
 
         # Create specialized handlers
         self.audio_delta_handler = AudioDeltaHandler(
-            acs_outbound_bus=acs_outbound_bus,
+            provider_audio_bus=provider_audio_bus,
             session_metadata=session_metadata,
             provider_capabilities=provider_capabilities,
         )
         self.audio_done_handler = AudioDoneHandler(
-            audio_delta_handler=self.audio_delta_handler
+            audio_delta_handler=self.audio_delta_handler,
+            playout_store=playout_store,
+            playout_engine=playout_engine,
+            publisher=audio_publisher,
         )
         self.control_handler = ControlHandler(
             acs_outbound_bus=acs_outbound_bus,
-            audio_delta_handler=self.audio_delta_handler
+            audio_delta_handler=self.audio_delta_handler,
+            playout_store=playout_store,
+            playout_engine=playout_engine,
         )
         self.transcript_delta_handler = TranscriptDeltaHandler(
             acs_outbound_bus=acs_outbound_bus

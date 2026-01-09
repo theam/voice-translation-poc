@@ -11,13 +11,9 @@ import websockets
 
 from ..config import Config
 from ..models.gateway_input_event import ConnectionContext, GatewayInputEvent
-from ..core.event_bus import HandlerConfig
-from ..gateways.base import HandlerSettings
-from ..core.queues import OverflowPolicy
 from ..core.websocket_server import WebSocketServer
 from ..utils.dict_utils import normalize_keys
 from .session_pipeline import SessionPipeline
-from ..gateways.acs.outbound_audio_gate import OutboundAudioGate, OutboundGateMode
 
 logger = logging.getLogger(__name__)
 
@@ -190,35 +186,7 @@ class Session:
                     f"Session {self.session_id} failed to send to ACS: {e}"
                 )
 
-        # Create inline handler for sending to WebSocket
-        gate_mode = OutboundGateMode.from_value(
-            self.translation_settings.get("outbound_gate_mode")
-            or self.metadata.get("outbound_gate_mode")
-        )
-        gate_handler = OutboundAudioGate(
-            HandlerSettings(
-                name=f"acs_outbound_gate_{pipeline.pipeline_id}",
-                queue_max=1000,
-                overflow_policy="DROP_OLDEST",
-            ),
-            send_callable=send_to_acs,
-            input_state=pipeline.input_state,
-            gate_mode=gate_mode,
-            session_id=pipeline.session_id,
-        )
-
-        # Register handler on pipeline's outbound bus
-        await pipeline.acs_outbound_bus.register_handler(
-            HandlerConfig(
-                name=f"acs_websocket_send_{pipeline.pipeline_id}",
-                queue_max=1000,
-                overflow_policy=OverflowPolicy.DROP_OLDEST,
-                concurrency=1
-            ),
-            gate_handler,
-        )
-
-        pipeline.register_input_state_listener(gate_handler.on_input_state_changed)
+        await pipeline.register_acs_sender_handler(send_to_acs)
 
     async def cleanup(self):
         """Cleanup session resources."""
