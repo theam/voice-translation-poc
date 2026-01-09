@@ -28,6 +28,22 @@ class BoundedQueue(Generic[T]):
     def __len__(self) -> int:
         return len(self._queue)
 
+    def qsize(self) -> int:
+        """Return current queue size."""
+        return len(self._queue)
+
+    async def clear(self) -> int:
+        """
+        Remove all queued items.
+        Returns the number of items removed.
+        """
+        async with self._not_empty:
+            n = len(self._queue)
+            self._queue.clear()
+            # Wake up any producers or consumers waiting on the condition
+            self._not_empty.notify_all()
+        return n
+
     async def put(self, item: T, *, timeout: float = 0.05) -> bool:
         if len(self._queue) < self._maxsize:
             self._queue.append(item)
