@@ -12,10 +12,13 @@ from ..config import Config
 from ..models.gateway_input_event import GatewayInputEvent
 from ..core.event_bus import EventBus, HandlerConfig
 from ..gateways.base import HandlerSettings
+from ..gateways.acs.acs_sender_handler import AcsWebsocketSendHandler
 from ..gateways.provider import ProviderOutputHandler
 from ..gateways.acs.inbound_handler import AcsInboundMessageHandler
 from ..core.queues import OverflowPolicy
 from ..gateways.provider.audio import AcsFormatResolver
+from ..gateways.provider.outbound_playout_handler import OutboundPlayoutHandler
+from ..gateways.provider.provider_audio_gate_handler import ProviderAudioGateHandler
 from ..providers.capabilities import get_provider_capabilities
 from .control.input_state import InputState
 
@@ -50,6 +53,8 @@ class SessionPipeline:
         self.provider_outbound_bus = EventBus(f"prov_out_{self.pipeline_id}")
         self.provider_inbound_bus = EventBus(f"prov_in_{self.pipeline_id}")
         self.acs_outbound_bus = EventBus(f"acs_out_{self.pipeline_id}")
+        self.provider_audio_bus = EventBus(f"prov_audio_{self.pipeline_id}")
+        self.gated_audio_bus = EventBus(f"gated_audio_{self.pipeline_id}")
 
         self.input_state = InputState()
         self._input_state_listeners: list[Callable[[InputState], Awaitable[None]]] = []
@@ -61,6 +66,7 @@ class SessionPipeline:
         # Handlers
         self._translation_handler: Optional[AcsInboundMessageHandler] = None
         self._provider_output_handler: Optional[ProviderOutputHandler] = None
+        self._edge_playout_handler: Optional[OutboundPlayoutHandler] = None
 
         # Pipeline stage tracking
         self._stage = PipelineStage.NOT_STARTED
@@ -143,6 +149,7 @@ class SessionPipeline:
         )
 
         # Register provider handlers
+        await self._register_edge_outbound_chain()
         await self._register_provider_handlers()
         self._log_audio_formats()
 
@@ -201,6 +208,9 @@ class SessionPipeline:
         overflow_policy = OverflowPolicy(self.config.buffering.overflow_policy)
 
         # Provider output handler
+        if self._edge_playout_handler is None:
+            raise RuntimeError("Edge playout handler must be initialized before provider handlers.")
+
         self._provider_output_handler = ProviderOutputHandler(
             HandlerSettings(
                 name=f"provider_output_{self.session_id}",
@@ -208,8 +218,12 @@ class SessionPipeline:
                 overflow_policy=str(self.config.buffering.overflow_policy)
             ),
             acs_outbound_bus=self.acs_outbound_bus,
+            provider_audio_bus=self.provider_audio_bus,
             translation_settings=self.translation_settings,
             session_metadata=self.metadata,
+            playout_store=self._edge_playout_handler.store,
+            playout_engine=self._edge_playout_handler.engine,
+            audio_publisher=self._edge_playout_handler.publisher,
             provider_capabilities=self.provider_capabilities,
         )
 
@@ -224,6 +238,51 @@ class SessionPipeline:
         )
 
         logger.info("Session %s provider handlers registered", self.session_id)
+
+    async def register_acs_sender_handler(
+        self,
+        send_callable: Callable[[Dict[str, Any]], Awaitable[None]],
+    ) -> None:
+        sender = AcsWebsocketSendHandler(send_callable)
+        await self.acs_outbound_bus.register_handler(
+            HandlerConfig(
+                name=f"acs_sender_{self.session_id}",
+                queue_max=self.config.buffering.egress_queue_max,
+                overflow_policy=OverflowPolicy(self.config.buffering.overflow_policy),
+                concurrency=1,
+            ),
+            sender,
+        )
+
+    async def _register_edge_outbound_chain(self) -> None:
+        overflow_policy = OverflowPolicy(self.config.buffering.overflow_policy)
+
+        gate = ProviderAudioGateHandler(gated_bus=self.gated_audio_bus)
+        await self.provider_audio_bus.register_handler(
+            HandlerConfig(
+                name=f"provider_audio_gate_{self.session_id}",
+                queue_max=self.config.buffering.egress_queue_max,
+                overflow_policy=overflow_policy,
+                concurrency=1,
+            ),
+            gate,
+        )
+
+        playout = OutboundPlayoutHandler(
+            acs_outbound_bus=self.acs_outbound_bus,
+            playout_config=getattr(self.config, "playout", None),
+            session_metadata=self.metadata,
+        )
+        await self.gated_audio_bus.register_handler(
+            HandlerConfig(
+                name=f"edge_playout_{self.session_id}",
+                queue_max=self.config.buffering.egress_queue_max,
+                overflow_policy=overflow_policy,
+                concurrency=1,
+            ),
+            playout,
+        )
+        self._edge_playout_handler = playout
 
     async def process_message(self, envelope: GatewayInputEvent):
         """Process message from ACS for this session."""
@@ -261,5 +320,7 @@ class SessionPipeline:
         await self.provider_outbound_bus.shutdown()
         await self.provider_inbound_bus.shutdown()
         await self.acs_outbound_bus.shutdown()
+        await self.provider_audio_bus.shutdown()
+        await self.gated_audio_bus.shutdown()
 
         logger.info("Session %s pipeline cleaned up", self.session_id)

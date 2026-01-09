@@ -18,12 +18,15 @@ class AudioDoneHandler:
     def __init__(
         self,
         audio_delta_handler: AudioDeltaHandler,
+        playout_store: PlayoutStore,
+        playout_engine: PacedPlayoutEngine,
+        publisher: AcsAudioPublisher,
     ):
         self.audio_delta_handler = audio_delta_handler
         self.stream_key_builder = audio_delta_handler.stream_key_builder
-        self.store: PlayoutStore = audio_delta_handler.store
-        self.playout_engine: PacedPlayoutEngine = audio_delta_handler.playout_engine
-        self.publisher: AcsAudioPublisher = audio_delta_handler.publisher
+        self.store: PlayoutStore = playout_store
+        self.playout_engine: PacedPlayoutEngine = playout_engine
+        self.publisher: AcsAudioPublisher = publisher
 
     def can_handle(self, event: ProviderOutputEvent) -> bool:
         """Check if this handler can process the event."""
@@ -35,10 +38,9 @@ class AudioDoneHandler:
         state = self.store.get_or_create(buffer_key, self.audio_delta_handler.target_format, self.audio_delta_handler.frame_bytes)
         buffer = state.buffer
 
-        if state.resampler:
-            drained = state.resampler.flush()
-            if drained:
-                buffer.extend(drained)
+        drained = self.audio_delta_handler.flush_resampler(buffer_key)
+        if drained:
+            buffer.extend(drained)
 
         frame_bytes = state.frame_bytes or self.audio_delta_handler.frame_bytes
         if frame_bytes > 0 and buffer and len(buffer) % frame_bytes != 0:
@@ -54,8 +56,7 @@ class AudioDoneHandler:
         await self.publisher.publish_audio_done(event, reason=reason or "completed", error=error)
 
         # Clear state for this stream
-        if state.resampler:
-            state.resampler.reset()
+        self.audio_delta_handler.clear_resampler(buffer_key)
         self.store.remove(buffer_key)
 
         logger.info(
