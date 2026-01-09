@@ -22,7 +22,7 @@ turns:
 - id: patient_turn_1
   type: play_audio
   participant: patient
-  audio_file: p1
+  data_file: p1
   start_at_ms: 0
   source_language: es
   expected_language: en
@@ -33,7 +33,7 @@ turns:
 - id: nurse_turn_1
   type: play_audio
   participant: nurse
-  audio_file: n1
+  data_file: n1
   start_at_ms: 18000
   source_language: en
   expected_language: es
@@ -42,7 +42,7 @@ turns:
 - id: patient_turn_2
   type: play_audio
   participant: patient
-  audio_file: p2
+  data_file: p2
   start_at_ms: 29000
   source_language: es
   expected_language: en

@@ -261,7 +261,7 @@ class CalibrationReportPdfGenerator:
 
         elements.append(Paragraph("Conversation Details", heading_style))
         elements.append(Spacer(1, 0.05 * inch))
-        for turn in sorted(test_data.turns, key=lambda t: t.start_ms):
+        for turn in sorted(test_data.turns, key=lambda t: t.start_scn_ms):
             self._render_turn_section(turn, elements, normal_style)
 
         has_conversation_metrics = any(
@@ -471,7 +471,7 @@ class CalibrationReportPdfGenerator:
             for turn_metric in getattr(metric, "turns", []):
                 metrics_by_turn.setdefault(turn_metric.turn_id, {})[metric_name] = turn_metric
 
-        turns_sorted = sorted(test_data.turns, key=lambda t: t.start_ms)
+        turns_sorted = sorted(test_data.turns, key=lambda t: t.start_scn_ms)
         for turn in turns_sorted:
             turn_metrics = metrics_by_turn.get(turn.turn_id, {})
             metric_names = set(turn_metrics.keys())
@@ -632,7 +632,7 @@ class CalibrationReportPdfGenerator:
             lang_info = f" ({turn.source_language or 'unknown'} → {turn.expected_language or 'unknown'})"
 
         turn_rows = [
-            [f"Turn {turn.turn_id} at {turn.start_ms}ms{lang_info}"],
+            [f"Turn {turn.turn_id} at {turn.start_scn_ms}ms{lang_info}"],
             [Paragraph(
                 f"<b>Source Text:</b> {self._sanitize_html(turn.source_text or '—')}",
                 turn_text_style,

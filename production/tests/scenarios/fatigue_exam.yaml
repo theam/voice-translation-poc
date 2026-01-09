@@ -22,7 +22,7 @@ turns:
 - id: doctor_turn_1
   type: play_audio
   participant: doctor
-  audio_file: d1
+  data_file: d1
   start_at_ms: 0
   source_language: en
   expected_language: es
@@ -37,7 +37,7 @@ turns:
 - id: patient_turn_1
   type: play_audio
   participant: patient
-  audio_file: p1
+  data_file: p1
   start_at_ms: 44000
   source_language: es
   expected_language: en
@@ -51,7 +51,7 @@ turns:
 - id: doctor_turn_2
   type: play_audio
   participant: doctor
-  audio_file: d2
+  data_file: d2
   start_at_ms: 95000
   source_language: en
   expected_language: es
@@ -68,7 +68,7 @@ turns:
 - id: patient_turn_2
   type: play_audio
   participant: patient
-  audio_file: p2
+  data_file: p2
   start_at_ms: 172000
   source_language: es
   expected_language: en
@@ -81,7 +81,7 @@ turns:
 - id: doctor_turn_3
   type: play_audio
   participant: doctor
-  audio_file: d3
+  data_file: d3
   start_at_ms: 240000
   source_language: en
   expected_language: es

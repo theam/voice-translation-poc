@@ -256,8 +256,8 @@ The reporting service requires the following data in MongoDB:
 ```python
 {
   "turn_id": str,
-  "start_ms": int,
-  "end_ms": int,
+  "start_scn_ms": int,
+  "end_scn_ms": int,
   "translated_text": str,      # Actual translation
   "expected_text": str,         # Expected translation
   "source_language": str,       # e.g., "en-US"

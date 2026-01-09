@@ -19,12 +19,12 @@ class LatencyMetrics:
     first_chunk_latency_ms: Optional[int] = None  # Total latency (first_outbound → first_response)
 
     # Raw timestamps (for debugging and gap calculations)
-    first_outbound_ms: Optional[int] = None  # When first audio sent
-    last_outbound_ms: Optional[int] = None  # When last audio sent
-    first_response_ms: Optional[int] = None  # First response (any type)
-    first_audio_response_ms: Optional[int] = None  # First audio response
-    last_audio_response_ms: Optional[int] = None  # Last audio response
-    first_text_response_ms: Optional[int] = None  # First text response
+    first_outbound_scn_ms: Optional[int] = None  # When first audio sent
+    last_outbound_scn_ms: Optional[int] = None  # When last audio sent
+    first_response_scn_ms: Optional[int] = None  # First response (any type)
+    first_audio_response_scn_ms: Optional[int] = None  # First audio response
+    last_audio_response_scn_ms: Optional[int] = None  # Last audio response
+    first_text_response_scn_ms: Optional[int] = None  # First text response
 
     # Derived metrics
     audio_duration_ms: Optional[int] = None  # Speaking duration (last - first outbound)
@@ -47,8 +47,8 @@ class Turn:
     """
 
     turn_id: str
-    start_ms: int
-    end_ms: Optional[int] = None
+    start_scn_ms: int
+    end_scn_ms: Optional[int] = None
     source_text: Optional[str] = None
     translated_text: Optional[str] = None
     expected_text: Optional[str] = None

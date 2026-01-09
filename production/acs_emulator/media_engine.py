@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import random
+import struct
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,8 +78,37 @@ def calculate_frame_size(sample_rate: int, channels: int = 1, sample_width: int 
     return int(sample_rate * (duration_ms / 1000.0) * channels * sample_width)
 
 
+def _generate_comfort_noise(num_bytes: int, amplitude: int = 5) -> bytes:
+    """Generate comfort noise instead of pure silence.
+
+    Creates tiny random noise at very low amplitude (±1 to ±amplitude) in PCM16.
+    This prevents Voice Live's server-side VAD from treating it as complete silence
+    while still being imperceptible to human ears.
+
+    Args:
+        num_bytes: Number of bytes to generate (must be even for 16-bit samples)
+        amplitude: Maximum amplitude for noise (default: 5, typical range: 1-10)
+
+    Returns:
+        PCM16 bytes containing low-amplitude random noise
+    """
+    # Ensure we have an even number of bytes for 16-bit samples
+    num_bytes = (num_bytes // 2) * 2
+    num_samples = num_bytes // 2
+
+    # Generate random samples in range [-amplitude, +amplitude]
+    samples = [random.randint(-amplitude, amplitude) for _ in range(num_samples)]
+
+    # Pack as 16-bit signed integers (little-endian)
+    return struct.pack(f'<{num_samples}h', *samples)
+
+
 def generate_silence_frame(sample_rate: int, channels: int = 1, sample_width: int = 2, duration_ms: int = FRAME_DURATION_MS) -> bytes:
-    """Generate a single silence frame (zero bytes).
+    """Generate a single comfort noise frame (very low amplitude random noise).
+
+    Instead of pure silence (all zeros), generates comfort noise with tiny random
+    amplitude (±1 to ±5) to sound more natural and prevent Voice Live VAD from
+    ignoring it completely.
 
     Args:
         sample_rate: Sample rate in Hz (e.g., 16000)
@@ -86,10 +117,10 @@ def generate_silence_frame(sample_rate: int, channels: int = 1, sample_width: in
         duration_ms: Frame duration in milliseconds
 
     Returns:
-        Zero-filled PCM data bytes
+        PCM data bytes with comfort noise
     """
     frame_size = calculate_frame_size(sample_rate, channels, sample_width, duration_ms)
-    return bytes(frame_size)
+    return _generate_comfort_noise(frame_size)
 
 
 async def async_stream_silence(
@@ -100,10 +131,13 @@ async def async_stream_silence(
     sample_width: int = 2,
     frame_duration_ms: int = FRAME_DURATION_MS
 ) -> AsyncIterator[MediaFrame]:
-    """Stream silence frames for a given duration.
+    """Stream comfort noise frames for a given duration.
+
+    Instead of pure silence, generates comfort noise (very low amplitude random noise)
+    to sound more natural and work better with Voice Live's server-side VAD.
 
     Args:
-        duration_ms: Total duration of silence to generate
+        duration_ms: Total duration of comfort noise to generate
         start_time_ms: Starting timestamp for the first frame
         sample_rate: Sample rate in Hz (e.g., 16000)
         channels: Number of audio channels (1 for mono, 2 for stereo)
@@ -111,7 +145,7 @@ async def async_stream_silence(
         frame_duration_ms: Duration of each frame in milliseconds
 
     Yields:
-        MediaFrame objects with silence data
+        MediaFrame objects with comfort noise data
     """
     if duration_ms <= 0:
         return
@@ -130,10 +164,11 @@ async def async_stream_silence(
         else:
             chunk_size = frame_size
 
-        silence_data = bytes(chunk_size)
+        # Generate comfort noise instead of pure silence
+        comfort_noise = _generate_comfort_noise(chunk_size)
         yield MediaFrame(
             timestamp_ms=current_time,
-            data=silence_data
+            data=comfort_noise
         )
 
         current_time += chunk_ms

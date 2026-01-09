@@ -18,7 +18,7 @@ turns:
 - id: patient_initial_statement
   type: play_audio
   participant: patient
-  audio_file: p1
+  data_file: p1
   start_at_ms: 0
   source_language: es
   expected_language: en
@@ -27,7 +27,7 @@ turns:
 - id: patient_correction
   type: play_audio
   participant: patient
-  audio_file: p2
+  data_file: p2
   start_at_ms: 22000
   source_language: es
   expected_language: en

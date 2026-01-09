@@ -35,6 +35,9 @@ class FrameworkConfig:
     tail_silence_ms: int = field(
         default_factory=lambda: int(os.getenv("TRANSLATION_TAIL_SILENCE_MS", "10000"))
     )
+    playout_initial_buffer_ms: int = field(
+        default_factory=lambda: int(os.getenv("TRANSLATION_PLAYOUT_INITIAL_BUFFER_MS", "80"))
+    )
     calibration_tolerance: float = field(
         default_factory=lambda: float(os.getenv("CALIBRATION_TOLERANCE", "10"))
     )
@@ -65,9 +68,14 @@ class FrameworkConfig:
         default_factory=lambda: os.getenv("ENVIRONMENT", "dev")
     )
 
-    # Target system being tested (voice_live, live_interpreter, custom_llm, etc.)
+    # Target system being tested (voice_live, speech_translator, custom_llm, etc.)
     target_system: str = field(
         default_factory=lambda: os.getenv("TARGET_SYSTEM", "voice_live")
+    )
+
+    # Barge-in mode for outbound audio gate (play_through, pause_and_buffer, pause_and_drop)
+    barge_in_mode: Optional[str] = field(
+        default_factory=lambda: os.getenv("BARGE_IN_MODE", "play_through")
     )
 
     # Metrics storage configuration

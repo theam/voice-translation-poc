@@ -55,10 +55,10 @@ class OverlapMetric(Metric):
     - System responsiveness characteristics
 
     The metric examines each turn's timing data:
-    - first_audio_response_ms: When translation audio starts arriving
-    - last_outbound_ms: When user finishes sending audio
+    - first_audio_response_scn_ms: When translation audio starts arriving
+    - last_outbound_scn_ms: When user finishes sending audio
 
-    If first_audio_response_ms < last_outbound_ms, overlap is detected.
+    If first_audio_response_scn_ms < last_outbound_scn_ms, overlap is detected.
 
     Example:
         Turn sends audio from 0ms to 5000ms (5 seconds)
@@ -111,24 +111,24 @@ class OverlapMetric(Metric):
                 continue
 
             # Get timing data
-            last_outbound_ms = turn_summary.last_outbound_ms
-            first_audio_response_ms = turn_summary.first_audio_response_ms
+            last_outbound_scn_ms = turn_summary.last_outbound_scn_ms
+            first_audio_response_scn_ms = turn_summary.first_audio_response_scn_ms
 
             # Check if we have the necessary timing data
-            if last_outbound_ms is None or first_audio_response_ms is None:
+            if last_outbound_scn_ms is None or first_audio_response_scn_ms is None:
                 turn_results.append({
                     "turn_id": turn.id,
                     "score": None,
                     "status": "skipped",
                     "reason": "Missing timing data",
-                    "last_outbound_ms": last_outbound_ms,
-                    "first_audio_response_ms": first_audio_response_ms
+                    "last_outbound_scn_ms": last_outbound_scn_ms,
+                    "first_audio_response_scn_ms": first_audio_response_scn_ms
                 })
                 continue
 
             # Calculate overlap
             # Overlap occurs if response arrives before we finish sending
-            overlap_ms = last_outbound_ms - first_audio_response_ms
+            overlap_ms = last_outbound_scn_ms - first_audio_response_scn_ms
 
             # Calculate score
             score = _calculate_overlap_score(overlap_ms)
@@ -153,8 +153,8 @@ class OverlapMetric(Metric):
 
             logger.info(
                 f"Overlap [{turn.id}]: "
-                f"last_outbound={last_outbound_ms}ms, "
-                f"first_audio_response={first_audio_response_ms}ms, "
+                f"last_outbound={last_outbound_scn_ms}ms, "
+                f"first_audio_response={first_audio_response_scn_ms}ms, "
                 f"overlap={overlap_ms}ms, "
                 f"score={score:.1f}%"
             )
@@ -165,8 +165,8 @@ class OverlapMetric(Metric):
                 "status": status,
                 "reason": reason,
                 "overlap_ms": overlap_ms,
-                "last_outbound_ms": last_outbound_ms,
-                "first_audio_response_ms": first_audio_response_ms
+                "last_outbound_scn_ms": last_outbound_scn_ms,
+                "first_audio_response_scn_ms": first_audio_response_scn_ms
             })
 
         # Calculate overall score

@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Proof of concept for Azure Speech translation using the Live Interpreter preview with Personal Voice."
 authors = ["vt Voice Translation POC Team <devnull@example.com>"]
 readme = "README.md"
-packages = [{include = "vt_voice_translation_poc", from = "src"}]
+packages = [
+    {include = "vt_voice_translation_poc", from = "src"},
+    {include = "server"}
+]
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -35,6 +38,7 @@ gitpython = "^3.1.43"
 
 [tool.poetry.scripts]
 speech-poc = "vt_voice_translation_poc.cli:app"
+translation-server = "server.main:main"
 run-evaluations = "evaluations.run_evaluations:main"
 run-metrics = "evaluations.run_metrics:main"
 echo-test = "evaluations.echo_test:main"

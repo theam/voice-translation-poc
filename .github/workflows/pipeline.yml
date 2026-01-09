@@ -84,7 +84,7 @@ jobs:
         run: |
           BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
-          make build-release \
+          make build_release \
             IMAGE_NAME="${{ vars.ACR_LOGIN_SERVER }}/vt/${{ env.API_NAME }}" \
             IMAGE_TAG="${{ env.TAG_NAME }}" \
             PYTHON_BASE="${{ env.PYTHON_BASE }}" \

@@ -1,6 +1,7 @@
 """Translation text delta message handler.
 
-Handles messages with type="translation.text_delta" containing incremental text updates.
+Handles messages with type="translation.text_delta" or "control.test.response.text_delta"
+containing incremental text updates.
 """
 from __future__ import annotations
 
@@ -19,25 +20,31 @@ logger = logging.getLogger(__name__)
 
 
 class TextDeltaHandler(MessageHandler):
-    """Handler for translation.text_delta messages.
+    """Handler for translation text delta messages.
+
+    Handles both legacy (translation.text_delta) and new control namespace
+    (control.test.response.text_delta) message types.
 
     Decodes incremental text delta messages and buffers them to reconstruct
     complete translations. Maintains per-participant or per-language-pair buffers.
     """
 
     def can_handle(self, message: Dict[str, Any]) -> bool:
-        """Check if message is a translation.text_delta message.
+        """Check if message is a translation text delta message.
 
         Args:
             message: Raw message dictionary from WebSocket
 
         Returns:
-            True if message has type="translation.text_delta"
+            True if message type is "translation.text_delta" or "control.test.response.text_delta"
         """
-        return message.get("type") == "translation.text_delta"
+        msg_type = message.get("type")
+        return msg_type in ("translation.text_delta", "control.test.response.text_delta")
 
     def decode(self, message: Dict[str, Any]) -> ProtocolEvent:
-        """Decode translation.text_delta message to ProtocolEvent.
+        """Decode translation text delta message to ProtocolEvent.
+
+        Handles both "translation.text_delta" and "control.test.response.text_delta" types.
 
         Buffers incremental text deltas to reconstruct complete translations.
         The buffered text accumulates across multiple delta messages for the
@@ -47,7 +54,7 @@ class TextDeltaHandler(MessageHandler):
             message: Raw message dictionary from WebSocket
 
         Returns:
-            ProtocolEvent with translated_text type and buffered text
+            ProtocolEvent with translated_delta type and buffered text
         """
         delta = TranslationTextDelta.from_dict(message)
 
@@ -73,7 +80,11 @@ class TextDeltaHandler(MessageHandler):
             raw=delta.raw,
         )
 
-        logger.debug("Decoded translation.text_delta event; buffered_text='%s'", buffered_text)
+        logger.debug(
+            "Decoded translation text delta (type=%s); buffered_text='%s'",
+            message.get("type"),
+            buffered_text
+        )
         return event
 
 

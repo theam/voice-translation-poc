@@ -19,7 +19,8 @@ class ProtocolEvent:
     participant_id: Optional[str]
     source_language: Optional[str]
     target_language: Optional[str]
-    timestamp_ms: int
+    timestamp_ms: Optional[float]
+    arrival_scn_ms: Optional[int] = None
     text: Optional[str] = None
     audio_payload: Optional[bytes] = None
     raw: Dict[str, Any] | None = None
@@ -44,6 +45,22 @@ class ProtocolAdapter:
         )
         payload = metadata.to_dict()
         logger.debug("Built ACS AudioMetadata message: %s", json.dumps(payload))
+        return payload
+
+    def build_test_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a control.test.settings message for runtime configuration.
+
+        Args:
+            settings: Dictionary of settings to apply (e.g., {"provider": "voice_live"})
+
+        Returns:
+            Control message payload for test settings
+        """
+        payload = {
+            "type": "control.test.settings",
+            "settings": settings
+        }
+        logger.debug("Built test settings message: %s", json.dumps(payload))
         return payload
 
     def build_audio_message(
