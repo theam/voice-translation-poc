@@ -10,6 +10,7 @@ from .audio import AcsAudioPublisher, PacedPlayoutEngine, PlayoutStore
 from .audio_delta_handler import AudioDeltaHandler
 from .audio_done_handler import AudioDoneHandler
 from .control_handler import ControlHandler
+from ...config import LOG_EVERY_N_ITEMS
 from .transcript_delta_handler import TranscriptDeltaHandler
 from .transcript_done_handler import TranscriptDoneHandler
 
@@ -40,6 +41,9 @@ class ProviderOutputHandler(Handler):
         self.provider_audio_bus = provider_audio_bus
         self.translation_settings = translation_settings
         self.session_metadata = session_metadata
+
+        # Track sends for periodic logging
+        self._received_count = 0
 
         # Create specialized handlers
         self.audio_delta_handler = AudioDeltaHandler(
@@ -77,13 +81,13 @@ class ProviderOutputHandler(Handler):
 
     async def handle(self, event: ProviderOutputEvent) -> None:
         """Dispatch event to appropriate specialized handler based on event type."""
-        logger.info(
-            "Provider output received type=%s session=%s participant=%s commit=%s",
-            event.event_type,
+        self._received_count += 1
+        if self._received_count % LOG_EVERY_N_ITEMS == 0:
+            logger.info(
+            "Provider output progress session=%s total_received=%d",
             event.session_id,
-            event.participant_id,
-            event.commit_id,
-        )
+                self._received_count,
+            )
 
         for handler in self._handlers:
             if handler.can_handle(event):

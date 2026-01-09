@@ -504,20 +504,6 @@ class SessionPipeline:
             )
         )
 
-        # Gate handler (sends to ACS with gate control)
-        await self.acs_outbound_bus.register_handler(
-            HandlerConfig(
-                name=f"acs_gate_{self.session_id}",
-                queue_max=self.config.buffering.egress_queue_max,
-                overflow_policy=OverflowPolicy.DROP_OLDEST,
-                concurrency=1
-            ),
-            AcsOutboundGateHandler(
-                websocket=self.websocket,
-                control_plane=self.control_plane
-            )
-        )
-
     async def _register_control_plane_handlers(self):
         """Register control plane handlers (tap into buses for state tracking)."""
         # Tap provider input bus for input state
@@ -757,7 +743,7 @@ provider_inbound_bus (fan-out)
 ACS-formatted payload
     ↓
 acs_outbound_bus
-    ├─> AcsOutboundGateHandler (with gate control)
+    ├─> AcsWebsocketSendHandler
     ↓
 ACS WebSocket
 ```
@@ -1633,9 +1619,8 @@ See [ENV_CONFIG.md](ENV_CONFIG.md) for complete reference.
     ├─ Convert to ACS format
     └─ Publish to acs_outbound_bus
     ↓
-16. AcsOutboundGateHandler:
+16. AcsWebsocketSendHandler:
     ├─ Consume from bus
-    ├─ Check gate status (OPEN)
     └─ Send via WebSocket to ACS
     ↓
 17. ACS Client ← Translation result:

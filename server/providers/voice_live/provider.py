@@ -102,7 +102,7 @@ VOICE_LIVE_DEFAULT_SESSION_OPTIONS: Dict[str, Any] = {
         # Let the server generate responses automatically at end-of-turn
         "create_response": True,
         # True barge-in: stop assistant when user starts speaking
-        "interrupt_response": True,
+        "interrupt_response": False,
         # Keep server context aligned with what the user actually heard
         "auto_truncate": True,
     },

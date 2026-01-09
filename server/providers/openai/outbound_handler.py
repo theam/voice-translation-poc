@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict
 
 from ...audio import Base64AudioCodec, PcmConverter
+from ...config import LOG_EVERY_N_ITEMS
 from ...core.websocket_server import WebSocketServer
 from ...gateways.provider.audio import AcsFormatResolver
 from ...models.provider_events import ProviderInputEvent
@@ -29,6 +30,10 @@ class OpenAIOutboundHandler:
         self.converter = converter or PcmConverter()
         self.capabilities = capabilities or get_provider_capabilities("openai")
         self.acs_format_resolver = acs_format_resolver or AcsFormatResolver(session_metadata)
+
+        # Track sends for periodic logging
+        self._send_count = 0
+        self._total_bytes_sent = 0
 
     @staticmethod
     def _serialize_request(audio_b64: str) -> Dict[str, Any]:
@@ -60,12 +65,18 @@ class OpenAIOutboundHandler:
 
             payload = self._serialize_request(Base64AudioCodec.encode(converted))
             await self.websocket.send(json.dumps(payload))
-            logger.info(
-                "Sent audio to OpenAI: commit=%s session=%s bytes=%s",
-                event.commit_id,
-                event.session_id,
-                len(converted),
-            )
+
+            # Track sends for periodic logging
+            self._send_count += 1
+            self._total_bytes_sent += len(converted)
+
+            # Log progress every N sends
+            if self._send_count % LOG_EVERY_N_ITEMS == 0:
+                logger.info(
+                    "openai_audio_sends_progress total_sends=%d total_bytes=%d",
+                    self._send_count,
+                    self._total_bytes_sent,
+                )
         except Exception as exc:
             logger.exception(
                 "Failed to send audio to OpenAI: commit=%s error=%s",

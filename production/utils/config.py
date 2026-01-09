@@ -73,6 +73,11 @@ class FrameworkConfig:
         default_factory=lambda: os.getenv("TARGET_SYSTEM", "voice_live")
     )
 
+    # Barge-in mode for outbound audio gate (play_through, pause_and_buffer, pause_and_drop)
+    barge_in_mode: Optional[str] = field(
+        default_factory=lambda: os.getenv("BARGE_IN_MODE", "play_through")
+    )
+
     # Metrics storage configuration
     storage_enabled: bool = field(
         default_factory=lambda: os.getenv("MONGODB_ENABLED", "false").lower() == "true"

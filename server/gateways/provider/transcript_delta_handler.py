@@ -40,7 +40,7 @@ class TranscriptDeltaHandler:
         }
         await self.acs_outbound_bus.publish(translation_payload)
 
-        logger.info(
+        logger.debug(
             "Published translation delta for session=%s participant=%s",
             event.session_id,
             event.participant_id

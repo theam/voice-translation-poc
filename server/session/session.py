@@ -71,11 +71,7 @@ class Session:
 
         try:
             # Wait for both tasks
-            await asyncio.gather(
-                self._receive_task,
-                self._send_task,
-                return_exceptions=True
-            )
+            await asyncio.gather(self._receive_task, self._send_task, return_exceptions=True)
         finally:
             await self.cleanup()
 
@@ -87,23 +83,6 @@ class Session:
                     # Parse and normalize keys to lowercase for case-insensitive handling
                     data = json.loads(raw_message)
                     data = normalize_keys(data)
-
-                    # Extract session metadata if present (any message can contain metadata)
-                    if "metadata" in data:
-                        new_metadata = data.get("metadata", {})
-                        if isinstance(new_metadata, dict):
-                            # Merge into session metadata (used for dynamic provider selection)
-                            self.metadata.update(new_metadata)
-
-                            # Update pipeline's metadata (shared dict reference)
-                            if self.pipeline:
-                                self.pipeline.metadata.update(new_metadata)
-
-                            logger.debug(
-                                "Session %s updated metadata from message (keys: %s)",
-                                self.session_id,
-                                list(new_metadata.keys())
-                            )
 
                     # Convert to GatewayInputEvent
                     self._sequence += 1

@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections import deque
 from enum import Enum
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 class OverflowPolicy(str, Enum):
     DROP_OLDEST = "DROP_OLDEST"
     DROP_NEWEST = "DROP_NEWEST"
-    BLOCK_WITH_TIMEOUT = "BLOCK_WITH_TIMEOUT"
 
 
 class BoundedQueue(Generic[T]):
@@ -44,7 +43,7 @@ class BoundedQueue(Generic[T]):
             self._not_empty.notify_all()
         return n
 
-    async def put(self, item: T, *, timeout: float = 0.05) -> bool:
+    async def put(self, item: T) -> bool:
         if len(self._queue) < self._maxsize:
             self._queue.append(item)
             await self._notify()
@@ -59,15 +58,6 @@ class BoundedQueue(Generic[T]):
         if self._overflow_policy == OverflowPolicy.DROP_NEWEST:
             logger.debug("Dropped newest item due to overflow: %s", item)
             return False
-        if self._overflow_policy == OverflowPolicy.BLOCK_WITH_TIMEOUT:
-            try:
-                await asyncio.wait_for(self._wait_for_slot(), timeout=timeout)
-                self._queue.append(item)
-                await self._notify()
-                return True
-            except asyncio.TimeoutError:
-                logger.warning("Timeout while waiting to enqueue item; dropping newest")
-                return False
         raise ValueError(f"Unknown overflow policy {self._overflow_policy}")
 
     async def get(self) -> T:
@@ -77,11 +67,6 @@ class BoundedQueue(Generic[T]):
             item = self._queue.popleft()
             self._not_empty.notify()
         return item
-
-    async def _wait_for_slot(self) -> None:
-        while len(self._queue) >= self._maxsize:
-            async with self._not_empty:
-                await self._not_empty.wait()
 
     async def _notify(self) -> None:
         async with self._not_empty:

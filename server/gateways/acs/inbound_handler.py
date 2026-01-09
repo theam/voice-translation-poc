@@ -11,7 +11,7 @@ from .audio import AudioMessageHandler
 from .audio_metadata import AudioMetadataHandler
 from .test_settings import TestSettingsHandler
 from .system_info import SystemInfoMessageHandler
-from ...session.control.input_state import InputState
+from ...session.input_state import InputState
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,6 @@ class AcsInboundMessageHandler(Handler):
         translation_settings: Dict[str, Any],
         pipeline_completion_callback: Optional[Callable[[], Awaitable[None]]] = None,
         input_state: Optional[InputState] = None,
-        input_state_change_callback: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         super().__init__(settings)
         self.audio_handler = AudioMessageHandler(
@@ -37,7 +36,6 @@ class AcsInboundMessageHandler(Handler):
             batching_config,
             session_metadata=session_metadata,
             input_state=input_state,
-            input_state_change_callback=input_state_change_callback,
         )
         self.control_handler = TestSettingsHandler(translation_settings, session_metadata)
         self.system_info_handler = SystemInfoMessageHandler(acs_outbound_bus)

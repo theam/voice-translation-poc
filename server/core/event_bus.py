@@ -57,14 +57,15 @@ class EventBus:
             enqueued = await runtime.queue.put(envelope)
             if not enqueued:
                 logger.warning(
-                    "Handler queue overflow on %s; policy=%s depth=%s", runtime.config.name, runtime.config.overflow_policy, len(runtime.queue)
+                    "Handler queue overflow on %s; policy=%s depth=%s", runtime.config.name, runtime.config.overflow_policy, runtime.queue.qsize()
                 )
 
     async def _worker(self, runtime: HandlerRuntime) -> None:
         while True:
             try:
-                envelope = await runtime.queue.get()
                 await runtime.pause_event.wait()
+
+                envelope = await runtime.queue.get()
                 await runtime.handler(envelope)
             except asyncio.CancelledError:
                 logger.info("Worker for %s cancelled", runtime.config.name)

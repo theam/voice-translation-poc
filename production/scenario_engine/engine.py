@@ -400,12 +400,10 @@ class ScenarioEngine:
         Returns:
             Dictionary of settings (e.g., {"provider": "voice_live"}), or None if no settings
         """
-        settings = {}
+        settings = {
+            "provider": self.config.target_system,
+            "outbound_gate_mode": self.config.barge_in_mode,
+        }
 
-        # Map target_system to provider setting
-        if self.config.target_system:
-            settings["provider"] = self.config.target_system
-            logger.info("Test settings: provider=%s (from target_system config)", self.config.target_system)
-
-        # Return None if no settings to send
-        return settings if settings else None
+        logger.info("Test settings created: settings=%s (from target_system config)", settings)
+        return settings

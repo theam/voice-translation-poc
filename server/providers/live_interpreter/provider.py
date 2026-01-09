@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import azure.cognitiveservices.speech as speechsdk
 
 from ...audio import Base64AudioCodec
+from ...config import LOG_EVERY_N_ITEMS
 from ...core.event_bus import EventBus, HandlerConfig
 from ...core.queues import OverflowPolicy
 from ...models.provider_events import ProviderInputEvent, ProviderOutputEvent
@@ -80,6 +81,10 @@ class LiveInterpreterProvider:
         # Shared session identifiers (not per-participant in simple shared session)
         self._session_id: Optional[str] = None  # Set on first audio event
         self._audio_seq: int = 0
+
+        # Track sends for periodic logging
+        self._send_count = 0
+        self._total_bytes_sent = 0
 
         logger.info(
             f"🎯 LiveInterpreterProvider initialized: endpoint={self.endpoint}, "
@@ -208,12 +213,18 @@ class LiveInterpreterProvider:
 
         try:
             self._push_stream.write(audio_bytes)
-            logger.debug(
-                "Pushed audio: commit=%s participant=%s bytes=%s",
-                event.commit_id,
-                event.participant_id,
-                len(audio_bytes),
-            )
+
+            # Track sends for periodic logging
+            self._send_count += 1
+            self._total_bytes_sent += len(audio_bytes)
+
+            # Log progress every N sends
+            if self._send_count % LOG_EVERY_N_ITEMS == 0:
+                logger.info(
+                    "live_interpreter_audio_sends_progress total_sends=%d total_bytes=%d",
+                    self._send_count,
+                    self._total_bytes_sent,
+                )
         except Exception as exc:
             logger.exception("Failed to write audio for commit=%s: %s", event.commit_id, exc)
 

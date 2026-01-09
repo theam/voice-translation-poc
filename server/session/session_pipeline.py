@@ -20,7 +20,7 @@ from ..gateways.provider.audio import AcsFormatResolver
 from ..gateways.provider.outbound_playout_handler import OutboundPlayoutHandler
 from ..gateways.provider.provider_audio_gate_handler import ProviderAudioGateHandler
 from ..providers.capabilities import get_provider_capabilities
-from .control.input_state import InputState
+from .input_state import InputState
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class SessionPipeline:
         self.provider_audio_bus = EventBus(f"prov_audio_{self.pipeline_id}")
         self.gated_audio_bus = EventBus(f"gated_audio_{self.pipeline_id}")
 
-        self.input_state = InputState()
+        self.input_state = InputState(self.config.system)
         self._input_state_listeners: list[Callable[[InputState], Awaitable[None]]] = []
 
         # Provider adapter (created in start_provider_processing)
@@ -87,7 +87,7 @@ class SessionPipeline:
             )
             return
 
-        # Start control plane and register ACS handlers (they will queue messages until provider is ready)
+        # Register ACS handlers (they will queue messages until provider is ready)
         await self._register_acs_handlers()
 
         self._stage = PipelineStage.ACS_PROCESSING
@@ -184,7 +184,6 @@ class SessionPipeline:
             translation_settings=self.translation_settings,
             pipeline_completion_callback=self.start_provider_processing,
             input_state=self.input_state,
-            input_state_change_callback=self._notify_input_state_changed,
         )
 
         await self.acs_inbound_bus.register_handler(
