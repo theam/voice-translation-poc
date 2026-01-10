@@ -12,7 +12,6 @@ fastapi = "^0.111.0"
 uvicorn = { version = "^0.30.0", extras = ["standard"] }
 websockets = "^11.0.3"
 python-multipart = "^0.0.9"
-vt-voice-translation-poc = { path = "..", develop = true }
 
 [tool.poetry.scripts]
 acs-webclient = "acs_webclient.main:main"
