@@ -13,11 +13,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src
 
-COPY client_web/pyproject.toml ./
-RUN pip install --no-cache-dir poetry \
-    && poetry export -f requirements.txt --without-hashes -o requirements.txt \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip uninstall -y poetry
+COPY client_web/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY client_web/src /app/src
 COPY --from=frontend-build /app/frontend/dist /app/src/acs_webclient/web/static
