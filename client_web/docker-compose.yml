@@ -7,6 +7,6 @@ services:
       - "8000:8000"
     environment:
       ACS_UPSTREAM_URL: ${ACS_UPSTREAM_URL:-ws://host.docker.internal:8080}
-      WEBCLIENT_ALLOWED_PROVIDERS: ${WEBCLIENT_ALLOWED_PROVIDERS:-mock}
+      WEBCLIENT_ALLOWED_PROVIDERS: ${WEBCLIENT_ALLOWED_PROVIDERS:-openai,voice_live,live_interpreter_spanish,live_interpreter_english,role_based_li_en_es}
       WEBCLIENT_ALLOWED_BARGE_IN: ${WEBCLIENT_ALLOWED_BARGE_IN:-play_through,pause_and_buffer,pause_and_drop}
     restart: unless-stopped

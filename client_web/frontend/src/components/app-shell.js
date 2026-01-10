@@ -30,7 +30,16 @@ export class AppShell extends HTMLElement {
     try {
       this.settings = await fetchTestSettings();
     } catch (err) {
-      this.settings = { providers: ["mock"], barge_in_modes: ["play_through"] };
+      this.settings = {
+        providers: [
+          "openai",
+          "voice_live",
+          "live_interpreter_spanish",
+          "live_interpreter_english",
+          "role_based_li_en_es",
+        ],
+        barge_in_modes: ["play_through"],
+      };
     }
     this.render();
   }

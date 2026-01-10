@@ -10,7 +10,15 @@ from typing import Dict, List
 class Settings:
     upstream_url: str = "ws://localhost:8080"
     upstream_headers: Dict[str, str] = field(default_factory=dict)
-    allowed_providers: List[str] = field(default_factory=lambda: ["mock"])
+    allowed_providers: List[str] = field(
+        default_factory=lambda: [
+            "openai",
+            "voice_live",
+            "live_interpreter_spanish",
+            "live_interpreter_english",
+            "role_based_li_en_es",
+        ]
+    )
     allowed_barge_in_modes: List[str] = field(
         default_factory=lambda: ["play_through", "pause_and_buffer", "pause_and_drop"]
     )
@@ -19,7 +27,10 @@ class Settings:
     def from_env(cls) -> "Settings":
         upstream_url = os.getenv("ACS_UPSTREAM_URL", "ws://localhost:8080")
         headers_raw = os.getenv("ACS_UPSTREAM_HEADERS", "")
-        allowed_providers = _split_env_list("WEBCLIENT_ALLOWED_PROVIDERS", "mock")
+        allowed_providers = _split_env_list(
+            "WEBCLIENT_ALLOWED_PROVIDERS",
+            "openai,voice_live,live_interpreter_spanish,live_interpreter_english,role_based_li_en_es",
+        )
         allowed_barge_in = _split_env_list(
             "WEBCLIENT_ALLOWED_BARGE_IN",
             "play_through,pause_and_buffer,pause_and_drop",
