@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "acs-webclient"
+version = "0.1.0"
+description = "Web UI ACS emulator client"
+authors = ["vt Voice Translation POC Team <devnull@example.com>"]
+readme = "README.md"
+packages = [{ include = "acs_webclient", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.111.0"
+uvicorn = { version = "^0.30.0", extras = ["standard"] }
+websockets = "^11.0.3"
+python-multipart = "^0.0.9"
+vt-voice-translation-poc = { path = "..", develop = true }
+
+[tool.poetry.scripts]
+acs-webclient = "acs_webclient.main:main"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
