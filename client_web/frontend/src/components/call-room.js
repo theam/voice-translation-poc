@@ -68,6 +68,10 @@ export class CallRoom extends HTMLElement {
     updateState({ connection: socket });
   }
 
+  async activatePlayback() {
+    await this.playback.activate();
+  }
+
   handleInbound(payload) {
     if (payload.kind === "AudioData" && payload.audioData?.data) {
       const bytes = bytesFromBase64(payload.audioData.data);

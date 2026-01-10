@@ -2,11 +2,24 @@ import { pcm16ToFloat32 } from "./pcm16.js";
 
 export class PlaybackQueue {
   constructor() {
-    this.context = new AudioContext({ sampleRate: 16000 });
-    this.nextTime = this.context.currentTime;
+    this.context = null;
+    this.nextTime = 0;
+  }
+
+  async activate() {
+    if (!this.context) {
+      this.context = new AudioContext({ sampleRate: 16000 });
+      this.nextTime = this.context.currentTime;
+    }
+    if (this.context.state === "suspended") {
+      await this.context.resume();
+    }
   }
 
   enqueue(pcmBytes) {
+    if (!this.context) {
+      return;
+    }
     const floatData = pcm16ToFloat32(pcmBytes.buffer);
     const buffer = this.context.createBuffer(1, floatData.length, this.context.sampleRate);
     buffer.copyToChannel(floatData, 0);
@@ -23,6 +36,9 @@ export class PlaybackQueue {
   }
 
   stop() {
+    if (!this.context) {
+      return;
+    }
     this.nextTime = this.context.currentTime;
   }
 }

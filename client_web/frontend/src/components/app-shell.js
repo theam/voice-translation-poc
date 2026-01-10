@@ -18,6 +18,10 @@ export class AppShell extends HTMLElement {
     this.loadSettings();
     this.unsubscribe = subscribe(() => this.render());
     this.render();
+    this.shadowRoot.addEventListener("join-call", () => {
+      const callRoom = this.shadowRoot.querySelector("call-room");
+      callRoom?.activatePlayback();
+    });
   }
 
   disconnectedCallback() {

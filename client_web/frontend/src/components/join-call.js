@@ -20,6 +20,12 @@ export class JoinCall extends HTMLElement {
 
     this.error = "";
     updateState({ callCode, participantId });
+    this.dispatchEvent(
+      new CustomEvent("join-call", {
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 
   render() {
