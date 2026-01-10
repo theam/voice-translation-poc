@@ -1,25 +1,21 @@
-.PHONY: install fe-install fe-build fe-copy run docker-build docker-run
+.PHONY: docker-build docker-run docker-run-detached docker-logs docker-stop docker-clean
 
-install:
-	poetry install
-
-fe-install:
-	cd frontend && npm ci
-
-fe-build:
-	cd frontend && npm run build
-
-fe-copy:
-	mkdir -p src/acs_webclient/web/static
-	cp -r frontend/dist/* src/acs_webclient/web/static/
-
-run:
-	poetry run uvicorn acs_webclient.main:app --host 0.0.0.0 --port 8000
+COMPOSE = docker compose -f docker-compose.yml
 
 docker-build:
-	docker build -t acs-webclient:latest .
+	$(COMPOSE) build
 
 docker-run:
-	docker run --rm -p 8000:8000 \
-		-e TRANSLATION_WEBSOCKET_URL=$${TRANSLATION_WEBSOCKET_URL:-ws://localhost:8080/ws} \
-		acs-webclient:latest
+	$(COMPOSE) up
+
+docker-run-detached:
+	$(COMPOSE) up -d
+
+docker-logs:
+	$(COMPOSE) logs -f
+
+docker-stop:
+	$(COMPOSE) down
+
+docker-clean:
+	$(COMPOSE) down --rmi local --volumes

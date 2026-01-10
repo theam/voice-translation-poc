@@ -2,25 +2,22 @@
 
 This subproject provides a FastAPI backend and Vite frontend for an ACS emulator web UI.
 
-## Requirements
-
-- Python 3.12+
-- Poetry
-- Node.js 18+
-
-## Setup
+## Build
 
 ```bash
-make install
-make fe-install
-make fe-build
-make fe-copy
+make docker-build
 ```
 
 ## Run
 
 ```bash
-make run
+make docker-run
+```
+
+## Stop
+
+```bash
+make docker-stop
 ```
 
 Open <http://localhost:8000> in your browser.
@@ -29,7 +26,7 @@ Open <http://localhost:8000> in your browser.
 
 The backend connects upstream using the same ACS protocol as the production evaluations runner.
 
-Environment variables:
+Environment variables (Docker/compose):
 
 - `TRANSLATION_WEBSOCKET_URL` (default: `ws://localhost:8080/ws`)
 - `TRANSLATION_WS_AUTH` (optional)
