@@ -3,7 +3,7 @@ from .decoder import AudioDeltaDecoder
 from .errors import AudioDecodingError, AudioTranscodingError
 from .format_resolver import AcsFormatResolver, ProviderFormatResolver
 from .playout_engine import PacedPlayoutEngine, PlayoutConfig
-from .playout_store import PlayoutState, PlayoutStore
+from .playout_store import PlayoutStream, PlayoutStore
 from .stream_key import StreamKeyBuilder
 from .transcoder import AudioTranscoder
 
@@ -16,7 +16,7 @@ __all__ = [
     "ProviderFormatResolver",
     "PacedPlayoutEngine",
     "PlayoutConfig",
-    "PlayoutState",
+    "PlayoutStream",
     "PlayoutStore",
     "StreamKeyBuilder",
     "AudioTranscoder",

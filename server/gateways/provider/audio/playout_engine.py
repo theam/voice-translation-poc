@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 
 from .acs_publisher import AcsAudioPublisher
-from .playout_store import PlayoutState
+from .playout_store import PlayoutStream
 
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class PlayoutConfig:
@@ -21,41 +23,77 @@ class PacedPlayoutEngine:
         self.publisher = publisher
         self.config = config or PlayoutConfig()
 
-    def ensure_task(self, key: str, state: PlayoutState) -> None:
-        if state.task and not state.task.done():
+    def ensure_task(self, stream: PlayoutStream) -> None:
+        if stream.task and not stream.task.done():
             return
-        state.task = asyncio.create_task(self._playout_loop(key, state), name=f"playout-{key}")
+        stream.task = asyncio.create_task(self._playout_loop(stream), name=f"playout-{stream.key}")
 
-    async def mark_done(self, state: PlayoutState) -> None:
-        state.done = True
-        state.data_ready.set()
+    async def mark_done(self, stream: PlayoutStream) -> None:
+        stream.done = True
+        stream.data_ready.set()
 
-    async def cancel(self, key: str, state: PlayoutState) -> None:
-        state.done = True
-        state.data_ready.set()
-        if state.task and not state.task.done():
-            state.task.cancel()
-            await asyncio.gather(state.task, return_exceptions=True)
-        state.task = None
+    async def pause(self, stream: PlayoutStream) -> None:
+        """Pause playout for this stream (stops the background task)."""
+        buffer_bytes = len(stream.buffer)
+        buffer_frames = buffer_bytes // stream.frame_bytes if stream.frame_bytes > 0 else 0
+        buffer_ms = buffer_frames * self.config.frame_ms
+        logger.info(
+            "PAUSE playout stream=%s buffer=%d bytes (%d frames, ~%dms) task_running=%s",
+            stream.key,
+            buffer_bytes,
+            buffer_frames,
+            buffer_ms,
+            stream.task is not None and not stream.task.done(),
+        )
+        stream.data_ready.set()
+        if stream.task and not stream.task.done():
+            stream.task.cancel()
+            await asyncio.gather(stream.task, return_exceptions=True)
+        stream.task = None
 
-    async def wait(self, state: PlayoutState) -> None:
-        if state.task:
-            await asyncio.gather(state.task, return_exceptions=True)
+    async def stop(self, stream: PlayoutStream) -> None:
+        # Log buffer size before discarding
+        buffer_bytes = len(stream.buffer)
+        buffer_frames = buffer_bytes // stream.frame_bytes if stream.frame_bytes > 0 else 0
+        buffer_ms = buffer_frames * self.config.frame_ms
+        logger.info(
+            "STOP playout stream=%s buffer=%d bytes (%d frames, ~%dms) task_running=%s - DISCARDING AUDIO",
+            stream.key,
+            buffer_bytes,
+            buffer_frames,
+            buffer_ms,
+            stream.task is not None and not stream.task.done(),
+        )
+        # discard buffered audio
+        stream.buffer.clear()
+        # prevent future waiting for warmup
+        stream.done = True
+        stream.data_ready.set()
+        # cancel the task if running
+        if stream.task and not stream.task.done():
+            stream.task.cancel()
+            await asyncio.gather(stream.task, return_exceptions=True)
+        stream.task = None
 
-    async def _playout_loop(self, key: str, state: PlayoutState) -> None:
+    async def wait(self, stream: PlayoutStream) -> None:
+        if stream.task:
+            await asyncio.gather(stream.task, return_exceptions=True)
+
+    async def _playout_loop(self, stream: PlayoutStream) -> None:
+        logger.info(f"Playout loop starting... {stream.key}")
         warmup_frames = self.config.warmup_frames
-        frame_bytes = state.frame_bytes
+        frame_bytes = stream.frame_bytes
         next_deadline: float | None = None
         try:
             while True:
-                if not state.done and len(state.buffer) < warmup_frames * frame_bytes:
-                    state.data_ready.clear()
-                    await state.data_ready.wait()
+                if not stream.done and len(stream.buffer) < warmup_frames * frame_bytes:
+                    stream.data_ready.clear()
+                    await stream.data_ready.wait()
                     continue
 
-                if len(state.buffer) >= frame_bytes:
-                    chunk = bytes(state.buffer[:frame_bytes])
-                    del state.buffer[:frame_bytes]
+                if len(stream.buffer) >= frame_bytes:
+                    chunk = bytes(stream.buffer[:frame_bytes])
+                    del stream.buffer[:frame_bytes]
                     await self.publisher.publish_audio_chunk(chunk)
 
                     now = time.monotonic()
@@ -66,12 +104,13 @@ class PacedPlayoutEngine:
                         await asyncio.sleep(sleep_for)
                     continue
 
-                if state.done:
+                if stream.done:
                     break
 
-                state.data_ready.clear()
-                await state.data_ready.wait()
+                stream.data_ready.clear()
+                await stream.data_ready.wait()
         except asyncio.CancelledError:
             raise
         finally:
-            state.task = None
+            stream.task = None
+            logger.info(f"Playout loop completed {stream.key}")

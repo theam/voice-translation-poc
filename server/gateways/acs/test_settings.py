@@ -35,6 +35,5 @@ class TestSettingsHandler:
 
         self.translation_settings.update(settings)
         metadata_settings = self.session_metadata.setdefault("translation_settings", {})
-        if isinstance(metadata_settings, dict):
-            metadata_settings.update(settings)
+        metadata_settings.update(settings)
         logger.info("Applied translation settings: %s", settings)

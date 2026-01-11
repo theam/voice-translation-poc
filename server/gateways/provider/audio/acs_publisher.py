@@ -4,7 +4,6 @@ from typing import Any, Dict
 
 from ....audio import Base64AudioCodec
 from ....core.event_bus import EventBus
-from ....models.provider_events import ProviderOutputEvent
 
 
 class AcsAudioPublisher:
@@ -28,18 +27,23 @@ class AcsAudioPublisher:
 
     async def publish_audio_done(
         self,
-        event: ProviderOutputEvent,
         *,
+        session_id: str,
+        participant_id: str | None,
+        commit_id: str | None,
+        stream_id: str | None,
+        provider: str | None,
         reason: str,
         error: str | None,
     ) -> None:
+        """Publish audio.done notification with explicit metadata."""
         payload: Dict[str, Any] = {
             "type": "control.test.response.audio_done",
-            "session_id": event.session_id,
-            "participant_id": event.participant_id,
-            "commit_id": event.commit_id,
-            "stream_id": event.stream_id,
-            "provider": event.provider,
+            "session_id": session_id,
+            "participant_id": participant_id,
+            "commit_id": commit_id,
+            "stream_id": stream_id,
+            "provider": provider,
             "reason": reason,
             "error": error,
         }

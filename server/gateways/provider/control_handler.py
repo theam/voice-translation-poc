@@ -44,9 +44,9 @@ class ControlHandler:
 
         # Clear any buffered audio for this stream
         buffer_key = self.stream_key_builder.build(event)
-        state = self.store.get(buffer_key)
-        if state:
-            await self.playout_engine.cancel(buffer_key, state)
+        stream = self.store.get(buffer_key)
+        if stream:
+            await self.playout_engine.pause(stream)
             self.store.remove(buffer_key)
         self.audio_delta_handler.clear_resampler(buffer_key)
 

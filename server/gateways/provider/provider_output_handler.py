@@ -53,9 +53,7 @@ class ProviderOutputHandler(Handler):
         )
         self.audio_done_handler = AudioDoneHandler(
             audio_delta_handler=self.audio_delta_handler,
-            playout_store=playout_store,
-            playout_engine=playout_engine,
-            publisher=audio_publisher,
+            provider_audio_bus=provider_audio_bus,
         )
         self.control_handler = ControlHandler(
             acs_outbound_bus=acs_outbound_bus,

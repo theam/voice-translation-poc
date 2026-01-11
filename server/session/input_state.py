@@ -11,6 +11,14 @@ class InputStatus(str, Enum):
     SILENCE = "silence"
     SPEAKING = "speaking"
 
+    def is_silence(self) -> bool:
+        """Check if this status is SILENCE."""
+        return self == InputStatus.SILENCE
+
+    def is_speaking(self) -> bool:
+        """Check if this status is SPEAKING."""
+        return self == InputStatus.SPEAKING
+
 
 class InputState:
     """Tracks whether inbound audio recently contains speech.
@@ -40,7 +48,7 @@ class InputState:
 
     async def on_voice_detected(self, now_ms: int) -> bool:
         """Update state when voice is detected. Returns True if state transitioned."""
-        if self.status == InputStatus.SILENCE:
+        if self.status.is_silence():
             # First voice detection in this segment
             if self.voice_detected_from_ms is None:
                 self.voice_detected_from_ms = now_ms
@@ -62,7 +70,7 @@ class InputState:
 
     async def on_silence_detected(self, now_ms: int) -> bool:
         """Update state when silence is detected. Returns True if state transitioned."""
-        if self.status == InputStatus.SPEAKING and self.voice_detected_last_ms:
+        if self.status.is_speaking() and self.voice_detected_last_ms:
             if (now_ms - self.voice_detected_last_ms) > self.silence_timeout_ms:
                 self.status = InputStatus.SILENCE
                 self.voice_detected_from_ms = None
@@ -72,7 +80,7 @@ class InputState:
 
     @property
     def is_speaking(self) -> bool:
-        return self.status == InputStatus.SPEAKING
+        return self.status.is_speaking()
 
 
 __all__ = ["InputState", "InputStatus"]

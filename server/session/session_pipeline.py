@@ -18,7 +18,7 @@ from ..gateways.acs.inbound_handler import AcsInboundMessageHandler
 from ..core.queues import OverflowPolicy
 from ..gateways.provider.audio import AcsFormatResolver
 from ..gateways.provider.outbound_playout_handler import OutboundPlayoutHandler
-from ..gateways.provider.provider_audio_gate_handler import ProviderAudioGateHandler
+from ..gateways.provider.provider_audio_gate_handler import ProviderAudioGateHandler, OutboundGateMode
 from ..providers.capabilities import get_provider_capabilities
 from .input_state import InputState
 
@@ -256,7 +256,46 @@ class SessionPipeline:
     async def _register_edge_outbound_chain(self) -> None:
         overflow_policy = OverflowPolicy(self.config.buffering.overflow_policy)
 
-        gate = ProviderAudioGateHandler(gated_bus=self.gated_audio_bus)
+        # 1. Create playout handler FIRST (needed by gate for references)
+        playout = OutboundPlayoutHandler(
+            acs_outbound_bus=self.acs_outbound_bus,
+            playout_config=getattr(self.config, "playout", None),
+            session_metadata=self.metadata,
+        )
+        self._edge_playout_handler = playout
+
+        # Register playout handler on gated_audio_bus
+        playout_handler_name = f"edge_playout_{self.session_id}"
+        await self.gated_audio_bus.register_handler(
+            HandlerConfig(
+                name=playout_handler_name,
+                queue_max=self.config.buffering.egress_queue_max,
+                overflow_policy=overflow_policy,
+                concurrency=1,
+            ),
+            playout,
+        )
+
+        # 2. Determine gate mode from config
+        translation_settings = self.metadata.get("translation_settings", {})
+        gate_mode_value = (
+                translation_settings.get("outbound_gate_mode")
+                or self.config.system.outbound_gate_mode
+        )
+        gate_mode = OutboundGateMode.from_value(gate_mode_value)
+
+        # 3. Create gate with references to control downstream handler
+        gate = ProviderAudioGateHandler(
+            gated_bus=self.gated_audio_bus,
+            input_state=self.input_state,
+            downstream_handler_name=playout_handler_name,  # Controls this handler
+            playout_store=playout.store,
+            playout_engine=playout.engine,
+            gate_mode=gate_mode,
+            session_id=self.session_id,
+        )
+
+        # Register gate on provider_audio_bus
         await self.provider_audio_bus.register_handler(
             HandlerConfig(
                 name=f"provider_audio_gate_{self.session_id}",
@@ -266,22 +305,6 @@ class SessionPipeline:
             ),
             gate,
         )
-
-        playout = OutboundPlayoutHandler(
-            acs_outbound_bus=self.acs_outbound_bus,
-            playout_config=getattr(self.config, "playout", None),
-            session_metadata=self.metadata,
-        )
-        await self.gated_audio_bus.register_handler(
-            HandlerConfig(
-                name=f"edge_playout_{self.session_id}",
-                queue_max=self.config.buffering.egress_queue_max,
-                overflow_policy=overflow_policy,
-                concurrency=1,
-            ),
-            playout,
-        )
-        self._edge_playout_handler = playout
 
     async def process_message(self, envelope: GatewayInputEvent):
         """Process message from ACS for this session."""

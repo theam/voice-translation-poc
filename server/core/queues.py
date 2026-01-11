@@ -51,12 +51,12 @@ class BoundedQueue(Generic[T]):
 
         if self._overflow_policy == OverflowPolicy.DROP_OLDEST:
             dropped = self._queue.popleft()
-            logger.debug("Dropped oldest item due to overflow: %s", dropped)
+            logger.warning("Dropped oldest item due to overflow: %s", dropped)
             self._queue.append(item)
             await self._notify()
             return False
         if self._overflow_policy == OverflowPolicy.DROP_NEWEST:
-            logger.debug("Dropped newest item due to overflow: %s", item)
+            logger.warning("Dropped newest item due to overflow: %s", item)
             return False
         raise ValueError(f"Unknown overflow policy {self._overflow_policy}")
 

@@ -8,7 +8,8 @@ from ....audio import AudioFormat, StreamingPcmResampler
 
 
 @dataclass
-class PlayoutState:
+class PlayoutStream:
+    key: str
     buffer: bytearray
     frame_bytes: int
     fmt: AudioFormat
@@ -19,21 +20,26 @@ class PlayoutState:
 
 
 class PlayoutStore:
-    """Holds per-stream playout state."""
+    """Holds active playout streams."""
 
     def __init__(self) -> None:
-        self._states: Dict[str, PlayoutState] = {}
+        self._streams: Dict[str, PlayoutStream] = {}
 
-    def get_or_create(self, key: str, target_format: AudioFormat, frame_bytes: int) -> PlayoutState:
-        if key not in self._states:
-            self._states[key] = PlayoutState(buffer=bytearray(), frame_bytes=frame_bytes, fmt=target_format)
-        return self._states[key]
+    def get_or_create(self, key: str, target_format: AudioFormat, frame_bytes: int) -> PlayoutStream:
+        if key not in self._streams:
+            self._streams[key] = PlayoutStream(
+                key=key,
+                buffer=bytearray(),
+                frame_bytes=frame_bytes,
+                fmt=target_format
+            )
+        return self._streams[key]
 
-    def get(self, key: str) -> Optional[PlayoutState]:
-        return self._states.get(key)
+    def get(self, key: str) -> Optional[PlayoutStream]:
+        return self._streams.get(key)
 
     def remove(self, key: str) -> None:
-        self._states.pop(key, None)
+        self._streams.pop(key, None)
 
     def keys(self) -> Iterable[str]:
-        return self._states.keys()
+        return self._streams.keys()

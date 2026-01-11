@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator, Optional
 from websockets.server import WebSocketServerProtocol
 
 from .wire_log_sink import WireLogSink
+from ..utils.time_utils import MonotonicClock
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class WebSocketServer:
         self.name = name
         self.debug_wire = debug_wire
         self.log_sink = log_sink
+        self.start_timestamp = MonotonicClock.now()
 
     def __aiter__(self) -> AsyncIterator[Any]:
         return self
@@ -55,8 +57,6 @@ class WebSocketServer:
         if not self.debug_wire:
             return
 
-        logger.debug("WS[%s] %s: %s", self.name, direction, message)
-
         if not self.log_sink:
             return
 
@@ -64,6 +64,7 @@ class WebSocketServer:
         self.log_sink.append_message(
             {
                 "timestamp": self._now_iso(),
+                "elapsed_ms": MonotonicClock.elapsed_ms_from(self.start_timestamp),
                 "direction": direction,
                 "message": normalized,
                 "name": self.name,

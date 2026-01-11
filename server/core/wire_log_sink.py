@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -13,7 +13,7 @@ class WireLogSink:
 
     def __init__(self, name: str, base_dir: str) -> None:
         base_path = Path(base_dir)
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
         self.path = base_path / f"{name}.{timestamp}.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
