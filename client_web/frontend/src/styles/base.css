@@ -1,0 +1,40 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0a0b0f;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #2a2f38;
+  background: #0f1218;
+  color: #e7e9ee;
+}
+
+button {
+  cursor: pointer;
+  background: #1e4fff;
+  border: none;
+}
+
+button:hover {
+  background: #3b68ff;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+h2,
+h3 {
+  margin: 0 0 8px;
+}
