@@ -32,6 +32,7 @@ async def index() -> FileResponse:
 @app.get("/api/test-settings")
 async def test_settings() -> Dict[str, Any]:
     return {
+        "services": settings.available_services,
         "providers": settings.allowed_providers,
         "barge_in_modes": settings.allowed_barge_in_modes,
     }
@@ -39,15 +40,19 @@ async def test_settings() -> Dict[str, Any]:
 
 @app.post("/api/call/create")
 async def create_call(payload: Dict[str, Any]) -> Dict[str, Any]:
+    service = payload.get("service")
     provider = payload.get("provider")
     barge_in = payload.get("barge_in")
 
+    if service not in settings.available_services:
+        raise HTTPException(status_code=400, detail="Unsupported service")
     if provider not in settings.allowed_providers:
         raise HTTPException(status_code=400, detail="Unsupported provider")
     if barge_in not in settings.allowed_barge_in_modes:
         raise HTTPException(status_code=400, detail="Unsupported barge-in mode")
 
-    call_state = call_manager.create_call(provider=provider, barge_in=barge_in)
+    service_url = settings.available_services[service]
+    call_state = call_manager.create_call(service=service, service_url=service_url, provider=provider, barge_in=barge_in)
     return {"call_code": call_state.call_code}
 
 
@@ -66,7 +71,17 @@ async def participant_socket(websocket: WebSocket, call_code: str, participant_i
         return
 
     await websocket.accept()
-    await call_manager.add_participant(call_code, participant_id, websocket)
+
+    try:
+        await call_manager.add_participant(call_code, participant_id, websocket)
+    except Exception as e:
+        logger.error("Failed to connect to upstream service: %s", e)
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Failed to connect to translation service: {str(e)}"
+        })
+        await websocket.close(code=1011, reason="Upstream connection failed")
+        return
 
     try:
         while True:

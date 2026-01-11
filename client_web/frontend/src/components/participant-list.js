@@ -5,6 +5,10 @@ export class ParticipantList extends HTMLElement {
     this.participants = [];
   }
 
+  connectedCallback() {
+    this.render();
+  }
+
   setParticipants(list) {
     this.participants = list;
     this.render();

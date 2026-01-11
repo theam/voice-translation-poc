@@ -10,6 +10,12 @@ from typing import Dict, List
 class Settings:
     upstream_url: str = "ws://localhost:8080"
     upstream_headers: Dict[str, str] = field(default_factory=dict)
+    available_services: Dict[str, str] = field(
+        default_factory=lambda: {
+            "VT Translation Service": "ws://localhost:8080",
+            "Capco": "ws://localhost:9090",
+        }
+    )
     allowed_providers: List[str] = field(
         default_factory=lambda: [
             "openai",
@@ -40,9 +46,21 @@ class Settings:
         if headers_raw:
             upstream_headers = json.loads(headers_raw)
 
+        # Parse available services from env or use defaults
+        services_raw = os.getenv("WEBCLIENT_AVAILABLE_SERVICES", "")
+        available_services = {}
+        if services_raw:
+            available_services = json.loads(services_raw)
+        else:
+            available_services = {
+                "VT Translation Service": "ws://host.docker.internal:8080",
+                "Capco": "ws://localhost:9090",
+            }
+
         return cls(
             upstream_url=upstream_url,
             upstream_headers=upstream_headers,
+            available_services=available_services,
             allowed_providers=allowed_providers,
             allowed_barge_in_modes=allowed_barge_in,
         )

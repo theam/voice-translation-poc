@@ -11,7 +11,7 @@ export class AppShell extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this.unsubscribe = null;
-    this.settings = { providers: [], barge_in_modes: [] };
+    this.settings = { services: {}, providers: [], barge_in_modes: [] };
   }
 
   connectedCallback() {
@@ -31,6 +31,10 @@ export class AppShell extends HTMLElement {
       this.settings = await fetchTestSettings();
     } catch (err) {
       this.settings = {
+        services: {
+          "VT Translation Service": "ws://localhost:8080",
+          "Capco": "ws://localhost:9090",
+        },
         providers: [
           "openai",
           "voice_live",
@@ -80,6 +84,7 @@ export class AppShell extends HTMLElement {
     const createCall = this.shadowRoot.querySelector("create-call");
     if (createCall) {
       createCall.setOptions({
+        services: this.settings.services,
         providers: this.settings.providers,
         bargeInModes: this.settings.barge_in_modes,
       });

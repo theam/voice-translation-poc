@@ -7,6 +7,10 @@ export class JoinCall extends HTMLElement {
     this.error = "";
   }
 
+  connectedCallback() {
+    this.render();
+  }
+
   handleJoin(event) {
     event.preventDefault();
     const callCode = this.shadowRoot.querySelector("input[name=call_code]").value.trim().toUpperCase();

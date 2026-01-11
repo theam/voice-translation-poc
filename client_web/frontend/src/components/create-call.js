@@ -2,15 +2,27 @@ import { createCall } from "../api.js";
 import { updateState } from "../state.js";
 
 export class CreateCall extends HTMLElement {
+  static get observedAttributes() {
+    return ["call-code"];
+  }
+
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this.services = {};
     this.providers = [];
     this.bargeInModes = [];
     this.error = "";
   }
 
-  setOptions({ providers, bargeInModes }) {
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (name === "call-code" && oldValue !== newValue) {
+      this.render();
+    }
+  }
+
+  setOptions({ services, providers, bargeInModes }) {
+    this.services = services;
     this.providers = providers;
     this.bargeInModes = bargeInModes;
     this.render();
@@ -18,12 +30,13 @@ export class CreateCall extends HTMLElement {
 
   async handleCreate(event) {
     event.preventDefault();
+    const service = this.shadowRoot.querySelector("select[name=service]").value;
     const provider = this.shadowRoot.querySelector("select[name=provider]").value;
     const bargeIn = this.shadowRoot.querySelector("select[name=barge_in]").value;
     this.error = "";
 
     try {
-      const result = await createCall(provider, bargeIn);
+      const result = await createCall(service, provider, bargeIn);
       updateState({ callCode: result.call_code });
       this.render();
     } catch (err) {
@@ -43,6 +56,12 @@ export class CreateCall extends HTMLElement {
       <div>
         <h2>Create call</h2>
         <form>
+          <label>
+            Translation Service
+            <select name="service">
+              ${Object.keys(this.services).map((serviceName) => `<option value="${serviceName}">${serviceName}</option>`).join("")}
+            </select>
+          </label>
           <label>
             Provider
             <select name="provider">

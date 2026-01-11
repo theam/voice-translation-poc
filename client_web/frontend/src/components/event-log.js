@@ -5,6 +5,10 @@ export class EventLog extends HTMLElement {
     this.events = [];
   }
 
+  connectedCallback() {
+    this.render();
+  }
+
   addEvent(message) {
     this.events.unshift({ message, timestamp: new Date().toLocaleTimeString() });
     this.render();

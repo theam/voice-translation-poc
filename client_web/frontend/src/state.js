@@ -1,6 +1,7 @@
 const state = {
   callCode: "",
   participantId: "",
+  participants: [],  // All participants in the call
   connection: null,
   settings: null,
   listeners: new Set(),

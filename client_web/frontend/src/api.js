@@ -6,13 +6,13 @@ export async function fetchTestSettings() {
   return response.json();
 }
 
-export async function createCall(provider, bargeIn) {
+export async function createCall(service, provider, bargeIn) {
   const response = await fetch("/api/call/create", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ provider, barge_in: bargeIn }),
+    body: JSON.stringify({ service, provider, barge_in: bargeIn }),
   });
   if (!response.ok) {
     const payload = await response.json();

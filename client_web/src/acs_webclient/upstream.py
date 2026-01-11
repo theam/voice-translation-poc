@@ -29,12 +29,34 @@ class UpstreamConnection:
         async with self._lock:
             if self._ws:
                 return
+            import time
+            start_time = time.time()
             logger.info("Connecting upstream websocket: %s", self._url)
-            self._ws = await websockets.connect(self._url, extra_headers=self._headers)
-            self._tasks = [
-                asyncio.create_task(self._send_loop(), name="upstream-send"),
-                asyncio.create_task(self._receive_loop(), name="upstream-receive"),
-            ]
+            try:
+                # Add timeout to websockets.connect and asyncio.wait_for for double protection
+                self._ws = await asyncio.wait_for(
+                    websockets.connect(
+                        self._url,
+                        extra_headers=self._headers,
+                        open_timeout=3.0,  # Timeout for opening handshake
+                        close_timeout=2.0   # Timeout for closing handshake
+                    ),
+                    timeout=5.0  # Overall timeout
+                )
+                elapsed = time.time() - start_time
+                logger.info("Upstream websocket connected successfully in %.2fs", elapsed)
+                self._tasks = [
+                    asyncio.create_task(self._send_loop(), name="upstream-send"),
+                    asyncio.create_task(self._receive_loop(), name="upstream-receive"),
+                ]
+            except asyncio.TimeoutError:
+                elapsed = time.time() - start_time
+                logger.error("Upstream websocket connection timeout after %.2fs: %s", elapsed, self._url)
+                raise
+            except Exception as e:
+                elapsed = time.time() - start_time
+                logger.error("Upstream websocket connection failed after %.2fs: %s", elapsed, e)
+                raise
 
     async def close(self) -> None:
         async with self._lock:
