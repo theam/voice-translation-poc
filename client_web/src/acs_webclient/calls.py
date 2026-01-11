@@ -110,6 +110,20 @@ class CallState:
             return
         payload = build_audio_message(participant_id, pcm_bytes, timestamp_ms)
         await self.upstream.send_json(payload)
+        await self.broadcast_audio_to_others(participant_id, payload)
+
+    async def broadcast_audio_to_others(self, sender_participant_id: str, payload: Dict[str, Any]) -> None:
+        inactive = []
+        for participant_id, websocket in self.participants.items():
+            if participant_id == sender_participant_id:
+                continue
+            try:
+                await websocket.send_json(payload)
+            except Exception:
+                logger.info("Failed to send audio to participant %s", participant_id)
+                inactive.append(participant_id)
+        for participant_id in inactive:
+            self.participants.pop(participant_id, None)
 
 
 class CallManager:
