@@ -413,6 +413,34 @@ providers:
 - Each role gets dedicated provider instance
 - Enables asymmetric translation (different voices/languages per role)
 
+#### 6. Participant-Based Provider
+
+**Type**: `participant_based`
+
+**Use Case**: Dedicated provider instance per participant
+
+**Configuration**:
+```yaml
+providers:
+  live_interpreter:
+    type: live_interpreter
+    region: eastus2
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    settings:
+      languages: [en-US, es-ES]
+      voice: es-ES-ElviraNeural
+
+  participant_based:
+    type: participant_based
+    settings:
+      provider: live_interpreter
+```
+
+**Behavior**:
+- Creates provider instances on first message per participant
+- Routes each participant's audio to its dedicated provider
+- Shares the inbound bus for provider output events
+
 ## Audio Batching and Buffering
 
 ### Auto-Commit Triggers
@@ -519,7 +547,8 @@ server/
 │   ├── openai/                       # OpenAI Realtime
 │   ├── voice_live/                   # Voice Live
 │   ├── live_interpreter/             # Live Interpreter v2
-│   └── role_based_provider.py        # Role-based routing
+│   ├── role_based_provider.py        # Role-based routing
+│   └── participant_based_provider.py # Participant-based routing
 ├── models/                            # Data models
 ├── audio/                             # Audio utilities
 ├── services/                          # Business logic

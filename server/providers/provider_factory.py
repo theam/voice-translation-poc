@@ -260,41 +260,32 @@ class ProviderFactory:
                 inbound_bus=inbound_bus,
                 session_metadata=session_metadata,
             )
+        elif provider_type == "participant_based":
+            from .participant_based_provider import ParticipantBasedProvider
+
+            settings = provider_config.settings or {}
+            provider_name = settings.get("provider")
+
+            if not provider_name or not isinstance(provider_name, str):
+                raise ValueError(
+                    "ParticipantBased provider requires 'provider' in settings "
+                    "(name of provider to instantiate per participant)"
+                )
+
+            if config.providers.get(provider_name) is None:
+                raise ValueError(
+                    "ParticipantBased provider references unknown provider "
+                    f"'{provider_name}'. Ensure provider is defined in config."
+                )
+
+            return ParticipantBasedProvider(
+                config=config,
+                provider_name=provider_name,
+                outbound_bus=outbound_bus,
+                inbound_bus=inbound_bus,
+                session_metadata=session_metadata,
+            )
 
         else:
             raise ValueError(f"Unknown adapter type: {provider_type}")
 
-
-# Future enhancement: Dynamic per-session provider selection
-class SessionBasedProviderFactory:
-    """
-    Future enhancement: Factory that selects providers based on session metadata.
-
-    Example usage:
-        # Extract provider from ACS envelope metadata
-        provider = envelope.payload.get("provider", "default")
-
-        # Get or create adapter for this session
-        adapter = factory.get_adapter_for_session(
-            session_id=envelope.session_id,
-            provider=provider
-        )
-
-    This would allow:
-    - Different customers using different translation providers
-    - A/B testing different providers
-    - Fallback to different providers on failure
-    """
-
-    def __init__(self):
-        self._session_adapters = {}  # session_id → adapter
-        self._default_adapter = None
-
-    async def get_adapter_for_session(
-        self,
-        session_id: str,
-        provider: Optional[str] = None
-    ) -> TranslationProvider:
-        """Get or create adapter for specific session."""
-        # TODO: Implement session-based selection
-        raise NotImplementedError("Session-based provider selection not yet implemented")
