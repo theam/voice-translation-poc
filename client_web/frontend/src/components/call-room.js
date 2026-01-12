@@ -1,5 +1,5 @@
 import { AudioCapture } from "../audio/capture.js";
-import { PlaybackQueue } from "../audio/playback.js";
+import { MultiParticipantAudioManager } from "../audio/multi-participant-manager.js";
 import { bytesFromBase64 } from "../audio/pcm16.js";
 import { getState, subscribe, updateState } from "../state.js";
 
@@ -8,7 +8,7 @@ export class CallRoom extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this.capture = null;
-    this.playback = null;
+    this.audioManager = null;
     this.eventLog = null;
     this.participantList = null;
     this.unsubscribe = null;
@@ -61,9 +61,10 @@ export class CallRoom extends HTMLElement {
       this.capture = null;
     }
 
-    // Stop audio playback
-    if (this.playback) {
-      this.playback.stop();
+    // Stop all audio playback queues
+    if (this.audioManager) {
+      this.audioManager.stopAll();
+      this.audioManager = null;
     }
 
     // Clear state
@@ -76,46 +77,63 @@ export class CallRoom extends HTMLElement {
   }
 
   connect(callCode, participantId) {
-    console.log("Connecting to call...");
     const connectStart = performance.now();
+
+    // Show connecting feedback immediately
+    this.eventLog?.addEvent(`Connecting to call ${callCode}...`);
 
     const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/participant?call_code=${encodeURIComponent(
       callCode,
     )}&participant_id=${encodeURIComponent(participantId)}`;
+
     const socket = new WebSocket(wsUrl);
 
-    // Create PlaybackQueue after user interaction (joining call)
-    if (!this.playback) {
-      this.playback = new PlaybackQueue();
+    // Create MultiParticipantAudioManager after user interaction (joining call)
+    if (!this.audioManager) {
+      this.audioManager = new MultiParticipantAudioManager();
     }
 
-    socket.addEventListener("open", async () => {
+    const handleOpen = async () => {
       const wsTime = performance.now() - connectStart;
-      console.log(`WebSocket connected in ${wsTime.toFixed(0)}ms`);
-      this.eventLog?.addEvent(`Joined call ${callCode}`);
+      this.eventLog?.addEvent(`Connected (${wsTime.toFixed(0)}ms)`);
+
+      // Show microphone permission request feedback
+      this.eventLog?.addEvent("Requesting microphone access...");
 
       const captureStart = performance.now();
+      // Audio is automatically resampled to 16kHz mono PCM16 (ACS standard)
+      // Backend sends audio metadata to upstream after test settings
       this.capture = new AudioCapture({
         onAudioFrame: (payload) => socket.send(JSON.stringify({ type: "audio", ...payload })),
-        onMetadata: (payload) => socket.send(JSON.stringify({ type: "audio_metadata", ...payload })),
       });
 
       try {
         await this.capture.start();
         const captureTime = performance.now() - captureStart;
-        console.log(`Audio capture started in ${captureTime.toFixed(0)}ms`);
-        console.log(`Total connect time: ${(performance.now() - connectStart).toFixed(0)}ms`);
+        this.eventLog?.addEvent(`Microphone ready (${captureTime.toFixed(0)}ms)`);
+        this.eventLog?.addEvent(`✓ Joined call successfully`);
       } catch (err) {
         console.error("Audio capture failed:", err);
-        this.eventLog?.addEvent(`Microphone error: ${err.message}`);
+        this.eventLog?.addEvent(`✗ Microphone error: ${err.message}`);
       }
+    };
+
+    socket.addEventListener("open", handleOpen);
+
+    // Handle race condition: if socket already connected, call handleOpen manually
+    if (socket.readyState === WebSocket.OPEN) {
+      handleOpen();
+    }
+
+    // Handle WebSocket errors
+    socket.addEventListener("error", (event) => {
+      console.error("WebSocket error:", event);
+      this.eventLog?.addEvent("✗ Connection error");
     });
 
     socket.addEventListener("message", async (event) => {
       try {
         const payload = JSON.parse(event.data);
-        const msgType = payload.kind || payload.type;
-        console.log("Received message:", msgType, payload);
         await this.handleInbound(payload);
       } catch (err) {
         console.error("Message handling error:", err);
@@ -123,11 +141,17 @@ export class CallRoom extends HTMLElement {
       }
     });
 
-    socket.addEventListener("close", () => {
-      this.eventLog?.addEvent("Disconnected from call");
+    socket.addEventListener("close", (event) => {
+      // Distinguish between clean disconnect and connection failure
+      if (event.wasClean) {
+        this.eventLog?.addEvent("Disconnected from call");
+      } else {
+        console.error("WebSocket closed unexpectedly, code:", event.code);
+        this.eventLog?.addEvent(`✗ Connection lost (code: ${event.code})`);
+      }
       this.capture?.stop();
       this.capture = null;
-      this.playback?.stop();
+      this.audioManager?.stopAll();
       updateState({
         connection: null,
         participants: []
@@ -138,31 +162,45 @@ export class CallRoom extends HTMLElement {
   }
 
   async handleInbound(payload) {
+    // Handle connection status messages
+    if (payload.type === "connection.established") {
+      this.eventLog?.addEvent(payload.message || "Initializing...");
+      return;
+    }
+
+    if (payload.type === "connection.ready") {
+      this.eventLog?.addEvent(payload.message || "Ready");
+      return;
+    }
+
     // Handle error messages from backend
     if (payload.type === "error") {
       console.error("Backend error:", payload.message);
-      this.eventLog?.addEvent(`Error: ${payload.message}`);
+      this.eventLog?.addEvent(`✗ Error: ${payload.message}`);
       return;
     }
 
     // Handle participant list updates
     if (payload.type === "participant.list") {
-      console.log("Received participant list:", payload.participants);
       updateState({ participants: payload.participants || [] });
       return;
     }
 
     if (payload.type === "participant.joined") {
-      console.log("Participant joined:", payload.participant_id);
       this.eventLog?.addEvent(`${payload.participant_id} joined`);
       updateState({ participants: payload.participants || [] });
       return;
     }
 
     if (payload.type === "participant.left") {
-      console.log("Participant left:", payload.participant_id);
       this.eventLog?.addEvent(`${payload.participant_id} left`);
       updateState({ participants: payload.participants || [] });
+
+      // Clean up audio queue for participant who left
+      const leftParticipantId = payload.participant_id;
+      if (leftParticipantId && this.audioManager) {
+        this.audioManager.removeParticipant(leftParticipantId);
+      }
       return;
     }
 
@@ -180,17 +218,29 @@ export class CallRoom extends HTMLElement {
         return;
       }
 
-      const bytes = bytesFromBase64(base64Data);
-      console.log(`Received audio: ${bytes.length} bytes`);
+      // Extract participant ID from audio message
+      const participantId = payload.audioData?.participantRawID || "unknown";
 
-      if (!this.playback) {
-        console.warn("PlaybackQueue not initialized, skipping audio");
+      // Warn if participant ID is missing - this should not happen
+      if (participantId === "unknown") {
+        console.warn("Received audio with missing participant ID. Payload structure:", {
+          kind: payload.kind,
+          type: payload.type,
+          hasAudioData: !!payload.audioData,
+          audioDataKeys: payload.audioData ? Object.keys(payload.audioData) : [],
+          participantRawID: payload.audioData?.participantRawID
+        });
+      }
+
+      const bytes = bytesFromBase64(base64Data);
+
+      if (!this.audioManager) {
+        console.warn("MultiParticipantAudioManager not initialized, skipping audio");
         return;
       }
 
       try {
-        await this.playback.enqueue(bytes);
-        console.log(`Audio enqueued successfully`);
+        await this.audioManager.enqueueAudio(participantId, bytes);
       } catch (err) {
         console.error("Playback error:", err);
         this.eventLog?.addEvent(`Playback error: ${err.message}`);

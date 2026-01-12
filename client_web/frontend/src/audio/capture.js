@@ -1,14 +1,24 @@
 import { base64FromBytes, floatTo16BitPCM } from "./pcm16.js";
 
+/**
+ * AudioCapture captures microphone audio and converts it to ACS standard format.
+ *
+ * Conversion pipeline:
+ * 1. Microphone input at hardware rate (typically 48kHz) → Float32Array
+ * 2. Resample to 16kHz using linear interpolation
+ * 3. Convert Float32 to PCM16 (Int16Array)
+ * 4. Base64 encode for transmission
+ *
+ * Output: 16kHz mono PCM16 (ACS standard format enforced by backend)
+ */
 export class AudioCapture {
-  constructor({ onAudioFrame, onMetadata }) {
+  constructor({ onAudioFrame }) {
     this.onAudioFrame = onAudioFrame;
-    this.onMetadata = onMetadata;
     this.context = null;
     this.processor = null;
     this.stream = null;
     this.frameSize = 4096;
-    this.targetSampleRate = 16000;
+    this.targetSampleRate = 16000; // ACS standard: 16kHz mono PCM16
     this.resampleBuffer = [];
   }
 
@@ -23,14 +33,18 @@ export class AudioCapture {
     const resampleRatio = sourceSampleRate / this.targetSampleRate;
 
     this.processor.onaudioprocess = (event) => {
+      // Get mono channel at hardware rate (e.g., 48kHz)
       const input = event.inputBuffer.getChannelData(0);
 
-      // Resample from hardware rate to 16000 Hz
+      // Resample from hardware rate → 16kHz
       const resampled = this.resample(input, resampleRatio);
 
+      // Convert Float32 → PCM16 (Int16)
       const pcm = floatTo16BitPCM(resampled);
       const bytes = new Uint8Array(pcm.buffer);
       const base64 = base64FromBytes(bytes);
+
+      // Send 16kHz mono PCM16 (ACS standard format)
       this.onAudioFrame({
         data: base64,
         timestamp_ms: Date.now(),
@@ -38,14 +52,13 @@ export class AudioCapture {
     };
     source.connect(this.processor);
     this.processor.connect(this.context.destination);
-
-    this.onMetadata({
-      sample_rate: this.targetSampleRate,
-      channels: 1,
-      frame_bytes: Math.floor(this.frameSize / resampleRatio) * 2,
-    });
   }
 
+  /**
+   * Resample audio using linear interpolation.
+   * For downsampling (e.g., 48kHz → 16kHz), ratio > 1 (e.g., 3.0)
+   * Each output sample maps to ratio * i in input samples (skipping)
+   */
   resample(input, ratio) {
     if (ratio === 1.0) {
       return input;
@@ -60,7 +73,7 @@ export class AudioCapture {
       const sourceIndexCeil = Math.min(sourceIndexFloor + 1, input.length - 1);
       const fraction = sourceIndex - sourceIndexFloor;
 
-      // Linear interpolation
+      // Linear interpolation between adjacent samples
       output[i] = input[sourceIndexFloor] * (1 - fraction) + input[sourceIndexCeil] * fraction;
     }
 

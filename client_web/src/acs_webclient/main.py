@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import logging.config
 from pathlib import Path
 from typing import Any, Dict
 
@@ -12,7 +13,42 @@ from fastapi.staticfiles import StaticFiles
 from .calls import CallManager
 from .config import Settings
 
+
+def configure_logging() -> None:
+    """Configure logging to work properly with uvicorn."""
+    logging_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            },
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "default",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "acs_webclient": {
+                "handlers": ["console"],
+                "level": "INFO",
+                "propagate": False,
+            },
+        },
+        "root": {
+            "level": "INFO",
+            "handlers": ["console"],
+        },
+    }
+    logging.config.dictConfig(logging_config)
+
+
+configure_logging()
 logger = logging.getLogger(__name__)
+
 
 settings = Settings.from_env()
 call_manager = CallManager(settings)
@@ -35,6 +71,13 @@ async def test_settings() -> Dict[str, Any]:
         "services": settings.available_services,
         "providers": settings.allowed_providers,
         "barge_in_modes": settings.allowed_barge_in_modes,
+    }
+
+
+@app.get("/api/recent-calls")
+async def recent_calls() -> Dict[str, Any]:
+    return {
+        "calls": call_manager.get_recent_calls()
     }
 
 
@@ -67,10 +110,17 @@ async def participant_socket(websocket: WebSocket, call_code: str, participant_i
 
     call_state = call_manager.get_call(call_code)
     if not call_state:
+        logger.warning("Call not found: %s", call_code)
         await websocket.close(code=4404)
         return
 
     await websocket.accept()
+
+    # Send immediate acknowledgment to client
+    await websocket.send_json({
+        "type": "connection.established",
+        "message": "WebSocket connected, initializing translation service..."
+    })
 
     try:
         await call_manager.add_participant(call_code, participant_id, websocket)
@@ -83,25 +133,24 @@ async def participant_socket(websocket: WebSocket, call_code: str, participant_i
         await websocket.close(code=1011, reason="Upstream connection failed")
         return
 
+    # Notify client that initialization is complete
+    await websocket.send_json({
+        "type": "connection.ready",
+        "message": "Translation service connected"
+    })
+
     try:
         while True:
             message = await websocket.receive_json()
             await _handle_participant_message(call_state, participant_id, message)
     except WebSocketDisconnect:
-        logger.info("Participant %s disconnected", participant_id)
+        logger.info("Participant %s disconnected from call %s", participant_id, call_code)
     finally:
         await call_manager.remove_participant(call_state, participant_id)
 
 
 async def _handle_participant_message(call_state, participant_id: str, message: Dict[str, Any]) -> None:
     message_type = message.get("type")
-    if message_type == "audio_metadata":
-        sample_rate = int(message.get("sample_rate", 0))
-        channels = int(message.get("channels", 1))
-        frame_bytes = int(message.get("frame_bytes", 0))
-        if sample_rate and frame_bytes:
-            await call_state.send_audio_metadata(sample_rate, channels, frame_bytes)
-        return
 
     if message_type == "audio":
         data = message.get("data")

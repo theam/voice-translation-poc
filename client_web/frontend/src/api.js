@@ -6,6 +6,14 @@ export async function fetchTestSettings() {
   return response.json();
 }
 
+export async function fetchRecentCalls() {
+  const response = await fetch("/api/recent-calls");
+  if (!response.ok) {
+    throw new Error("Failed to load recent calls");
+  }
+  return response.json();
+}
+
 export async function createCall(service, provider, bargeIn) {
   const response = await fetch("/api/call/create", {
     method: "POST",

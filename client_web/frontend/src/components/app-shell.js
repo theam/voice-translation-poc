@@ -16,7 +16,7 @@ export class AppShell extends HTMLElement {
 
   connectedCallback() {
     this.loadSettings();
-    this.unsubscribe = subscribe(() => this.render());
+    this.unsubscribe = subscribe(() => this.updateFromState());
     this.render();
   }
 
@@ -45,7 +45,31 @@ export class AppShell extends HTMLElement {
         barge_in_modes: ["play_through"],
       };
     }
-    this.render();
+    // Don't call render() here - just update the create-call component
+    // to avoid destroying join-call and call-room components
+    this.updateSettings();
+  }
+
+  updateSettings() {
+    // Update create-call component with new settings without destroying DOM
+    const createCall = this.shadowRoot.querySelector("create-call");
+    if (createCall) {
+      createCall.setOptions({
+        services: this.settings.services,
+        providers: this.settings.providers,
+        bargeInModes: this.settings.barge_in_modes,
+      });
+    }
+  }
+
+  updateFromState() {
+    // Only update the create-call component without destroying the entire DOM
+    const state = getState();
+    const createCall = this.shadowRoot.querySelector("create-call");
+    if (createCall) {
+      createCall.setAttribute("call-code", state.callCode || "");
+      // Note: We don't call setOptions here since settings don't change after initial load
+    }
   }
 
   render() {
