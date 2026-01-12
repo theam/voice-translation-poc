@@ -1067,6 +1067,22 @@ providers:
 - Different provider per role
 - Asymmetric translation
 
+#### 6. Participant-Based Provider
+
+**Configuration**:
+```yaml
+providers:
+  participant_based:
+    type: participant_based
+    settings:
+      provider: live_interpreter
+```
+
+**Features**:
+- Creates a provider instance per participant on first message
+- Routes participant audio to the dedicated instance
+- Shared inbound bus for provider output events
+
 ---
 
 ## Control Plane
