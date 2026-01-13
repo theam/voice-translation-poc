@@ -1,175 +1,346 @@
+// playback.js
 import { pcm16ToFloat32 } from "./pcm16.js";
 
 /**
- * PlaybackQueue receives audio in ACS standard format and converts it for playback.
+ * PlaybackQueue (improved)
  *
- * Conversion pipeline:
- * 1. Receive 16kHz mono PCM16 (ACS standard format) as base64
- * 2. Decode base64 → Uint8Array → PCM16 (Int16Array)
- * 3. Convert PCM16 to Float32Array
- * 4. Resample from 16kHz to hardware rate (typically 48kHz)
- * 5. Create AudioBuffer at hardware rate for Web Audio API
- * 6. Schedule for playback with minimal latency buffering
- *
- * Input: 16kHz mono PCM16 (ACS standard format enforced by backend)
- * Output: Hardware rate mono Float32 for speakers
- *
- * Note: This class is used by MultiParticipantAudioManager which provides
- * a shared AudioContext and centralized scheduler for proper mixing.
+ * Fixes for "bad first ~20s" + glitches:
+ * - Flush pending audio immediately when starting (avoid coalesce stall/underruns)
+ * - Use smaller coalesce window (default 60ms) to reduce startup starvation
+ * - Start with slightly higher latency (250ms) and adapt down only after stable
+ * - Add short fades per buffer to eliminate clicks at chunk boundaries
+ * - Gain ramp-in on first start to remove initial pop
  */
 export class PlaybackQueue {
-  /**
-   * @param {AudioContext} audioContext - Shared AudioContext from MultiParticipantAudioManager
-   */
-  constructor(audioContext) {
-    if (!audioContext) {
-      throw new Error("AudioContext is required");
-    }
+  constructor(audioContext, outputNode) {
+    if (!audioContext) throw new Error("AudioContext is required");
+
     this.context = audioContext;
-    this.buffer = []; // Array of AudioBuffers waiting to be played
+
+    // Output routing
+    this.outputNode = outputNode ?? this.context.destination;
+    this.gainNode = this.context.createGain();
+    this.gainNode.gain.value = 1.0;
+    this.gainNode.connect(this.outputNode);
+
+    // Format
+    this.inputSampleRate = 16000;
+
+    // Queue
+    this.buffer = [];
+    this.bufferedDurationSec = 0;
     this.nextScheduleTime = 0;
     this.isPlaying = false;
-    this.lastEnqueueTime = 0; // Track when audio was last added
-    this.inputSampleRate = 16000; // ACS standard: 16kHz mono PCM16
-    this.minBufferDuration = 0.2; // Start playing when we have 200ms buffered
-    this.maxScheduleAhead = 1.0; // Maximum time to schedule ahead (1 second)
-    this.maxBufferDuration = 3.0; // Maximum total buffer (drop old audio if exceeded)
-    this.gracePeriod = 0.5; // Keep playing for 500ms after buffer empty (wait for more audio)
+    this.lastEnqueueTime = 0;
+
+    // Buffering / scheduling
+    this.minBufferDuration = 0.28;      // a bit higher to reduce startup glitches
+    this.targetLatencySec = 0.25;       // start higher so you don't spend 20s ramping up
+    this.safetyMarginSec = 0.05;        // schedule a bit further ahead to avoid "too close to now"
+    this.maxScheduleAhead = 1.0;
+    this.maxBufferDuration = 3.0;
+    this.gracePeriod = 0.6;
+    this.lateResetSec = 0.12;
+
+    // Adaptive jitter buffer
+    this.underrunCount = 0;
+    this.lastUnderrunTime = 0;
+    this.stableSince = this.context.currentTime;
+
+    // Loop detection
+    this._scheduleCount = 0;
+    this._lastScheduleResetTime = this.context.currentTime;
+
+    // Chunk coalescing (smaller reduces startup starvation)
+    this.coalesceChunkSec = 0.06; // 60ms
+    this._pendingParts = [];
+    this._pendingSamples = 0;
+    this._lastFlushTime = 0; // Track last flush to prevent rapid loops
+
+    // Click reduction (disabled for continuous streams - causes scratchy artifacts)
+    // this.fadeMs = 4; // per-buffer fade in/out (2-5ms typical)
+
+    // Startup pop reduction
+    this._startedOnce = false;
+
+    // Mute/unmute state
+    this._preMuteGain = 1.0;
   }
 
   async enqueue(pcmBytes) {
+    if (!pcmBytes || pcmBytes.byteLength === 0) return;
 
-    // Convert PCM16 (Int16) → Float32 at 16kHz
     const floatData = pcm16ToFloat32(pcmBytes.buffer);
 
-    // Resample from 16kHz → hardware rate (e.g., 48kHz)
-    const resampleRatio = this.context.sampleRate / this.inputSampleRate;
-    const resampledData = this.resample(floatData, resampleRatio);
+    // Add to pending
+    this._pendingParts.push(floatData);
+    this._pendingSamples += floatData.length;
 
-    // Create AudioBuffer at hardware rate for Web Audio API
-    const buffer = this.context.createBuffer(1, resampledData.length, this.context.sampleRate);
-    buffer.copyToChannel(resampledData, 0);
-
-    // Check if buffer would exceed maximum
-    let bufferedDuration = this.getBufferedDuration();
-    if (bufferedDuration + buffer.duration > this.maxBufferDuration) {
-      // Drop oldest chunks until we have room for the new one
-      let droppedCount = 0;
-      while (bufferedDuration + buffer.duration > this.maxBufferDuration && this.buffer.length > 0) {
-        const dropped = this.buffer.shift();
-        bufferedDuration -= dropped.duration;
-        droppedCount++;
-      }
-      console.warn(`Buffer overflow: dropped ${droppedCount} old chunks (${(this.maxBufferDuration - bufferedDuration).toFixed(3)}s freed)`);
+    // Normal coalescing flush
+    const targetSamples = Math.max(1, Math.floor(this.coalesceChunkSec * this.inputSampleRate));
+    while (this._pendingSamples >= targetSamples) {
+      const slice = this._consumePendingSamples(targetSamples);
+      this._pushAudioBuffer(slice);
     }
 
-    // Add to buffer
-    this.buffer.push(buffer);
-    bufferedDuration = this.getBufferedDuration();
-
-    // Track when audio was last received
     this.lastEnqueueTime = this.context.currentTime;
 
-    // Mark as ready to play if we have enough buffered
-    if (!this.isPlaying && bufferedDuration >= this.minBufferDuration) {
-      // Only log first time starting playback
-      // console.log(`Ready to play with ${bufferedDuration.toFixed(3)}s buffered`);
-      this.isPlaying = true;
-      this.nextScheduleTime = this.context.currentTime;
+    // If we are not playing yet and we have *some* audio, flush pending immediately.
+    // This avoids startup underruns caused by waiting for coalesce size.
+    if (!this.isPlaying) {
+      // Top up buffered duration estimate with pending (approx)
+      const pendingDuration = this._pendingSamples / this.inputSampleRate;
+      const totalSoon = this.getBufferedDuration() + pendingDuration;
+
+      if (totalSoon >= this.minBufferDuration) {
+        // Flush ALL remaining pending now (even if < coalesce size)
+        this._flushPendingAll();
+
+        this.isPlaying = true;
+        const now = this.context.currentTime;
+        this.nextScheduleTime = Math.max(this.nextScheduleTime, now + this.targetLatencySec);
+
+        // Ramp gain on first ever start to avoid initial click/pop
+        if (!this._startedOnce) {
+          this._startedOnce = true;
+          this._rampGainIn(now);
+        }
+      }
     }
+  }
+
+  _rampGainIn(now) {
+    try {
+      const g = this.gainNode.gain;
+      const current = g.value;
+      g.cancelScheduledValues(now);
+      // Start slightly low and ramp quickly
+      g.setValueAtTime(0.0001, now);
+      g.linearRampToValueAtTime(Math.max(0.2, current), now + 0.03);
+      g.linearRampToValueAtTime(current, now + 0.08);
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  _flushPendingAll() {
+    if (this._pendingSamples <= 0 || this._pendingParts.length === 0) return;
+
+    // Guard: ensure we have actual data to flush
+    const samplesToFlush = this._pendingSamples;
+    if (samplesToFlush < 16) return; // Don't flush tiny fragments
+
+    const slice = this._consumePendingSamples(samplesToFlush);
+
+    // Verify we actually got data (not all zeros)
+    if (slice.length === 0) return;
+
+    this._pushAudioBuffer(slice);
+  }
+
+  _consumePendingSamples(n) {
+    const out = new Float32Array(n);
+    let written = 0;
+
+    while (written < n && this._pendingParts.length > 0) {
+      const head = this._pendingParts[0];
+      const need = n - written;
+
+      if (head.length <= need) {
+        out.set(head, written);
+        written += head.length;
+        this._pendingParts.shift();
+        this._pendingSamples -= head.length;
+      } else {
+        out.set(head.subarray(0, need), written);
+        const rest = head.subarray(need);
+        this._pendingParts[0] = rest;
+        written += need;
+        this._pendingSamples -= need;
+      }
+    }
+
+    // Safety: if we exhausted parts but counter is still > 0, reset it
+    if (this._pendingParts.length === 0 && this._pendingSamples !== 0) {
+      console.warn(`Pending samples counter out of sync (${this._pendingSamples}), resetting`);
+      this._pendingSamples = 0;
+    }
+
+    // Return only the portion we actually wrote (avoid trailing zeros)
+    return written < n ? out.subarray(0, written) : out;
+  }
+
+  _applyFadesInPlace(float16k) {
+    const fadeSamples = Math.max(0, Math.floor((this.fadeMs / 1000) * this.inputSampleRate));
+    if (fadeSamples <= 1 || float16k.length < fadeSamples * 2) return float16k;
+
+    // Fade in
+    for (let i = 0; i < fadeSamples; i++) {
+      const t = i / fadeSamples;
+      float16k[i] *= t;
+    }
+    // Fade out
+    for (let i = 0; i < fadeSamples; i++) {
+      const t = (fadeSamples - i) / fadeSamples;
+      const idx = float16k.length - fadeSamples + i;
+      float16k[idx] *= t;
+    }
+    return float16k;
+  }
+
+  _pushAudioBuffer(float16k) {
+    // Click reduction (disabled - causes scratchy artifacts on continuous audio)
+    // this._applyFadesInPlace(float16k);
+
+    const buffer = this.context.createBuffer(1, float16k.length, this.inputSampleRate);
+    buffer.copyToChannel(float16k, 0);
+
+    // Cap buffer (drop oldest)
+    if (this.bufferedDurationSec + buffer.duration > this.maxBufferDuration) {
+      let droppedCount = 0;
+      while (this.bufferedDurationSec + buffer.duration > this.maxBufferDuration && this.buffer.length > 0) {
+        const dropped = this.buffer.shift();
+        this.bufferedDurationSec -= dropped.duration;
+        droppedCount++;
+      }
+      if (droppedCount > 0) {
+        console.warn(
+          `Buffer overflow: dropped ${droppedCount} old chunks (buffer now ~${this.bufferedDurationSec.toFixed(3)}s)`
+        );
+      }
+    }
+
+    this.buffer.push(buffer);
+    this.bufferedDurationSec += buffer.duration;
   }
 
   getBufferedDuration() {
-    return this.buffer.reduce((sum, buf) => sum + buf.duration, 0);
+    return this.bufferedDurationSec;
   }
 
-  /**
-   * Schedule the next chunk(s) of audio for playback.
-   * Called by the centralized scheduler in MultiParticipantAudioManager.
-   *
-   * @returns {boolean} True if there's more audio to schedule, false if empty
-   */
   scheduleNext() {
-    // Don't schedule if not ready to play yet
     if (!this.isPlaying) {
-      return this.buffer.length > 0;
+      return this.buffer.length > 0 || this._pendingSamples > 0;
     }
 
-    // Schedule chunks that are within the lookahead window
-    while (this.buffer.length > 0) {
-      const scheduleDelta = this.nextScheduleTime - this.context.currentTime;
+    const now = this.context.currentTime;
 
-      // Don't schedule more than maxScheduleAhead (1 second) into the future
-      // This allows buffering for network bursts while keeping latency under control
-      if (scheduleDelta > this.maxScheduleAhead) {
-        break;
+    // If we’re too far behind, treat as a gap and jump cursor forward
+    if (this.nextScheduleTime < now - this.lateResetSec) {
+      this.nextScheduleTime = now + this.safetyMarginSec;
+    }
+
+    // If we are starving but still have pending (not yet coalesced), flush it
+    // Guard: only flush if enough time has passed to avoid loops
+    const MIN_FLUSH_INTERVAL_SEC = 0.05; // 50ms between flushes
+    if (this.buffer.length === 0 && this._pendingSamples > 0) {
+      if (now - this._lastFlushTime > MIN_FLUSH_INTERVAL_SEC) {
+        this._lastFlushTime = now;
+        this._flushPendingAll();
       }
+    }
 
-      const buffer = this.buffer.shift();
+    // Underrun detection
+    const willUnderrun = this.buffer.length === 0 && this.nextScheduleTime <= now + this.safetyMarginSec;
+    if (willUnderrun) this._onUnderrun(now);
+    else this._onStable(now);
+
+    // Schedule within lookahead
+    while (this.buffer.length > 0) {
+      const scheduleDelta = this.nextScheduleTime - now;
+      if (scheduleDelta > this.maxScheduleAhead) break;
+
+      const buf = this.buffer.shift();
+      this.bufferedDurationSec -= buf.duration;
+
       const source = this.context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(this.context.destination);
+      source.buffer = buf;
+      source.connect(this.gainNode);
 
-      // If we're behind current time, catch up immediately
-      const startTime = Math.max(this.nextScheduleTime, this.context.currentTime);
+      const startTime = Math.max(this.nextScheduleTime, now + this.safetyMarginSec);
       source.start(startTime);
+      this.nextScheduleTime = startTime + buf.duration;
 
-      this.nextScheduleTime = startTime + buffer.duration;
+      // Loop detection
+      this._scheduleCount++;
+      if (now - this._lastScheduleResetTime > 1.0) {
+        if (this._scheduleCount > 100) {
+          console.warn(`Possible audio loop detected: ${this._scheduleCount} schedules in 1 second`);
+        }
+        this._scheduleCount = 0;
+        this._lastScheduleResetTime = now;
+      }
     }
 
-    // If we still have audio in the buffer, keep going
-    if (this.buffer.length > 0) {
-      return true;
-    }
+    if (this.buffer.length > 0 || this._pendingSamples > 0) return true;
 
-    // Buffer is empty - check if we should keep waiting for more audio
-    const currentTime = this.context.currentTime;
-    const audioStillPlaying = this.nextScheduleTime > currentTime;
-    const recentlyReceivedAudio = (currentTime - this.lastEnqueueTime) < this.gracePeriod;
+    const audioStillPlaying = this.nextScheduleTime > now;
+    const recentlyReceivedAudio = (now - this.lastEnqueueTime) < this.gracePeriod;
+    if (audioStillPlaying || recentlyReceivedAudio) return true;
 
-    // Keep scheduler running if:
-    // 1. Audio is still playing, OR
-    // 2. We recently received audio (more might be coming soon)
-    if (audioStillPlaying || recentlyReceivedAudio) {
-      return true;
-    }
-
-    // No audio in buffer, nothing playing, and no recent activity - stop
     this.isPlaying = false;
     return false;
   }
 
-  /**
-   * Resample audio using linear interpolation.
-   * For upsampling (e.g., 16kHz → 48kHz), ratio > 1 (e.g., 3.0)
-   * Each output sample maps to i / ratio in input samples (interpolating)
-   */
-  resample(input, ratio) {
-    if (Math.abs(ratio - 1.0) < 0.001) {
-      return input;
+  _onUnderrun(now) {
+    const COOLDOWN_SEC = 0.25;
+    if (this.lastUnderrunTime && now - this.lastUnderrunTime < COOLDOWN_SEC) return;
+
+    this.underrunCount++;
+    this.lastUnderrunTime = now;
+    this.stableSince = now;
+
+    // Increase latency quickly early on, then cap
+    const old = this.targetLatencySec;
+    this.targetLatencySec = Math.min(this.targetLatencySec + 0.02, 0.50);
+
+    if (this.targetLatencySec !== old) {
+      this.nextScheduleTime = Math.max(this.nextScheduleTime, now + this.targetLatencySec);
     }
+  }
 
-    const outputLength = Math.floor(input.length * ratio);
-    const output = new Float32Array(outputLength);
+  _onStable(now) {
+    // Only reduce latency after a long stable period
+    const STABLE_WINDOW_SEC = 12.0;
+    if (now - this.stableSince < STABLE_WINDOW_SEC) return;
 
-    for (let i = 0; i < outputLength; i++) {
-      const sourceIndex = i / ratio;
-      const sourceIndexFloor = Math.floor(sourceIndex);
-      const sourceIndexCeil = Math.min(sourceIndexFloor + 1, input.length - 1);
-      const fraction = sourceIndex - sourceIndexFloor;
+    const old = this.targetLatencySec;
+    this.targetLatencySec = Math.max(this.targetLatencySec - 0.01, 0.14);
+    this.stableSince = now;
 
-      // Linear interpolation between adjacent samples
-      output[i] = input[sourceIndexFloor] * (1 - fraction) + input[sourceIndexCeil] * fraction;
-    }
+    // no cursor jump needed when decreasing
+    void old;
+  }
 
-    return output;
+  setVolume(value) {
+    const v = Number.isFinite(value) ? value : 1.0;
+    this.gainNode.gain.value = Math.max(0, v);
+  }
+
+  mute() {
+    this._preMuteGain = this.gainNode.gain.value;
+    this.gainNode.gain.value = 0;
+  }
+
+  unmute() {
+    this.gainNode.gain.value = Number.isFinite(this._preMuteGain) ? this._preMuteGain : 1.0;
   }
 
   stop() {
     this.buffer = [];
+    this.bufferedDurationSec = 0;
+    this._pendingParts = [];
+    this._pendingSamples = 0;
+
     this.isPlaying = false;
     if (this.context) {
-      this.nextScheduleTime = this.context.currentTime;
+      const now = this.context.currentTime;
+      this.nextScheduleTime = now;
+      this.lastEnqueueTime = now;
+      this.stableSince = now;
+      this._lastFlushTime = 0;
+      this._scheduleCount = 0;
+      this._lastScheduleResetTime = now;
     }
   }
 }
