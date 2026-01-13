@@ -10,7 +10,7 @@ import { PlaybackQueue } from "./playback.js";
  * Architecture:
  * - Map of participantId → PlaybackQueue
  * - Shared AudioContext across all queues
- * - Each queue schedules independently
+ * - Centralized scheduler coordinates all queues to prevent conflicts
  * - Automatic mixing at hardware level
  * - Translation service uses ID: "vt-translation-service"
  */
@@ -18,6 +18,7 @@ export class MultiParticipantAudioManager {
   constructor() {
     this.queues = new Map(); // participantId -> PlaybackQueue
     this.sharedContext = null;
+    this.schedulerInterval = null; // Centralized scheduler for all queues
   }
 
   /**
@@ -38,6 +39,49 @@ export class MultiParticipantAudioManager {
 
     // Enqueue audio to participant's queue
     await this.queues.get(participantId).enqueue(pcmBytes);
+
+    // Start centralized scheduler if not already running
+    this.startScheduler();
+  }
+
+  /**
+   * Start the centralized scheduler that coordinates all participant queues.
+   * This prevents multiple queues from conflicting when scheduling audio.
+   */
+  startScheduler() {
+    if (this.schedulerInterval) {
+      return; // Already running
+    }
+
+    // console.log("[MultiParticipantAudioManager] Starting centralized scheduler");
+    this.schedulerInterval = setInterval(() => {
+      this.scheduleAllQueues();
+    }, 25); // Schedule every 25ms
+
+    // Schedule immediately
+    this.scheduleAllQueues();
+  }
+
+  /**
+   * Schedule audio for all participant queues.
+   * This is called by the centralized scheduler to coordinate playback.
+   */
+  scheduleAllQueues() {
+    let anyQueueActive = false;
+
+    for (const [participantId, queue] of this.queues) {
+      const hasMore = queue.scheduleNext();
+      if (hasMore) {
+        anyQueueActive = true;
+      }
+    }
+
+    // Stop scheduler if all queues are empty and inactive
+    if (!anyQueueActive && this.schedulerInterval) {
+      // console.log("[MultiParticipantAudioManager] All queues empty, stopping scheduler");
+      clearInterval(this.schedulerInterval);
+      this.schedulerInterval = null;
+    }
   }
 
   /**
@@ -80,10 +124,19 @@ export class MultiParticipantAudioManager {
    * Closes the shared AudioContext and clears all participant queues.
    */
   stopAll() {
+    // Stop centralized scheduler
+    if (this.schedulerInterval) {
+      clearInterval(this.schedulerInterval);
+      this.schedulerInterval = null;
+    }
+
+    // Stop all participant queues
     for (const [participantId, queue] of this.queues) {
       queue.stop();
     }
     this.queues.clear();
+
+    // Close shared audio context
     if (this.sharedContext) {
       this.sharedContext.close();
       this.sharedContext = null;

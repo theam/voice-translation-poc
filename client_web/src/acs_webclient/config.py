@@ -23,6 +23,7 @@ class Settings:
             "live_interpreter_spanish",
             "live_interpreter_english",
             "role_based_li_en_es",
+            "participant_based_openai",
         ]
     )
     allowed_barge_in_modes: List[str] = field(

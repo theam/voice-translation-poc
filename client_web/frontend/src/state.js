@@ -1,6 +1,7 @@
 const state = {
   callCode: "",
   participantId: "",
+  dummyMode: false,  // Dummy mode for testing (no mic/speakers)
   participants: [],  // All participants in the call
   connection: null,
   settings: null,

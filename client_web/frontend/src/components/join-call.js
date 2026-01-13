@@ -59,6 +59,7 @@ export class JoinCall extends HTMLElement {
     event.preventDefault();
     const callCode = this.shadowRoot.querySelector("input[name=call_code]").value.trim().toUpperCase();
     const participantId = this.shadowRoot.querySelector("input[name=participant_id]").value.trim();
+    const dummyMode = this.shadowRoot.querySelector("input[name=dummy_mode]").checked;
 
     if (!callCode || !participantId) {
       this.error = "Call code and participant name are required.";
@@ -67,7 +68,7 @@ export class JoinCall extends HTMLElement {
     }
 
     this.error = "";
-    updateState({ callCode, participantId });
+    updateState({ callCode, participantId, dummyMode });
   }
 
   formatTime(isoString) {
@@ -93,6 +94,22 @@ export class JoinCall extends HTMLElement {
         .container { display: grid; gap: 16px; }
         form { display: grid; gap: 12px; }
         .error { color: #ff7b7b; }
+        .dummy-mode-label {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+          color: #c9d1d9;
+          cursor: pointer;
+        }
+        .dummy-mode-label input[type="checkbox"] {
+          cursor: pointer;
+        }
+        .dummy-mode-label .help-text {
+          font-size: 12px;
+          color: #8a9099;
+          margin-left: 24px;
+        }
         .recent-calls { margin-top: 16px; }
         .recent-calls h3 { margin: 0 0 8px 0; font-size: 14px; color: #8a9099; }
         .call-list { display: grid; gap: 8px; max-height: 300px; overflow-y: auto; }
@@ -144,6 +161,10 @@ export class JoinCall extends HTMLElement {
             <label>
               Participant name
               <input name="participant_id" placeholder="Alex" />
+            </label>
+            <label class="dummy-mode-label">
+              <input type="checkbox" name="dummy_mode" />
+              <span>Dummy mode (no mic/speakers, use test audio)</span>
             </label>
             <button type="submit">Join call</button>
             ${this.error ? `<div class="error">${this.error}</div>` : ""}

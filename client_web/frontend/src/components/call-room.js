@@ -1,4 +1,5 @@
 import { AudioCapture } from "../audio/capture.js";
+import { DummyCapture } from "../audio/dummy-capture.js";
 import { MultiParticipantAudioManager } from "../audio/multi-participant-manager.js";
 import { bytesFromBase64 } from "../audio/pcm16.js";
 import { getState, subscribe, updateState } from "../state.js";
@@ -27,10 +28,10 @@ export class CallRoom extends HTMLElement {
   }
 
   sync() {
-    const { callCode, participantId, connection, participants } = getState();
+    const { callCode, participantId, dummyMode, connection, participants } = getState();
     this.participantList?.setParticipants(participants);
     if (callCode && participantId && !connection) {
-      this.connect(callCode, participantId);
+      this.connect(callCode, participantId, dummyMode);
     }
     this.updateHangUpButton();
   }
@@ -76,7 +77,7 @@ export class CallRoom extends HTMLElement {
     });
   }
 
-  connect(callCode, participantId) {
+  connect(callCode, participantId, dummyMode = false) {
     const connectStart = performance.now();
 
     // Show connecting feedback immediately
@@ -89,7 +90,8 @@ export class CallRoom extends HTMLElement {
     const socket = new WebSocket(wsUrl);
 
     // Create MultiParticipantAudioManager after user interaction (joining call)
-    if (!this.audioManager) {
+    // Skip if in dummy mode (no audio playback needed)
+    if (!this.audioManager && !dummyMode) {
       this.audioManager = new MultiParticipantAudioManager();
     }
 
@@ -97,24 +99,43 @@ export class CallRoom extends HTMLElement {
       const wsTime = performance.now() - connectStart;
       this.eventLog?.addEvent(`Connected (${wsTime.toFixed(0)}ms)`);
 
-      // Show microphone permission request feedback
-      this.eventLog?.addEvent("Requesting microphone access...");
-
       const captureStart = performance.now();
-      // Audio is automatically resampled to 16kHz mono PCM16 (ACS standard)
-      // Backend sends audio metadata to upstream after test settings
-      this.capture = new AudioCapture({
-        onAudioFrame: (payload) => socket.send(JSON.stringify({ type: "audio", ...payload })),
-      });
 
-      try {
-        await this.capture.start();
-        const captureTime = performance.now() - captureStart;
-        this.eventLog?.addEvent(`Microphone ready (${captureTime.toFixed(0)}ms)`);
-        this.eventLog?.addEvent(`✓ Joined call successfully`);
-      } catch (err) {
-        console.error("Audio capture failed:", err);
-        this.eventLog?.addEvent(`✗ Microphone error: ${err.message}`);
+      if (dummyMode) {
+        // Dummy mode: Load test audio file instead of microphone
+        this.eventLog?.addEvent("Loading test audio file...");
+        this.capture = new DummyCapture({
+          onAudioFrame: (payload) => socket.send(JSON.stringify({ type: "audio", ...payload })),
+          wavFilePath: "/assets/test-audio.wav"
+        });
+
+        try {
+          await this.capture.start();
+          const captureTime = performance.now() - captureStart;
+          this.eventLog?.addEvent(`Test audio loaded (${captureTime.toFixed(0)}ms)`);
+          this.eventLog?.addEvent(`✓ Joined call in dummy mode`);
+        } catch (err) {
+          console.error("Dummy audio capture failed:", err);
+          this.eventLog?.addEvent(`✗ Test audio error: ${err.message}`);
+        }
+      } else {
+        // Normal mode: Request microphone access
+        this.eventLog?.addEvent("Requesting microphone access...");
+        // Audio is automatically resampled to 16kHz mono PCM16 (ACS standard)
+        // Backend sends audio metadata to upstream after test settings
+        this.capture = new AudioCapture({
+          onAudioFrame: (payload) => socket.send(JSON.stringify({ type: "audio", ...payload })),
+        });
+
+        try {
+          await this.capture.start();
+          const captureTime = performance.now() - captureStart;
+          this.eventLog?.addEvent(`Microphone ready (${captureTime.toFixed(0)}ms)`);
+          this.eventLog?.addEvent(`✓ Joined call successfully`);
+        } catch (err) {
+          console.error("Audio capture failed:", err);
+          this.eventLog?.addEvent(`✗ Microphone error: ${err.message}`);
+        }
       }
     };
 
@@ -210,6 +231,12 @@ export class CallRoom extends HTMLElement {
     const isAudioData = (kind === "audiodata" || type === "audiodata") && (payload.audioData?.data || payload.data);
 
     if (isAudioData) {
+      // Skip audio playback if in dummy mode
+      const { dummyMode } = getState();
+      if (dummyMode) {
+        return;
+      }
+
       // Handle both formats: ACS protocol uses audioData.data, backend may use data directly
       const base64Data = payload.audioData?.data || payload.data;
 

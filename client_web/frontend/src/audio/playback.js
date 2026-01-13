@@ -15,7 +15,7 @@ import { pcm16ToFloat32 } from "./pcm16.js";
  * Output: Hardware rate mono Float32 for speakers
  *
  * Note: This class is used by MultiParticipantAudioManager which provides
- * a shared AudioContext for automatic mixing of multiple participant streams.
+ * a shared AudioContext and centralized scheduler for proper mixing.
  */
 export class PlaybackQueue {
   /**
@@ -29,11 +29,12 @@ export class PlaybackQueue {
     this.buffer = []; // Array of AudioBuffers waiting to be played
     this.nextScheduleTime = 0;
     this.isPlaying = false;
+    this.lastEnqueueTime = 0; // Track when audio was last added
     this.inputSampleRate = 16000; // ACS standard: 16kHz mono PCM16
     this.minBufferDuration = 0.2; // Start playing when we have 200ms buffered
     this.maxScheduleAhead = 1.0; // Maximum time to schedule ahead (1 second)
     this.maxBufferDuration = 3.0; // Maximum total buffer (drop old audio if exceeded)
-    this.schedulerInterval = null;
+    this.gracePeriod = 0.5; // Keep playing for 500ms after buffer empty (wait for more audio)
   }
 
   async enqueue(pcmBytes) {
@@ -66,10 +67,15 @@ export class PlaybackQueue {
     this.buffer.push(buffer);
     bufferedDuration = this.getBufferedDuration();
 
-    // Start playback if we have enough buffered and not already playing
+    // Track when audio was last received
+    this.lastEnqueueTime = this.context.currentTime;
+
+    // Mark as ready to play if we have enough buffered
     if (!this.isPlaying && bufferedDuration >= this.minBufferDuration) {
-      console.log(`Starting playback with ${bufferedDuration.toFixed(3)}s buffered`);
-      this.startPlayback();
+      // Only log first time starting playback
+      // console.log(`Ready to play with ${bufferedDuration.toFixed(3)}s buffered`);
+      this.isPlaying = true;
+      this.nextScheduleTime = this.context.currentTime;
     }
   }
 
@@ -77,22 +83,18 @@ export class PlaybackQueue {
     return this.buffer.reduce((sum, buf) => sum + buf.duration, 0);
   }
 
-  startPlayback() {
-    if (this.isPlaying) return;
+  /**
+   * Schedule the next chunk(s) of audio for playback.
+   * Called by the centralized scheduler in MultiParticipantAudioManager.
+   *
+   * @returns {boolean} True if there's more audio to schedule, false if empty
+   */
+  scheduleNext() {
+    // Don't schedule if not ready to play yet
+    if (!this.isPlaying) {
+      return this.buffer.length > 0;
+    }
 
-    this.isPlaying = true;
-    this.nextScheduleTime = this.context.currentTime;
-
-    // Schedule audio every 25ms to maintain smooth playback
-    this.schedulerInterval = setInterval(() => {
-      this.scheduleBufferedAudio();
-    }, 25);
-
-    // Schedule immediately
-    this.scheduleBufferedAudio();
-  }
-
-  scheduleBufferedAudio() {
     // Schedule chunks that are within the lookahead window
     while (this.buffer.length > 0) {
       const scheduleDelta = this.nextScheduleTime - this.context.currentTime;
@@ -115,19 +117,26 @@ export class PlaybackQueue {
       this.nextScheduleTime = startTime + buffer.duration;
     }
 
-    // Stop the scheduler if buffer is empty and no audio is playing
-    if (this.buffer.length === 0 && this.nextScheduleTime <= this.context.currentTime + 0.05) {
-      console.log("Playback buffer empty");
-      this.stopPlayback();
+    // If we still have audio in the buffer, keep going
+    if (this.buffer.length > 0) {
+      return true;
     }
-  }
 
-  stopPlayback() {
-    if (this.schedulerInterval) {
-      clearInterval(this.schedulerInterval);
-      this.schedulerInterval = null;
+    // Buffer is empty - check if we should keep waiting for more audio
+    const currentTime = this.context.currentTime;
+    const audioStillPlaying = this.nextScheduleTime > currentTime;
+    const recentlyReceivedAudio = (currentTime - this.lastEnqueueTime) < this.gracePeriod;
+
+    // Keep scheduler running if:
+    // 1. Audio is still playing, OR
+    // 2. We recently received audio (more might be coming soon)
+    if (audioStillPlaying || recentlyReceivedAudio) {
+      return true;
     }
+
+    // No audio in buffer, nothing playing, and no recent activity - stop
     this.isPlaying = false;
+    return false;
   }
 
   /**
@@ -158,7 +167,7 @@ export class PlaybackQueue {
 
   stop() {
     this.buffer = [];
-    this.stopPlayback();
+    this.isPlaying = false;
     if (this.context) {
       this.nextScheduleTime = this.context.currentTime;
     }
