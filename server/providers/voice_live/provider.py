@@ -92,17 +92,17 @@ VOICE_LIVE_DEFAULT_SESSION_OPTIONS: Dict[str, Any] = {
         "type": "azure_semantic_vad_multilingual",
         # Tuning: lower threshold => easier to trigger "user is speaking"
         # Raise if you see false speech starts from background noise.
-        "threshold": 0.35,
+        "threshold": 0.50,
         # Keep a bit of pre-roll so the beginning of words isn’t clipped
-        "prefix_padding_ms": 200,
+        "prefix_padding_ms": 300,
         # End-of-speech pause; increase if users pause mid-sentence a lot
-        "silence_duration_ms": 250,
+        "silence_duration_ms": 600,
         # Reduces false barge-in triggers from “uh/umm/yeah…”
         "remove_filler_words": True,
         # Let the server generate responses automatically at end-of-turn
         "create_response": True,
         # True barge-in: stop assistant when user starts speaking
-        "interrupt_response": False,
+        "interrupt_response": True,
         # Keep server context aligned with what the user actually heard
         "auto_truncate": True,
     },
