@@ -139,8 +139,8 @@ poetry shell
 Run the server with the mock provider (no external services required):
 
 ```bash
-# Using Poetry
-poetry run translation-server --host 0.0.0.0 --port 8080
+# Using Poetry (uses config defaults: host=0.0.0.0, port=8080)
+poetry run translation-server
 
 # Using Docker Compose
 cd ..  # Return to project root
@@ -148,7 +148,7 @@ make translation-server-up
 make translation-server-logs
 ```
 
-The server will listen on `ws://0.0.0.0:8080` and use the mock provider by default.
+The server will listen on `ws://0.0.0.0:8080` and use the mock provider by default (configurable via `.config.yml`).
 
 ### Configuration
 
@@ -158,12 +158,14 @@ Create `.config.yml` in the `server/` directory:
 
 ```yaml
 system:
+  host: 0.0.0.0
+  port: 8080
   log_level: INFO
   log_wire: false
   log_wire_dir: logs/server
+  default_provider: mock  # or: openai, voicelive, live_interpreter
 
 dispatch:
-  default_provider: mock  # or: openai, voicelive, live_interpreter
 
 providers:
   mock:
@@ -213,14 +215,17 @@ See [ENV_CONFIG.md](ENV_CONFIG.md) for complete environment variable reference.
 #### Development Mode
 
 ```bash
-# With default config
+# With default config (.config.yml)
 poetry run translation-server
 
 # With custom config
-poetry run translation-server --config custom.yml --port 9000
+poetry run translation-server --config custom.yml
 
 # With multiple configs (merged left-to-right)
 poetry run translation-server --config base.yml --config overrides.yml
+
+# Override host/port via environment variables
+VT_SYSTEM_PORT=9000 poetry run translation-server
 ```
 
 #### Docker Mode
@@ -251,7 +256,7 @@ The server supports multiple translation providers with dynamic selection per se
 1. **Test Settings**: `control.test.settings` message with `provider` field
 2. **Session Metadata**: `metadata.provider` from ACS connection
 3. **Feature Flags**: `metadata.feature_flags.use_voicelive` (legacy)
-4. **Config Default**: `dispatch.default_provider` in config
+4. **Config Default**: `system.default_provider` in config
 
 ### Available Providers
 

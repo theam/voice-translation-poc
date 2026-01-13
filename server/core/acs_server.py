@@ -27,15 +27,10 @@ class ACSServer:
     - Translation pipeline management
     """
 
-    def __init__(
-        self,
-        config: Config,
-        host: str = "0.0.0.0",
-        port: int = 8080
-    ):
+    def __init__(self, config: Config):
         self.config = config
-        self.host = host
-        self.port = port
+        self.host = config.system.host
+        self.port = config.system.port
         self.session_manager = SessionManager(config)
         self._server = None
 
@@ -50,7 +45,8 @@ class ACSServer:
         ) as server:
             self._server = server
             logger.info(f"ACS server listening on {self.host}:{self.port}")
-            logger.info(f"Default Provider: {self.config.dispatch.default_provider} (can be overridden per session)")
+            logger.info(f"Default Provider: {self.config.system.default_provider}")
+            logger.info(f"Default Gate Mode: {self.config.system.default_gate_mode}")
             logger.info(f"Routing: dynamic from metadata (default: shared)")
 
             # Run forever

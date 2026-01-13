@@ -52,7 +52,7 @@ Provider is selected **per session** based on priority:
 1. Test settings (`control.test.settings` message)
 2. Session metadata (`metadata.provider`)
 3. Feature flags (`metadata.feature_flags.use_voicelive`)
-4. Config default (`dispatch.default_provider`)
+4. Config default (`system.default_provider`)
 
 **Result**: Sessions can use different providers concurrently (e.g., session A uses OpenAI, session B uses Voice Live).
 
@@ -126,10 +126,10 @@ Real-time processing with minimal buffering except for batching optimization.
 
 ```python
 class ACSServer:
-    def __init__(self, config: Config, host: str = "0.0.0.0", port: int = 8080):
+    def __init__(self, config: Config):
         self.config = config
-        self.host = host
-        self.port = port
+        self.host = config.system.host
+        self.port = config.system.port
         self.session_manager = SessionManager(config)
 
     async def start(self):
@@ -902,7 +902,7 @@ class ProviderFactory:
 
         # Priority 4: Config default
         else:
-            provider_name = config.dispatch.default_provider
+            provider_name = config.system.default_provider
             logger.info(f"provider_selected source=config_default provider={provider_name}")
 
         # Create provider instance
@@ -1463,12 +1463,14 @@ class PcmConverter:
 
 ```yaml
 system:
+  host: 0.0.0.0               # Server host address
+  port: 8080                  # Server port
   log_level: INFO             # DEBUG, INFO, WARNING, ERROR
   log_wire: false             # Enable wire-level logging
   log_wire_dir: logs/server   # Wire log directory
+  default_provider: mock      # Default provider name
 
 dispatch:
-  default_provider: mock      # Default provider name
   batching:
     enabled: true
     max_batch_ms: 200         # Duration trigger
@@ -1679,7 +1681,7 @@ See [ENV_CONFIG.md](ENV_CONFIG.md) for complete reference.
 **Scenario D: Config Default**
 ```yaml
 # config.yml
-dispatch:
+system:
   default_provider: mock
 ```
 ```json
@@ -1724,7 +1726,7 @@ async def test_session_manager_create():
 @pytest.mark.asyncio
 async def test_full_translation_pipeline():
     # Start server
-    config = Config(dispatch=DispatchConfig(default_provider="mock"))
+    config = Config(system=SystemConfig(default_provider="mock"))
     server = ACSServer(config, host="127.0.0.1", port=8765)
 
     # Start server in background

@@ -28,10 +28,12 @@ Where:
 
 | Config Path | Environment Variable | Example Value |
 |------------|---------------------|---------------|
+| `system.host` | `VT_SYSTEM_HOST` | `127.0.0.1` |
+| `system.port` | `VT_SYSTEM_PORT` | `9000` |
 | `system.log_level` | `VT_SYSTEM_LOG_LEVEL` | `DEBUG` |
 | `system.log_wire` | `VT_SYSTEM_LOG_WIRE` | `true` |
+| `system.default_provider` | `VT_SYSTEM_DEFAULT_PROVIDER` | `voicelive` |
 | `buffering.ingress_queue_max` | `VT_BUFFERING_INGRESS_QUEUE_MAX` | `5000` |
-| `dispatch.default_provider` | `VT_DISPATCH_DEFAULT_PROVIDER` | `voicelive` |
 | `dispatch.batching.enabled` | `VT_DISPATCH_BATCHING_ENABLED` | `false` |
 | `providers.openai.api_key` | `VT_PROVIDERS_OPENAI_API_KEY` | `sk-123...` |
 | `providers.openai.endpoint` | `VT_PROVIDERS_OPENAI_ENDPOINT` | `https://api.openai.com` |

@@ -279,8 +279,9 @@ class SessionPipeline:
         # 2. Determine gate mode from config
         translation_settings = self.metadata.get("translation_settings", {})
         gate_mode_value = (
-                translation_settings.get("outbound_gate_mode")
-                or self.config.system.outbound_gate_mode
+                translation_settings.get("gate_mode")
+                or translation_settings.get("outbound_gate_mode")  # backward compatibility
+                or self.config.system.default_gate_mode
         )
         gate_mode = OutboundGateMode.from_value(gate_mode_value)
 

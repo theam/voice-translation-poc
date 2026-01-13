@@ -91,7 +91,7 @@ class ProviderFactory:
             return "voicelive"
 
         # Default: use configured default provider
-        default_provider = config.dispatch.default_provider
+        default_provider = config.system.default_provider
         logger.info("Using default provider from config: %s", default_provider)
         return default_provider
 

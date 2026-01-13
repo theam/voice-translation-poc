@@ -52,12 +52,10 @@ class BatchingConfig:
 
 @dataclass
 class DispatchConfig:
-    default_provider: str = "mock"
     batching: BatchingConfig = field(default_factory=BatchingConfig)
 
     def to_dict(self) -> Dict:
         return {
-            "default_provider": self.default_provider,
             "batching": self.batching.to_dict(),
         }
 
@@ -120,27 +118,37 @@ class ProvidersConfig:
 
 @dataclass
 class SystemConfig:
+    # Server configuration
+    host: str = "0.0.0.0"
+    port: int = 8080
+
     # Logging
     log_level: str = "INFO"
     log_wire: bool = False
     log_wire_dir: str = "logs/server"
+
+    # Provider configuration
+    default_provider: str = "mock"
 
     # Input state detection timing
     voice_hysteresis_ms: int = 200  # Minimum duration of voice before transitioning to SPEAKING
     silence_timeout_ms: int = 550    # Duration of silence before transitioning back to SILENCE
 
     # Outbound audio gate (barge-in control)
-    outbound_gate_mode: str = "play_through"  # Options: play_through, pause_and_buffer, pause_and_drop
+    default_gate_mode: str = "play_through"  # Options: play_through, pause_and_buffer, pause_and_drop
     outbound_gate_buffer_limit_bytes: int = 5 * 1024 * 1024  # 5MB buffer limit
 
     def to_dict(self) -> Dict:
         return {
+            "host": self.host,
+            "port": self.port,
             "log_level": self.log_level,
             "log_wire": self.log_wire,
             "log_wire_dir": self.log_wire_dir,
+            "default_provider": self.default_provider,
             "voice_hysteresis_ms": self.voice_hysteresis_ms,
             "silence_timeout_ms": self.silence_timeout_ms,
-            "outbound_gate_mode": self.outbound_gate_mode,
+            "default_gate_mode": self.default_gate_mode,
             "outbound_gate_buffer_limit_bytes": self.outbound_gate_buffer_limit_bytes,
         }
 
@@ -221,19 +229,31 @@ class Config:
         dispatch = data.get("dispatch", {})
         providers = data.get("providers", {})
 
+        # Support migration: check dispatch section first for backward compatibility
+        default_provider = system.get("default_provider")
+        if default_provider is None:
+            default_provider = dispatch.get("default_provider", dispatch.get("provider", "mock"))
+
+        # Support migration: check for old outbound_gate_mode name
+        default_gate_mode = system.get("default_gate_mode")
+        if default_gate_mode is None:
+            default_gate_mode = system.get("outbound_gate_mode", "play_through")
+
         return cls(
             system=SystemConfig(
+                host=system.get("host", "0.0.0.0"),
+                port=system.get("port", 8080),
                 log_level=system.get("log_level", "INFO"),
                 log_wire=system.get("log_wire", False),
                 log_wire_dir=system.get("log_wire_dir", "logs/server"),
+                default_provider=default_provider,
                 voice_hysteresis_ms=system.get("voice_hysteresis_ms", 100),
                 silence_timeout_ms=system.get("silence_timeout_ms", 350),
-                outbound_gate_mode=system.get("outbound_gate_mode", "play_through"),
+                default_gate_mode=default_gate_mode,
                 outbound_gate_buffer_limit_bytes=system.get("outbound_gate_buffer_limit_bytes", 5 * 1024 * 1024),
             ),
             buffering=BufferingConfig(**buffering),
             dispatch=DispatchConfig(
-                default_provider=dispatch.get("default_provider", dispatch.get("provider", "mock")),
                 batching=BatchingConfig(**dispatch.get("batching", {})),
             ),
             providers=ProvidersConfig.from_dict(providers),

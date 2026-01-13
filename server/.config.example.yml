@@ -1,5 +1,8 @@
 system:
+  host: 0.0.0.0
+  port: 8080
   log_level: INFO
+  default_provider: mock
 
 buffering:
   ingress_queue_max: 2000
@@ -7,7 +10,6 @@ buffering:
   overflow_policy: DROP_OLDEST
 
 dispatch:
-  default_provider: mock
   batching:
     enabled: true
     max_batch_ms: 200

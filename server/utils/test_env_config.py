@@ -165,19 +165,19 @@ class TestApplyEnvOverrides:
         """Test overriding multiple values at once."""
         os.environ["VT_SYSTEM_LOG_LEVEL"] = "DEBUG"
         os.environ["VT_BUFFERING_INGRESS_QUEUE_MAX"] = "5000"
-        os.environ["VT_DISPATCH_DEFAULT_PROVIDER"] = "openai"
+        os.environ["VT_SYSTEM_DEFAULT_PROVIDER"] = "openai"
 
         config = {
-            "system": {"log_level": "INFO"},
+            "system": {"log_level": "INFO", "default_provider": "mock"},
             "buffering": {"ingress_queue_max": 2000},
-            "dispatch": {"default_provider": "mock"},
+            "dispatch": {},
         }
 
         result = apply_env_overrides(config)
 
         assert result["system"]["log_level"] == "DEBUG"
         assert result["buffering"]["ingress_queue_max"] == 5000
-        assert result["dispatch"]["default_provider"] == "openai"
+        assert result["system"]["default_provider"] == "openai"
 
     def test_provider_override(self):
         """Test overriding provider-specific configuration."""

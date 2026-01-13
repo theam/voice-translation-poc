@@ -13,13 +13,11 @@ from .core import ACSServer
 logger = logging.getLogger(__name__)
 
 
-async def async_main(config_paths: list[str] | None = None, host: str = "0.0.0.0", port: int = 8080):
+async def async_main(config_paths: list[str] | None = None):
     """Start ACS translation server (async).
 
     Args:
         config_paths: Optional list of paths to YAML config files (merged left-to-right)
-        host: Host to listen on (default: 0.0.0.0)
-        port: Port to listen on (default: 8080)
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -39,11 +37,7 @@ async def async_main(config_paths: list[str] | None = None, host: str = "0.0.0.0
         logger.info(f"Loaded and merged {len(config_paths)} config file(s): {', '.join(config_paths)}")
 
     # Create and start server
-    server = ACSServer(
-        config=config,
-        host=host,
-        port=port
-    )
+    server = ACSServer(config=config)
 
     try:
         await server.start()
@@ -57,15 +51,9 @@ def main():
     """Main entry point (synchronous wrapper for poetry script)."""
     parser = argparse.ArgumentParser(description="Run ACS translation server")
     parser.add_argument("--config", help="Path to YAML config (can be specified multiple times)", required=False, action="append")
-    parser.add_argument("--host", help="Host to listen on", default="0.0.0.0")
-    parser.add_argument("--port", help="Port to listen on", type=int, default=8080)
     args = parser.parse_args()
 
-    asyncio.run(async_main(
-        config_paths=args.config,
-        host=args.host,
-        port=args.port
-    ))
+    asyncio.run(async_main(config_paths=args.config))
 
 
 if __name__ == "__main__":
