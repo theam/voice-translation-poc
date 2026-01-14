@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import secrets
 import string
 from dataclasses import dataclass
@@ -17,10 +18,26 @@ logger = logging.getLogger(__name__)
 _CALL_ALPHABET = string.ascii_uppercase + string.digits
 _MAX_RECENT_CALLS = 10
 
+# Medical terminology dictionary for call codes
+_MEDICAL_TERMS = [
+    "cardiac_arrest", "anaphylaxis", "hypertension", "tachycardia", "bradycardia",
+    "hemorrhage", "laceration", "contusion", "fracture", "dislocation",
+    "pneumonia", "bronchitis", "asthma", "embolism", "thrombosis",
+    "sepsis", "meningitis", "encephalitis", "nephritis", "hepatitis",
+    "gastritis", "appendicitis", "cholecystitis", "pancreatitis", "peritonitis",
+    "diabetes", "ketoacidosis", "hypoglycemia", "hyperglycemia", "dehydration",
+    "seizure", "syncope", "vertigo", "nausea", "dyspnea",
+    "angina", "infarction", "arrhythmia", "fibrillation", "palpitations",
+    "edema", "ascites", "jaundice", "cyanosis", "pallor",
+    "trauma", "concussion", "hematoma", "sprain", "strain"
+]
 
-def _generate_call_code(length: int = 6) -> str:
-    """Generate a random call code using uppercase letters and digits."""
-    return "".join(secrets.choice(_CALL_ALPHABET) for _ in range(length))
+
+def _generate_call_code() -> str:
+    """Generate a random call code using medical term + 2 digits (e.g., cardiac_arrest_87)."""
+    term = random.choice(_MEDICAL_TERMS)
+    digits = "".join(str(random.randint(0, 9)) for _ in range(2))
+    return f"{term}_{digits}"
 
 
 @dataclass
@@ -50,16 +67,41 @@ class CallManager:
         self._calls: Dict[str, CallState] = {}
         self._recent_calls: List[RecentCall] = []
 
-    def create_call(self, service: str, service_url: str, provider: str, barge_in: str) -> CallState:
-        """Create a new call with a unique call code."""
+    def create_simple_call(self) -> CallState:
+        """Create a new call without a translation service (just participants)."""
         call_code = _generate_call_code()
         call_state = CallState(
             call_code=call_code,
+            settings=self._settings,
+        )
+        self._calls[call_code] = call_state
+
+        # Add to recent calls list
+        recent_call = RecentCall(
+            call_code=call_code,
+            service="None",
+            provider="None",
+            barge_in="None",
+            created_at=datetime.now(timezone.utc).isoformat(),
+            participant_count=0,
+        )
+        self._recent_calls.insert(0, recent_call)  # Add to front
+        if len(self._recent_calls) > _MAX_RECENT_CALLS:
+            self._recent_calls = self._recent_calls[:_MAX_RECENT_CALLS]  # Keep only last 10
+
+        logger.info("Created simple call %s (no translation service)", call_code)
+        return call_state
+
+    def create_call(self, service: str, service_url: str, provider: str, barge_in: str) -> CallState:
+        """Create a new call with a translation service pre-configured."""
+        call_code = _generate_call_code()
+        call_state = CallState(
+            call_code=call_code,
+            settings=self._settings,
             service=service,
             service_url=service_url,
             provider=provider,
             barge_in=barge_in,
-            settings=self._settings,
         )
         self._calls[call_code] = call_state
 
@@ -78,6 +120,24 @@ class CallManager:
 
         logger.info("Created call %s (service: %s, provider: %s)", call_code, service, provider)
         return call_state
+
+    async def add_translation_service(self, call_code: str, service: str, service_url: str, provider: str, barge_in: str) -> None:
+        """Add or replace translation service for an existing call."""
+        call_state = self._calls.get(call_code)
+        if not call_state:
+            raise ValueError(f"Call {call_code} not found")
+
+        await call_state.connect_translation_service(service, service_url, provider, barge_in)
+        logger.info("Added translation service to call %s (service: %s, provider: %s)", call_code, service, provider)
+
+    async def remove_translation_service(self, call_code: str) -> None:
+        """Remove translation service from an existing call."""
+        call_state = self._calls.get(call_code)
+        if not call_state:
+            raise ValueError(f"Call {call_code} not found")
+
+        await call_state.disconnect_translation_service()
+        logger.info("Removed translation service from call %s", call_code)
 
     def get_call(self, call_code: str) -> CallState | None:
         """Get call state by call code."""

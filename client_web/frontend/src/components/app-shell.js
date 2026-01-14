@@ -1,10 +1,10 @@
 import { fetchTestSettings } from "../api.js";
 import { getState, subscribe } from "../state.js";
-import "./create-call.js";
 import "./join-call.js";
 import "./call-room.js";
 import "./event-log.js";
 import "./participant-list.js";
+import "./translation-service-panel.js";
 
 export class AppShell extends HTMLElement {
   constructor() {
@@ -51,10 +51,10 @@ export class AppShell extends HTMLElement {
   }
 
   updateSettings() {
-    // Update create-call component with new settings without destroying DOM
-    const createCall = this.shadowRoot.querySelector("create-call");
-    if (createCall) {
-      createCall.setOptions({
+    // Update translation-service-panel component with new settings
+    const translationPanel = this.shadowRoot.querySelector("translation-service-panel");
+    if (translationPanel) {
+      translationPanel.setOptions({
         services: this.settings.services,
         providers: this.settings.providers,
         bargeInModes: this.settings.barge_in_modes,
@@ -62,14 +62,30 @@ export class AppShell extends HTMLElement {
     }
   }
 
-  updateFromState() {
-    // Only update the create-call component without destroying the entire DOM
-    const state = getState();
-    const createCall = this.shadowRoot.querySelector("create-call");
-    if (createCall) {
-      createCall.setAttribute("call-code", state.callCode || "");
-      // Note: We don't call setOptions here since settings don't change after initial load
+  async handleCreateCall() {
+    try {
+      const { createSimpleCall } = await import("../api.js");
+      const result = await createSimpleCall();
+
+      // Update the join-call component with the new call code
+      const joinCall = this.shadowRoot.querySelector("join-call");
+      if (joinCall) {
+        const input = joinCall.shadowRoot.querySelector("input[name=call_code]");
+        if (input) {
+          input.value = result.call_code;
+          input.focus();
+        }
+        // Refresh recent calls
+        await joinCall.loadRecentCalls();
+        joinCall.render();
+      }
+    } catch (err) {
+      console.error("Failed to create call:", err);
     }
+  }
+
+  updateFromState() {
+    // Nothing to update from state changes for now
   }
 
   render() {
@@ -88,15 +104,31 @@ export class AppShell extends HTMLElement {
         main { display: grid; gap: 24px; max-width: 900px; margin: 0 auto; }
         .grid { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
         section { background: #141923; padding: 16px; border-radius: 12px; }
+        .create-call-button {
+          width: 100%;
+          background: #2563eb;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 14px 24px;
+          font-size: 16px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .create-call-button:hover {
+          background: #1d4ed8;
+        }
       </style>
       <main>
         <h1>ACS Emulator Web Client</h1>
+        <button class="create-call-button">Create New Call</button>
         <div class="grid">
           <section>
-            <create-call></create-call>
+            <join-call></join-call>
           </section>
           <section>
-            <join-call></join-call>
+            <translation-service-panel></translation-service-panel>
           </section>
         </div>
         <section>
@@ -105,14 +137,19 @@ export class AppShell extends HTMLElement {
       </main>
     `;
 
-    const createCall = this.shadowRoot.querySelector("create-call");
-    if (createCall) {
-      createCall.setOptions({
+    const translationPanel = this.shadowRoot.querySelector("translation-service-panel");
+    if (translationPanel) {
+      translationPanel.setOptions({
         services: this.settings.services,
         providers: this.settings.providers,
         bargeInModes: this.settings.barge_in_modes,
       });
-      createCall.setAttribute("call-code", state.callCode || "");
+    }
+
+    // Add event listener for create call button
+    const createButton = this.shadowRoot.querySelector(".create-call-button");
+    if (createButton) {
+      createButton.addEventListener("click", () => this.handleCreateCall());
     }
   }
 }

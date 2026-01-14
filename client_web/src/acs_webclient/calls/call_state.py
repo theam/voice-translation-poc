@@ -22,16 +22,16 @@ class CallState:
 
     Manages:
     - Participant WebSocket connections
-    - Upstream translation service connection
+    - Optional upstream translation service connection
     - Audio metadata and message routing
     - Participant join/leave notifications
     """
     call_code: str
-    service: str
-    service_url: str
-    provider: str
-    barge_in: str
     settings: Settings
+    service: str | None = None
+    service_url: str | None = None
+    provider: str | None = None
+    barge_in: str | None = None
     participants: Dict[str, WebSocket] = field(default_factory=dict)
     upstream: UpstreamConnection | None = None
     subscription_id: str = field(default_factory=lambda: secrets.token_hex(8))
@@ -41,9 +41,14 @@ class CallState:
         """
         Establish upstream connection to translation service if not already connected.
         Sends test settings and audio metadata immediately after connection.
+        Does nothing if translation service is not configured.
         """
         async with self.lock:
             if self.upstream:
+                return
+
+            # Skip if no translation service configured
+            if not self.service_url:
                 return
 
             logger.info("Establishing upstream connection for call %s to %s", self.call_code, self.service_url)
@@ -73,6 +78,63 @@ class CallState:
             # Send audio metadata with enforced ACS format
             await self.upstream.send_json(build_audio_metadata(self.subscription_id))
             logger.info("Upstream configured for call %s (16kHz mono PCM16)", self.call_code)
+
+    async def connect_translation_service(self, service: str, service_url: str, provider: str, barge_in: str) -> None:
+        """
+        Connect a translation service to this call.
+        Closes any existing upstream connection first.
+        """
+        # Notify participants that connection is starting
+        await self.broadcast({
+            "type": "translation.connecting",
+            "message": f"Connecting translation service ({service}, {provider})..."
+        })
+
+        async with self.lock:
+            # Close existing upstream connection if any
+            if self.upstream:
+                logger.info("Closing existing upstream connection for call %s", self.call_code)
+                await self.upstream.close()
+                self.upstream = None
+
+            # Update translation service configuration
+            self.service = service
+            self.service_url = service_url
+            self.provider = provider
+            self.barge_in = barge_in
+            self.subscription_id = secrets.token_hex(8)  # New subscription ID
+
+        # Establish new connection (releases lock first)
+        await self.ensure_upstream()
+
+        # Notify participants that connection is established
+        await self.broadcast({
+            "type": "translation.connected",
+            "message": f"Translation service connected ({service}, {provider})"
+        })
+
+    async def disconnect_translation_service(self) -> None:
+        """
+        Disconnect the translation service from this call.
+        Participants can continue talking to each other.
+        """
+        async with self.lock:
+            if self.upstream:
+                logger.info("Disconnecting translation service from call %s", self.call_code)
+                await self.upstream.close()
+                self.upstream = None
+
+            # Clear translation service configuration
+            self.service = None
+            self.service_url = None
+            self.provider = None
+            self.barge_in = None
+
+        # Notify participants that translation service was disconnected
+        await self.broadcast({
+            "type": "translation.disconnected",
+            "message": "Translation service disconnected"
+        })
 
     async def broadcast(self, payload: Dict[str, Any]) -> None:
         """
@@ -140,17 +202,14 @@ class CallState:
         Send audio to upstream translation service and broadcast to other participants concurrently.
         Audio from sender is excluded from broadcast (no echo).
         """
-        if not self.upstream:
-            return
-
         payload = build_audio_message(participant_id, pcm_bytes, timestamp_ms)
 
-        # Send to upstream and broadcast to participants concurrently for minimal latency
-        await asyncio.gather(
-            self.upstream.send_json(payload),
-            self.broadcast_audio_to_others(participant_id, payload),
-            return_exceptions=True
-        )
+        tasks = [self.broadcast_audio_to_others(participant_id, payload)]
+        if self.upstream:
+            tasks.append(self.upstream.send_json(payload))
+
+        # Send to upstream (if configured) and broadcast to participants concurrently for minimal latency
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def broadcast_audio_to_others(self, sender_participant_id: str, payload: Dict[str, Any]) -> None:
         """

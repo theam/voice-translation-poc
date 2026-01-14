@@ -81,8 +81,16 @@ async def recent_calls() -> Dict[str, Any]:
     }
 
 
+@app.post("/api/call/simple")
+async def create_simple_call() -> Dict[str, Any]:
+    """Create a new call without a translation service (just participants)."""
+    call_state = call_manager.create_simple_call()
+    return {"call_code": call_state.call_code}
+
+
 @app.post("/api/call/create")
 async def create_call(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a new call with a translation service pre-configured."""
     service = payload.get("service")
     provider = payload.get("provider")
     barge_in = payload.get("barge_in")
@@ -97,6 +105,38 @@ async def create_call(payload: Dict[str, Any]) -> Dict[str, Any]:
     service_url = settings.available_services[service]
     call_state = call_manager.create_call(service=service, service_url=service_url, provider=provider, barge_in=barge_in)
     return {"call_code": call_state.call_code}
+
+
+@app.post("/api/call/{call_code}/translation-service")
+async def add_translation_service(call_code: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Add or replace translation service for an existing call."""
+    service = payload.get("service")
+    provider = payload.get("provider")
+    barge_in = payload.get("barge_in")
+
+    if service not in settings.available_services:
+        raise HTTPException(status_code=400, detail="Unsupported service")
+    if provider not in settings.allowed_providers:
+        raise HTTPException(status_code=400, detail="Unsupported provider")
+    if barge_in not in settings.allowed_barge_in_modes:
+        raise HTTPException(status_code=400, detail="Unsupported barge-in mode")
+
+    try:
+        service_url = settings.available_services[service]
+        await call_manager.add_translation_service(call_code, service, service_url, provider, barge_in)
+        return {"message": "Translation service added successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/api/call/{call_code}/translation-service")
+async def remove_translation_service(call_code: str) -> Dict[str, Any]:
+    """Remove translation service from an existing call."""
+    try:
+        await call_manager.remove_translation_service(call_code)
+        return {"message": "Translation service removed successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.websocket("/ws/participant")

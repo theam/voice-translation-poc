@@ -38,10 +38,10 @@ export class CallRoom extends HTMLElement {
 
   updateHangUpButton() {
     const { connection } = getState();
-    const button = this.shadowRoot.querySelector(".hang-up-button");
-    if (button) {
-      button.disabled = !connection;
-      button.style.opacity = connection ? "1" : "0.5";
+    const hangUpButton = this.shadowRoot.querySelector(".hang-up-button");
+    if (hangUpButton) {
+      hangUpButton.disabled = !connection;
+      hangUpButton.style.opacity = connection ? "1" : "0.5";
     }
   }
 
@@ -73,7 +73,8 @@ export class CallRoom extends HTMLElement {
       connection: null,
       callCode: "",
       participantId: "",
-      participants: []
+      participants: [],
+      translationServiceConnected: false
     });
   }
 
@@ -175,7 +176,8 @@ export class CallRoom extends HTMLElement {
       this.audioManager?.stopAll();
       updateState({
         connection: null,
-        participants: []
+        participants: [],
+        translationServiceConnected: false
       });
     });
 
@@ -222,6 +224,22 @@ export class CallRoom extends HTMLElement {
       if (leftParticipantId && this.audioManager) {
         this.audioManager.removeParticipant(leftParticipantId);
       }
+      return;
+    }
+
+    // Handle translation service connection events
+    if (payload.type === "translation.connecting") {
+      this.eventLog?.addEvent(payload.message || "Connecting translation service...");
+      return;
+    }
+
+    if (payload.type === "translation.connected") {
+      this.eventLog?.addEvent(payload.message || "Translation service connected");
+      return;
+    }
+
+    if (payload.type === "translation.disconnected") {
+      this.eventLog?.addEvent(payload.message || "Translation service disconnected");
       return;
     }
 

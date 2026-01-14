@@ -57,7 +57,7 @@ export class JoinCall extends HTMLElement {
 
   handleJoin(event) {
     event.preventDefault();
-    const callCode = this.shadowRoot.querySelector("input[name=call_code]").value.trim().toUpperCase();
+    const callCode = this.shadowRoot.querySelector("input[name=call_code]").value.trim();
     const participantId = this.shadowRoot.querySelector("input[name=participant_id]").value.trim();
     const dummyMode = this.shadowRoot.querySelector("input[name=dummy_mode]").checked;
 
@@ -109,6 +109,15 @@ export class JoinCall extends HTMLElement {
           font-size: 12px;
           color: #8a9099;
           margin-left: 24px;
+        }
+        .join-call-button {
+          padding: 5px;
+          border: none;
+          border-radius: 3px;
+          font-weight: 600;
+          cursor: pointer;
+          background: #10b981;
+          color: white;
         }
         .recent-calls { margin-top: 16px; }
         .recent-calls h3 { margin: 0 0 8px 0; font-size: 14px; color: #8a9099; }
@@ -166,7 +175,7 @@ export class JoinCall extends HTMLElement {
               <input type="checkbox" name="dummy_mode" />
               <span>Dummy mode (no mic/speakers, use test audio)</span>
             </label>
-            <button type="submit">Join call</button>
+            <button class="join-call-button" type="submit">Join call</button>
             ${this.error ? `<div class="error">${this.error}</div>` : ""}
           </form>
         </div>
