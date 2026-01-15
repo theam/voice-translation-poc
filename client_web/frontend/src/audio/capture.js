@@ -17,9 +17,10 @@ export class AudioCapture {
     this.context = null;
     this.processor = null;
     this.stream = null;
-    this.frameSize = 4096;
+    this.frameSize = 1024;
     this.targetSampleRate = 16000; // ACS standard: 16kHz mono PCM16
-    this.resampleBuffer = [];
+    this.targetFrameSamples = 320; // 20ms at 16kHz
+    this.resampleBuffer = new Float32Array(0);
   }
 
   async start() {
@@ -39,16 +40,22 @@ export class AudioCapture {
       // Resample from hardware rate → 16kHz
       const resampled = this.resample(input, resampleRatio);
 
-      // Convert Float32 → PCM16 (Int16)
-      const pcm = floatTo16BitPCM(resampled);
-      const bytes = new Uint8Array(pcm.buffer);
-      const base64 = base64FromBytes(bytes);
+      this._appendResampled(resampled);
+      while (this.resampleBuffer.length >= this.targetFrameSamples) {
+        const frame = this.resampleBuffer.subarray(0, this.targetFrameSamples);
+        this.resampleBuffer = this.resampleBuffer.subarray(this.targetFrameSamples);
 
-      // Send 16kHz mono PCM16 (ACS standard format)
-      this.onAudioFrame({
-        data: base64,
-        timestamp_ms: Date.now(),
-      });
+        // Convert Float32 → PCM16 (Int16)
+        const pcm = floatTo16BitPCM(frame);
+        const bytes = new Uint8Array(pcm.buffer);
+        const base64 = base64FromBytes(bytes);
+
+        // Send 16kHz mono PCM16 (ACS standard format)
+        this.onAudioFrame({
+          data: base64,
+          timestamp_ms: Date.now(),
+        });
+      }
     };
     source.connect(this.processor);
     this.processor.connect(this.context.destination);
@@ -78,6 +85,18 @@ export class AudioCapture {
     }
 
     return output;
+  }
+
+  _appendResampled(resampled) {
+    if (this.resampleBuffer.length === 0) {
+      this.resampleBuffer = resampled;
+      return;
+    }
+
+    const combined = new Float32Array(this.resampleBuffer.length + resampled.length);
+    combined.set(this.resampleBuffer);
+    combined.set(resampled, this.resampleBuffer.length);
+    this.resampleBuffer = combined;
   }
 
   stop() {
