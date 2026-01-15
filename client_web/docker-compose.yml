@@ -1,0 +1,8 @@
+services:
+  client-web:
+    build:
+      context: ..
+      dockerfile: client_web/Dockerfile
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

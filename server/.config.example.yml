@@ -1,0 +1,97 @@
+system:
+  host: 0.0.0.0
+  port: 8080
+  log_level: INFO
+  default_provider: mock
+  gate_queue_max: 10000
+  gate_overflow_policy: DROP_OLDEST
+  silence_rms_threshold: 100.0
+  voice_hysteresis_ms: 500
+  silence_timeout_ms: 550
+  frame_ms: 20
+  min_state_hold_ms: 200
+  voice_on_rms: 250.0
+  voice_off_rms: 180.0
+  rms_ema_alpha: 0.2
+  vote_window_ms: 300
+  vote_required_ratio: 0.6
+
+buffering:
+  ingress_queue_max: 2000
+  egress_queue_max: 2000
+  overflow_policy: DROP_OLDEST
+
+dispatch:
+  batching:
+    enabled: true
+    max_batch_ms: 200
+    max_batch_bytes: 65536
+    idle_timeout_ms: 500
+
+providers:
+  voicelive:
+    type: voice_live
+    endpoint: https://voicelive.example.com
+    api_key: ${VOICELIVE_KEY}
+    region: eastus
+    resource: voicelive-resource-name
+    settings:
+      model: gpt-realtime-mini
+      api_version: 2024-10-01-preview
+      deployment: gpt-realtime-mini
+      # Optional: override defaults sent in the Voice Live session.create payload
+      session_options:
+        # instructions: |
+        #   Custom prompt to use for the session.
+        # voice: alloy
+        # temperature: 0.8
+        # modalities: ["text", "audio"]
+        # input_audio_format: pcm16
+        # output_audio_format: pcm16
+        # input_audio_transcription:
+        #   language: en-US
+        # turn_detection:
+        #   type: server_vad
+        #   threshold: 0.5
+        #   prefix_padding_ms: 300
+        #   silence_duration_ms: 600
+  live_interpreter:
+    type: live_interpreter
+    # Option 1: Specify endpoint explicitly
+    # endpoint: wss://eastus2.stt.speech.microsoft.com/speech/universal/v2
+    # Option 2: Specify region (endpoint will be constructed automatically)
+    region: eastus2
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    settings:
+      # Required: Full locale codes for detection and translation
+      languages: [en-US, es-ES]
+      # Required: Neural voice name for audio synthesis
+      # Examples: es-ES-ElviraNeural, en-US-JennyNeural, de-DE-KatjaNeural
+      voice: es-ES-ElviraNeural
+  # Example: Per-role provider instances for bidirectional translation
+  live_interpreter_spanish:
+    type: live_interpreter
+    region: eastus2
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    settings:
+      languages: [en-US, es-ES]
+      voice: es-ES-ElviraNeural  # Spanish audio output
+  live_interpreter_english:
+    type: live_interpreter
+    region: eastus2
+    api_key: ${LIVE_INTERPRETER_API_KEY}
+    settings:
+      languages: [en-US, es-ES]
+      voice: en-US-JennyNeural  # English audio output
+  # Role-based provider (composable router)
+  role_based:
+    type: role_based
+    settings:
+      # Map roles to provider instances
+      # First participant → agent → Spanish audio
+      # Second participant → caller → English audio
+      role_providers:
+        agent: live_interpreter_spanish
+        caller: live_interpreter_english
+  mock:
+    type: mock

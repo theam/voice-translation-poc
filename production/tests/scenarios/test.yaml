@@ -1,0 +1,23 @@
+id: test
+description: Testing audio
+tags:
+- medical
+- respiratory
+participants:
+  patient:
+    source_language: es
+    target_language: en
+    audio_files:
+      p1: ../audios/cough_sob_001.wav
+metrics: []
+
+turns:
+- id: patient_turn_1
+  type: play_audio
+  participant: patient
+  data_file: p1
+  start_at_ms: 0
+  source_language: es
+  expected_language: en
+  source_text: Estoy con tós desde la semana pasada y cuando subo escaleras, noto que me falta el aire.
+  expected_text: I have had a cough since last week, and when I go up stairs I notice that I get short of breath.

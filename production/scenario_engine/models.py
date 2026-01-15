@@ -17,9 +17,9 @@ class Participant:
 @dataclass
 class ScenarioTurn:
     id: str
-    type: str  # "play_audio", "silence", "hangup", "play_text"
+    type: str  # "play_audio", "silence", "hangup", "play_text", "replay_wire_log"
     participant: str
-    audio_file: Optional[str] = None
+    data_file: Optional[str] = None  # Audio file path or wire log file path
     text: Optional[str] = None  # For play_text turns
     start_at_ms: int = 0
     # Translation expectations
@@ -40,9 +40,10 @@ class Scenario:
     tags: List[str] = field(default_factory=list)
     score_method: str = "average"  # Score calculator method ("average" or "garbled_turn")
     websocket_client: str = "websocket"  # WebSocket client type: "websocket" (real) or "loopback" (mock)
-    metrics: List[str] = field(default_factory=list)  # Specific metrics to run; empty = run all metrics
+    metrics: Optional[List[str]] = None  # Metrics to run: None = all, [] = none, [list] = specific
     expected_score: Optional[float] = None  # Expected overall test score for calibration validation (0-100)
     tolerance: Optional[float] = None  # Optional per-scenario metric tolerance for calibration
+    tail_silence: Optional[int] = None  # Tail silence in ms: None = use config default, 0 = none, value = specific amount
 
     def sequence(self) -> List[str]:
         """Return the expected turn order based on declared turns."""

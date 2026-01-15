@@ -1,0 +1,267 @@
+from __future__ import annotations
+
+import importlib
+import importlib.util
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from .utils.dict_utils import deep_merge
+
+logger = logging.getLogger(__name__)
+
+# Global logging constant - log progress every N items (commits, sends, etc.)
+LOG_EVERY_N_ITEMS = 10
+
+class ConfigError(Exception):
+    """Raised when configuration cannot be loaded or is invalid."""
+
+
+
+
+@dataclass
+class BufferingConfig:
+    ingress_queue_max: int = 2_000
+    egress_queue_max: int = 2_000
+    overflow_policy: str = "DROP_OLDEST"
+
+    def to_dict(self) -> Dict:
+        return {
+            "ingress_queue_max": self.ingress_queue_max,
+            "egress_queue_max": self.egress_queue_max,
+            "overflow_policy": self.overflow_policy,
+        }
+
+
+@dataclass
+class BatchingConfig:
+    enabled: bool = True
+    max_batch_ms: int = 200
+    max_batch_bytes: int = 65_536
+    idle_timeout_ms: int = 500
+
+    def to_dict(self) -> Dict:
+        return {
+            "enabled": self.enabled,
+            "max_batch_ms": self.max_batch_ms,
+            "max_batch_bytes": self.max_batch_bytes,
+            "idle_timeout_ms": self.idle_timeout_ms,
+        }
+
+
+@dataclass
+class DispatchConfig:
+    batching: BatchingConfig = field(default_factory=BatchingConfig)
+
+    def to_dict(self) -> Dict:
+        return {
+            "batching": self.batching.to_dict(),
+        }
+
+
+@dataclass
+class ProviderConfig:
+    type: str = "mock"
+    endpoint: Optional[str] = None
+    api_key: Optional[str] = None
+    region: Optional[str] = None
+    resource: Optional[str] = None
+    settings: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict:
+        return {
+            "type": self.type,
+            "endpoint": self.endpoint,
+            "api_key": self.api_key,
+            "region": self.region,
+            "resource": self.resource,
+        }
+
+
+@dataclass
+class ProvidersConfig:
+    providers: Dict[str, ProviderConfig] = field(
+        default_factory=lambda: {"mock": ProviderConfig(type="mock")}
+    )
+
+    def get(self, name: str) -> ProviderConfig:
+        try:
+            return self.providers[name]
+        except KeyError as exc:
+            raise ValueError(f"Provider configuration '{name}' not found") from exc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Dict]) -> "ProvidersConfig":
+        if not data:
+            return cls()
+
+        providers: Dict[str, ProviderConfig] = {}
+        for name, provider_data in data.items():
+            provider_data = provider_data or {}
+            providers[name] = ProviderConfig(
+                type=provider_data.get("type", "mock"),
+                endpoint=provider_data.get("endpoint"),
+                api_key=provider_data.get("api_key"),
+                region=provider_data.get("region"),
+                resource=provider_data.get("resource"),
+                settings=provider_data.get("settings", {}) or {},
+            )
+
+        return cls(providers=providers)
+
+    def to_dict(self) -> Dict:
+        return {name: provider.to_dict() for name, provider in self.providers.items()}
+
+
+
+
+@dataclass
+class SystemConfig:
+    # Server configuration
+    host: str = "0.0.0.0"
+    port: int = 8080
+
+    # Logging
+    log_level: str = "INFO"
+    log_wire: bool = False
+    log_wire_dir: str = "logs/server"
+
+    # Provider configuration
+    default_provider: str = "mock"
+
+    # Input state detection timing - SILENCE / SPEAKING
+    silence_rms_threshold: float = 100.0  # Base RMS threshold for silence detection
+    voice_hysteresis_ms: int = 500  # Minimum duration of voice before transitioning to SPEAKING
+    silence_timeout_ms: int = 550  # Duration of silence before transitioning back to SILENCE
+    frame_ms: int = 20  # Expected frame size used for vote window sizing
+    min_state_hold_ms: int = 200  # Hold time before allowing another transition
+    voice_on_rms: float = 250.0  # RMS threshold to enter SPEAKING
+    voice_off_rms: float = 180.0  # RMS threshold to return to SILENCE
+    rms_ema_alpha: float = 0.2  # EMA smoothing factor (0..1)
+    vote_window_ms: int = 300  # Window size for voice vote ratio
+    vote_required_ratio: float = 0.6  # Required ratio of voiced frames
+
+    # Outbound audio gate (barge-in control)
+    default_gate_mode: str = "play_through"  # Options: play_through, pause_and_buffer, pause_and_drop
+    gate_queue_max: int = 5_000
+    gate_overflow_policy: str = "DROP_OLDEST"
+
+    def to_dict(self) -> Dict:
+        return {
+            "host": self.host,
+            "port": self.port,
+            "log_level": self.log_level,
+            "log_wire": self.log_wire,
+            "log_wire_dir": self.log_wire_dir,
+            "default_provider": self.default_provider,
+            "silence_rms_threshold": self.silence_rms_threshold,
+            "voice_hysteresis_ms": self.voice_hysteresis_ms,
+            "silence_timeout_ms": self.silence_timeout_ms,
+            "frame_ms": self.frame_ms,
+            "min_state_hold_ms": self.min_state_hold_ms,
+            "voice_on_rms": self.voice_on_rms,
+            "voice_off_rms": self.voice_off_rms,
+            "rms_ema_alpha": self.rms_ema_alpha,
+            "vote_window_ms": self.vote_window_ms,
+            "vote_required_ratio": self.vote_required_ratio,
+            "default_gate_mode": self.default_gate_mode,
+            "gate_queue_max": self.gate_queue_max,
+            "gate_overflow_policy": self.gate_overflow_policy,
+        }
+
+
+@dataclass
+class Config:
+    system: SystemConfig = field(default_factory=SystemConfig)
+    buffering: BufferingConfig = field(default_factory=BufferingConfig)
+    dispatch: DispatchConfig = field(default_factory=DispatchConfig)
+    providers: ProvidersConfig = field(default_factory=ProvidersConfig)
+
+    def to_dict(self) -> Dict:
+        return {
+            "system": self.system.to_dict(),
+            "buffering": self.buffering.to_dict(),
+            "dispatch": self.dispatch.to_dict(),
+            "providers": self.providers.to_dict(),
+        }
+
+    @classmethod
+    def from_yaml(cls, paths: list[Path]) -> "Config":
+        """Load and merge multiple YAML config files with environment variable overrides.
+
+        Configs are merged in order:
+        1. Default config (DEFAULT_CONFIG)
+        2. YAML files (left-to-right, later overrides earlier)
+        3. Environment variables (VT_* prefix, highest priority)
+
+        Args:
+            paths: List of paths to YAML config files
+
+        Returns:
+            Merged Config object with environment variable overrides applied
+
+        Raises:
+            ConfigError: If environment variable parsing fails
+        """
+        from .utils.env_config import apply_env_overrides, EnvConfigError
+
+        # Filter out non-existent paths and log them
+        valid_paths = []
+        for path in paths or []:
+            if path.is_file():
+                valid_paths.append(path)
+            else:
+                logger.warning(f"Config path does not exist or is not a file: {path}")
+
+        # If no valid paths, return default config
+        if not valid_paths:
+            logger.info("No valid config files found, using default config")
+            return DEFAULT_CONFIG
+
+        # Log config files being loaded
+        config_files = ", ".join(str(p) for p in valid_paths)
+        logger.info(f"Loading config from {len(valid_paths)} file(s): {config_files}")
+        # Start with DEFAULT_CONFIG as base
+        merged_dict = DEFAULT_CONFIG.to_dict()
+
+        # Load and merge each config file
+        yaml = cls._import_yaml()
+        for path in valid_paths:
+            with Path(path).open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            merged_dict = deep_merge(merged_dict, data)
+
+        # Apply environment variable overrides
+        try:
+            merged_dict = apply_env_overrides(merged_dict, prefix="VT")
+        except EnvConfigError as exc:
+            raise ConfigError(f"Environment variable configuration error: {exc}") from exc
+
+        return cls.from_dict(merged_dict)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "Config":
+        system = data.get("system", {})
+        buffering = data.get("buffering", {})
+        dispatch = data.get("dispatch", {})
+        providers = data.get("providers", {})
+
+        system_data = dict(system)
+        return cls(
+            system=SystemConfig(**system_data),
+            buffering=BufferingConfig(**buffering),
+            dispatch=DispatchConfig(
+                batching=BatchingConfig(**dispatch.get("batching", {})),
+            ),
+            providers=ProvidersConfig.from_dict(providers),
+        )
+
+    @staticmethod
+    def _import_yaml():
+        if importlib.util.find_spec("yaml") is None:  # type: ignore[attr-defined]
+            raise ConfigError("PyYAML is required to load configuration from YAML.")
+        return importlib.import_module("yaml")
+
+
+DEFAULT_CONFIG = Config()

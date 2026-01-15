@@ -17,7 +17,7 @@ services:
       retries: 5
       start_period: 10s
 
-  # vt Voice Translation POC application
+  # vt Voice Translation POC application (original WebSocket server)
   vt-app:
     build:
       context: .
@@ -47,7 +47,58 @@ services:
       - vt-network
 
     # Keep container running for interactive testing
-    command: make server
+    command: make poc
+
+  # Translation Server (new server architecture)
+  vt-server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: vt-server
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "8080:8080"  # New server listens on 8080
+    environment:
+      # ========================================================================
+      # Provider Configuration (defaults to mock for testing)
+      # ========================================================================
+      PROVIDER_TYPE: ${PROVIDER_TYPE:-mock}
+
+      # VoiceLive provider settings
+      VOICELIVE_ENDPOINT: ${VOICELIVE_ENDPOINT}
+      VOICELIVE_API_KEY: ${VOICELIVE_API_KEY}
+
+      # ========================================================================
+      # Auto-commit Configuration
+      # ========================================================================
+      BATCH_MAX_MS: ${BATCH_MAX_MS:-200}
+      BATCH_MAX_BYTES: ${BATCH_MAX_BYTES:-65536}
+      BATCH_IDLE_TIMEOUT_MS: ${BATCH_IDLE_TIMEOUT_MS:-500}
+
+      # ========================================================================
+      # Buffering Configuration
+      # ========================================================================
+      INGRESS_QUEUE_MAX: ${INGRESS_QUEUE_MAX:-1000}
+      EGRESS_QUEUE_MAX: ${EGRESS_QUEUE_MAX:-1000}
+      OVERFLOW_POLICY: ${OVERFLOW_POLICY:-DROP_OLDEST}
+
+      # ========================================================================
+      # Python Configuration
+      # ========================================================================
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    volumes:
+      # Mount entire project for development
+      - .:/app
+
+    networks:
+      - vt-network
+
+    # Run the new translation server
+    command: poetry run translation-server
 
 volumes:
   mongodb_data:

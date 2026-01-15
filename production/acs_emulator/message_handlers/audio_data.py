@@ -34,7 +34,7 @@ class AudioDataHandler(MessageHandler):
         Returns:
             True if message has kind="AudioData"
         """
-        return message.get("kind") == "AudioData"
+        return str(message.get("kind", "")).lower() == "audiodata"
 
     def decode(self, message: Dict[str, Any]) -> ProtocolEvent:
         """Decode AudioData message to ProtocolEvent.
@@ -46,7 +46,7 @@ class AudioDataHandler(MessageHandler):
             ProtocolEvent with translated_audio type and audio payload
         """
         audio = AcsAudioMessage.from_dict(message)
-        timestamp_ms = self._parse_iso_to_ms(audio.timestamp) or 0
+        timestamp_ms = self._parse_iso_to_ms(audio.timestamp)
 
         event = ProtocolEvent(
             event_type="translated_audio",
