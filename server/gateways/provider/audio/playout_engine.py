@@ -80,7 +80,7 @@ class PacedPlayoutEngine:
             await asyncio.gather(stream.task, return_exceptions=True)
 
     async def _playout_loop(self, stream: PlayoutStream) -> None:
-        logger.info(f"Playout loop starting... {stream.key}")
+        logger.info(f"Playout loop starting... {stream.id}")
         warmup_frames = self.config.warmup_frames
         frame_bytes = stream.frame_bytes
         next_deadline: float | None = None
@@ -95,6 +95,10 @@ class PacedPlayoutEngine:
                     chunk = bytes(stream.buffer[:frame_bytes])
                     del stream.buffer[:frame_bytes]
                     await self.publisher.publish_audio_chunk(chunk)
+                    logger.debug(
+                        "PUBLISHED id=%s stream=%s buf_after=%d",
+                        stream.id, stream.key, len(stream.buffer)
+                    )
 
                     now = time.monotonic()
                     interval = self.config.frame_ms / 1000

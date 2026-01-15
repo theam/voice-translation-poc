@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Optional
 
@@ -13,6 +14,7 @@ class PlayoutStream:
     buffer: bytearray
     frame_bytes: int
     fmt: AudioFormat
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     done: bool = False
     task: Optional[asyncio.Task] = None
     data_ready: asyncio.Event = field(default_factory=asyncio.Event)

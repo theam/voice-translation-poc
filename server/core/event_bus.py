@@ -49,6 +49,7 @@ class EventBus:
             runtime.tasks = [asyncio.create_task(self._worker(runtime), name=f"{config.name}-worker-{i}") for i in range(config.concurrency)]
             self._handlers[config.name] = runtime
             logger.info("Registered handler %s on bus %s with concurrency %s", config.name, self.name, config.concurrency)
+            logger.info("Bus %s handlers=%s",self.name, ", ".join(sorted(self._handlers.keys())))
 
     async def publish(self, envelope: object) -> None:
         async with self._lock:
