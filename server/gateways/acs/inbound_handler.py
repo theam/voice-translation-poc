@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from ...config import BatchingConfig
+from ...config import Config
 from ...models.gateway_input_event import GatewayInputEvent
 from ...core.event_bus import EventBus
 from ..base import Handler, HandlerSettings
@@ -24,7 +24,7 @@ class AcsInboundMessageHandler(Handler):
         settings: HandlerSettings,
         provider_outbound_bus: EventBus,
         acs_outbound_bus: EventBus,
-        batching_config: BatchingConfig,
+        config: Config,
         session_metadata: Dict[str, Any],
         translation_settings: Dict[str, Any],
         pipeline_completion_callback: Optional[Callable[[], Awaitable[None]]] = None,
@@ -33,7 +33,7 @@ class AcsInboundMessageHandler(Handler):
         super().__init__(settings)
         self.audio_handler = AudioMessageHandler(
             provider_outbound_bus,
-            batching_config,
+            config,
             session_metadata=session_metadata,
             input_state=input_state,
         )

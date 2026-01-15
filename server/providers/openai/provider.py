@@ -82,7 +82,7 @@ DEFAULT_SESSION_OPTIONS: Dict[str, Any] = {
         "prefix_padding_ms": 300,
         "silence_duration_ms": 600,
         "create_response": True,
-        "interrupt_response": True,
+        "interrupt_response": False,
         "idle_timeout_ms": None,
     },
     "input_audio_transcription": None,

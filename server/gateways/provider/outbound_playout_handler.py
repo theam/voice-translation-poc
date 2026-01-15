@@ -36,29 +36,26 @@ class OutboundPlayoutHandler(Handler):
         target_format = self.format_resolver.get_target_format()
         frame_bytes = self.format_resolver.get_frame_bytes(target_format)
         stream = self.store.get_or_create(event.stream_key, target_format, frame_bytes)
-        stream.frame_bytes = frame_bytes
-        stream.fmt = target_format
-        stream.buffer.extend(event.audio_bytes)
-        stream.data_ready.set()
         self.engine.ensure_task(stream)
+        async with stream.cond:
+            stream.frame_bytes = frame_bytes
+            stream.fmt = target_format
+            stream.buffer.extend(event.audio_bytes)
+            stream.cond.notify_all()
 
     async def _handle_audio_done(self, event: OutboundAudioDoneEvent) -> None:
-        """Handle audio done by padding, draining playout, and publishing completion."""
+        """Handle audio done by padding and publishing completion."""
         target_format = self.format_resolver.get_target_format()
         frame_bytes = self.format_resolver.get_frame_bytes(target_format)
         stream = self.store.get_or_create(event.stream_key, target_format, frame_bytes)
-        buffer = stream.buffer
-
         # Pad to frame boundary if needed
-        if frame_bytes > 0 and buffer and len(buffer) % frame_bytes != 0:
-            pad_len = frame_bytes - (len(buffer) % frame_bytes)
-            buffer.extend(b"\x00" * pad_len)
+        async with stream.cond:
+            buffer = stream.buffer
+            if frame_bytes > 0 and buffer and len(buffer) % frame_bytes != 0:
+                pad_len = frame_bytes - (len(buffer) % frame_bytes)
+                buffer.extend(b"\x00" * pad_len)
+            stream.cond.notify_all()
 
-        # Mark stream as done and wait for playout to complete
-        await self.engine.mark_done(stream)
-        await self.engine.wait(stream)
-
-        # Publish audio.done notification with original event metadata
         await self.publisher.publish_audio_done(
             session_id=event.session_id,
             participant_id=event.participant_id,
@@ -69,11 +66,8 @@ class OutboundPlayoutHandler(Handler):
             error=event.error,
         )
 
-        # Clean up stream
-        self.store.remove(event.stream_key)
-
         logger.info(
-            "Audio stream completed for session=%s participant=%s commit=%s stream=%s",
+            "Audio turn completed for session=%s participant=%s commit=%s stream=%s",
             event.session_id,
             event.participant_id,
             event.commit_id,
@@ -84,4 +78,5 @@ class OutboundPlayoutHandler(Handler):
         for key in list(self.store.keys()):
             stream = self.store.get(key)
             if stream:
-                await self.engine.pause(stream)
+                await self.engine.shutdown(stream)
+                self.store.remove(key)

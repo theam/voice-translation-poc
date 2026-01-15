@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+from ...audio import AudioFormat
 from ...models.gateway_input_event import GatewayInputEvent
 
 logger = logging.getLogger(__name__)
@@ -72,9 +73,9 @@ class AudioMetadataHandler:
 
         stream_format = {
             "source": "acs",
-            "subscription_id": meta.get("subscriptionId"),
+            "subscription_id": meta.get("subscriptionid"),
             "encoding": encoding_normalized or "pcm16",          # e.g., "pcm16"
-            "sample_rate_hz": _to_int(meta.get("sampleRate")),   # e.g., 16000
+            "sample_rate_hz": _to_int(meta.get("samplerate")),   # e.g., 16000
             "channels": _to_int(meta.get("channels")),           # e.g., 1
             "frame_bytes": _to_int(meta.get("length")),          # bytes per frame (often 20ms)
             # PCM defaults: keep this as a convenient downstream hint
@@ -83,18 +84,19 @@ class AudioMetadataHandler:
 
         state = self.session_metadata.setdefault(self.SESSION_KEY, {})
         state["format"] = stream_format
+        state["audio_format"] = AudioFormat(
+            sample_rate_hz=stream_format["sample_rate_hz"],
+            channels=stream_format["channels"],
+            sample_format=stream_format["encoding"],
+        )
         state["audio_ready"] = True
         state["metadata_message_id"] = event.event_id
         state["metadata_received_at_utc"] = event.received_at_utc
 
         logger.info(
-            "Stored ACS audio metadata (session=%s): sub=%s enc=%s sr=%s ch=%s frame_bytes=%s",
+            "Stored ACS audio metadata (session=%s): stream_format=%s",
             event.session_id,
-            stream_format.get("subscription_id"),
-            stream_format.get("encoding"),
-            stream_format.get("sample_rate_hz"),
-            stream_format.get("channels"),
-            stream_format.get("frame_bytes"),
+            stream_format,
         )
 
         # Trigger provider initialization now that metadata is available

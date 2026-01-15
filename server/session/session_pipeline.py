@@ -52,9 +52,9 @@ class SessionPipeline:
         self.acs_inbound_bus = EventBus(f"acs_in_{self.pipeline_id}")
         self.provider_outbound_bus = EventBus(f"prov_out_{self.pipeline_id}")
         self.provider_inbound_bus = EventBus(f"prov_in_{self.pipeline_id}")
-        self.acs_outbound_bus = EventBus(f"acs_out_{self.pipeline_id}")
-        self.provider_audio_bus = EventBus(f"prov_audio_{self.pipeline_id}")
         self.gated_audio_bus = EventBus(f"gated_audio_{self.pipeline_id}")
+        self.provider_audio_bus = EventBus(f"prov_audio_{self.pipeline_id}")
+        self.acs_outbound_bus = EventBus(f"acs_out_{self.pipeline_id}")
 
         self.input_state = InputState(self.config.system)
         self._input_state_listeners: list[Callable[[InputState], Awaitable[None]]] = []
@@ -179,7 +179,7 @@ class SessionPipeline:
             ),
             provider_outbound_bus=self.provider_outbound_bus,
             acs_outbound_bus=self.acs_outbound_bus,
-            batching_config=self.config.dispatch.batching,
+            config=self.config,
             session_metadata=self.metadata,
             translation_settings=self.translation_settings,
             pipeline_completion_callback=self.start_provider_processing,
@@ -255,6 +255,7 @@ class SessionPipeline:
 
     async def _register_edge_outbound_chain(self) -> None:
         overflow_policy = OverflowPolicy(self.config.buffering.overflow_policy)
+        gate_overflow_policy = OverflowPolicy(self.config.system.gate_overflow_policy)
 
         # 1. Create playout handler FIRST (needed by gate for references)
         playout = OutboundPlayoutHandler(
@@ -300,8 +301,8 @@ class SessionPipeline:
         await self.provider_audio_bus.register_handler(
             HandlerConfig(
                 name=f"provider_audio_gate_{self.session_id}",
-                queue_max=self.config.buffering.egress_queue_max,
-                overflow_policy=overflow_policy,
+                queue_max=self.config.system.gate_queue_max,
+                overflow_policy=gate_overflow_policy,
                 concurrency=1,
             ),
             gate,

@@ -130,13 +130,22 @@ class SystemConfig:
     # Provider configuration
     default_provider: str = "mock"
 
-    # Input state detection timing
-    voice_hysteresis_ms: int = 200  # Minimum duration of voice before transitioning to SPEAKING
-    silence_timeout_ms: int = 550    # Duration of silence before transitioning back to SILENCE
+    # Input state detection timing - SILENCE / SPEAKING
+    silence_rms_threshold: float = 100.0  # Base RMS threshold for silence detection
+    voice_hysteresis_ms: int = 500  # Minimum duration of voice before transitioning to SPEAKING
+    silence_timeout_ms: int = 550  # Duration of silence before transitioning back to SILENCE
+    frame_ms: int = 20  # Expected frame size used for vote window sizing
+    min_state_hold_ms: int = 200  # Hold time before allowing another transition
+    voice_on_rms: float = 250.0  # RMS threshold to enter SPEAKING
+    voice_off_rms: float = 180.0  # RMS threshold to return to SILENCE
+    rms_ema_alpha: float = 0.2  # EMA smoothing factor (0..1)
+    vote_window_ms: int = 300  # Window size for voice vote ratio
+    vote_required_ratio: float = 0.6  # Required ratio of voiced frames
 
     # Outbound audio gate (barge-in control)
     default_gate_mode: str = "play_through"  # Options: play_through, pause_and_buffer, pause_and_drop
-    outbound_gate_buffer_limit_bytes: int = 5 * 1024 * 1024  # 5MB buffer limit
+    gate_queue_max: int = 5_000
+    gate_overflow_policy: str = "DROP_OLDEST"
 
     def to_dict(self) -> Dict:
         return {
@@ -146,10 +155,19 @@ class SystemConfig:
             "log_wire": self.log_wire,
             "log_wire_dir": self.log_wire_dir,
             "default_provider": self.default_provider,
+            "silence_rms_threshold": self.silence_rms_threshold,
             "voice_hysteresis_ms": self.voice_hysteresis_ms,
             "silence_timeout_ms": self.silence_timeout_ms,
+            "frame_ms": self.frame_ms,
+            "min_state_hold_ms": self.min_state_hold_ms,
+            "voice_on_rms": self.voice_on_rms,
+            "voice_off_rms": self.voice_off_rms,
+            "rms_ema_alpha": self.rms_ema_alpha,
+            "vote_window_ms": self.vote_window_ms,
+            "vote_required_ratio": self.vote_required_ratio,
             "default_gate_mode": self.default_gate_mode,
-            "outbound_gate_buffer_limit_bytes": self.outbound_gate_buffer_limit_bytes,
+            "gate_queue_max": self.gate_queue_max,
+            "gate_overflow_policy": self.gate_overflow_policy,
         }
 
 
@@ -229,29 +247,9 @@ class Config:
         dispatch = data.get("dispatch", {})
         providers = data.get("providers", {})
 
-        # Support migration: check dispatch section first for backward compatibility
-        default_provider = system.get("default_provider")
-        if default_provider is None:
-            default_provider = dispatch.get("default_provider", dispatch.get("provider", "mock"))
-
-        # Support migration: check for old outbound_gate_mode name
-        default_gate_mode = system.get("default_gate_mode")
-        if default_gate_mode is None:
-            default_gate_mode = system.get("outbound_gate_mode", "play_through")
-
+        system_data = dict(system)
         return cls(
-            system=SystemConfig(
-                host=system.get("host", "0.0.0.0"),
-                port=system.get("port", 8080),
-                log_level=system.get("log_level", "INFO"),
-                log_wire=system.get("log_wire", False),
-                log_wire_dir=system.get("log_wire_dir", "logs/server"),
-                default_provider=default_provider,
-                voice_hysteresis_ms=system.get("voice_hysteresis_ms", 100),
-                silence_timeout_ms=system.get("silence_timeout_ms", 350),
-                default_gate_mode=default_gate_mode,
-                outbound_gate_buffer_limit_bytes=system.get("outbound_gate_buffer_limit_bytes", 5 * 1024 * 1024),
-            ),
+            system=SystemConfig(**system_data),
             buffering=BufferingConfig(**buffering),
             dispatch=DispatchConfig(
                 batching=BatchingConfig(**dispatch.get("batching", {})),

@@ -27,16 +27,17 @@ class PacedPlayoutEngine:
         if stream.task and not stream.task.done():
             return
         stream.task = asyncio.create_task(self._playout_loop(stream), name=f"playout-{stream.key}")
-
-    async def mark_done(self, stream: PlayoutStream) -> None:
-        stream.done = True
-        stream.data_ready.set()
+        logger.info("Created task for stream=%s", stream.id)
 
     async def pause(self, stream: PlayoutStream) -> None:
-        """Pause playout for this stream (stops the background task)."""
-        buffer_bytes = len(stream.buffer)
-        buffer_frames = buffer_bytes // stream.frame_bytes if stream.frame_bytes > 0 else 0
-        buffer_ms = buffer_frames * self.config.frame_ms
+        """Pause playout for this stream (keeps the background task alive)."""
+        async with stream.cond:
+            stream.paused = True
+            buffer_bytes = len(stream.buffer)
+            frame_bytes = stream.frame_bytes
+            buffer_frames = buffer_bytes // frame_bytes if frame_bytes > 0 else 0
+            buffer_ms = buffer_frames * self.config.frame_ms
+            stream.cond.notify_all()
         logger.info(
             "PAUSE playout stream=%s buffer=%d bytes (%d frames, ~%dms) task_running=%s",
             stream.key,
@@ -45,76 +46,62 @@ class PacedPlayoutEngine:
             buffer_ms,
             stream.task is not None and not stream.task.done(),
         )
-        stream.data_ready.set()
-        if stream.task and not stream.task.done():
-            stream.task.cancel()
-            await asyncio.gather(stream.task, return_exceptions=True)
-        stream.task = None
 
-    async def stop(self, stream: PlayoutStream) -> None:
-        # Log buffer size before discarding
-        buffer_bytes = len(stream.buffer)
-        buffer_frames = buffer_bytes // stream.frame_bytes if stream.frame_bytes > 0 else 0
-        buffer_ms = buffer_frames * self.config.frame_ms
-        logger.info(
-            "STOP playout stream=%s buffer=%d bytes (%d frames, ~%dms) task_running=%s - DISCARDING AUDIO",
-            stream.key,
-            buffer_bytes,
-            buffer_frames,
-            buffer_ms,
-            stream.task is not None and not stream.task.done(),
-        )
-        # discard buffered audio
-        stream.buffer.clear()
-        # prevent future waiting for warmup
-        stream.done = True
-        stream.data_ready.set()
-        # cancel the task if running
-        if stream.task and not stream.task.done():
-            stream.task.cancel()
-            await asyncio.gather(stream.task, return_exceptions=True)
-        stream.task = None
+    async def resume(self, stream: PlayoutStream) -> None:
+        async with stream.cond:
+            stream.paused = False
+            stream.cond.notify_all()
 
-    async def wait(self, stream: PlayoutStream) -> None:
+    async def clear(self, stream: PlayoutStream) -> None:
+        async with stream.cond:
+            stream.buffer.clear()
+            stream.cond.notify_all()
+
+    async def shutdown(self, stream: PlayoutStream) -> None:
+        logger.info("Shutting down playout stream... %s", stream.id)
+        async with stream.cond:
+            stream.shutdown = True
+            stream.cond.notify_all()
         if stream.task:
             await asyncio.gather(stream.task, return_exceptions=True)
 
     async def _playout_loop(self, stream: PlayoutStream) -> None:
-        logger.info(f"Playout loop starting... {stream.id}")
-        warmup_frames = self.config.warmup_frames
-        frame_bytes = stream.frame_bytes
+        logger.info("Playout loop starting... %s", stream.id)
+        interval = self.config.frame_ms / 1000.0
         next_deadline: float | None = None
         try:
             while True:
-                if not stream.done and len(stream.buffer) < warmup_frames * frame_bytes:
-                    stream.data_ready.clear()
-                    await stream.data_ready.wait()
-                    continue
+                async with stream.cond:
+                    if stream.paused or not stream.has_full_frame():
+                        next_deadline = None
 
-                if len(stream.buffer) >= frame_bytes:
+                    await stream.cond.wait_for(lambda: (
+                        stream.shutdown or (not stream.paused and stream.has_full_frame())
+                    ))
+
+                    if stream.shutdown:
+                        break
+
+                    frame_bytes = stream.frame_bytes
                     chunk = bytes(stream.buffer[:frame_bytes])
                     del stream.buffer[:frame_bytes]
-                    await self.publisher.publish_audio_chunk(chunk)
-                    logger.debug(
-                        "PUBLISHED id=%s stream=%s buf_after=%d",
-                        stream.id, stream.key, len(stream.buffer)
-                    )
 
-                    now = time.monotonic()
-                    interval = self.config.frame_ms / 1000
-                    next_deadline = (now + interval) if next_deadline is None else next_deadline + interval
-                    sleep_for = next_deadline - time.monotonic()
-                    if sleep_for > 0:
-                        await asyncio.sleep(sleep_for)
-                    continue
+                await self.publisher.publish_audio_chunk(chunk)
+                now = time.monotonic()
+                if next_deadline is None:
+                    next_deadline = now + interval
+                else:
+                    next_deadline += interval
+                    if next_deadline < now - interval:
+                        next_deadline = now + interval
 
-                if stream.done:
-                    break
-
-                stream.data_ready.clear()
-                await stream.data_ready.wait()
+                sleep_for = next_deadline - time.monotonic()
+                if sleep_for > 0:
+                    await asyncio.sleep(sleep_for)
+                else:
+                    next_deadline = None
         except asyncio.CancelledError:
             raise
         finally:
             stream.task = None
-            logger.info(f"Playout loop completed {stream.key}")
+            logger.info("Playout loop completed %s", stream.id)

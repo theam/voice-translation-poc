@@ -15,10 +15,14 @@ class PlayoutStream:
     frame_bytes: int
     fmt: AudioFormat
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    done: bool = False
+    paused: bool = False
+    shutdown: bool = False
     task: Optional[asyncio.Task] = None
-    data_ready: asyncio.Event = field(default_factory=asyncio.Event)
+    cond: asyncio.Condition = field(default_factory=asyncio.Condition)
     resampler: Optional[StreamingPcmResampler] = None
+
+    def has_full_frame(self) -> bool:
+        return self.frame_bytes > 0 and len(self.buffer) >= self.frame_bytes
 
 
 class PlayoutStore:

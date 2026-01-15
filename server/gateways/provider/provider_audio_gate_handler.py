@@ -108,13 +108,14 @@ class ProviderAudioGateHandler(Handler):
             # 1. Pause the downstream handler (stops consuming from gated_audio_bus)
             await self._gated_bus.pause(self._downstream_handler_name)
             logger.info(
-                "Barge-in PAUSE: downstream handler paused session=%s mode=%s",
+                "PAUSE(%s): downstream handler paused session=%s mode=%s",
+                self._gate_mode.value,
                 self._session_id,
                 self._gate_mode.value
             )
 
             if self._gate_mode.is_pause_and_drop():
-                await self._drop_all_playout_streams()
+                await self._clear_all_playout_streams()
             elif self._gate_mode.is_pause_and_buffer():
                 await self._pause_all_playout_streams()
 
@@ -132,25 +133,20 @@ class ProviderAudioGateHandler(Handler):
             if self._gate_mode.is_pause_and_drop():
                 cleared = await self._gated_bus.clear(self._downstream_handler_name)
                 logger.info(
-                    "Barge-in DROP: cleared %d queued events session=%s",
+                    "DROP(%s): cleared %d queued events session=%s",
+                    self._gate_mode.value,
                     cleared,
                     self._session_id
                 )
 
             # Resume the downstream handler (starts consuming from bus queue)
             await self._gated_bus.resume(self._downstream_handler_name)
-
-            if self._gate_mode.is_pause_and_buffer():
-                logger.info(
-                    "Barge-in RESUME: downstream handler resumed, draining buffer session=%s",
-                    self._session_id
-                )
-            elif self._gate_mode.is_pause_and_drop():
-                logger.info(
-                    "Barge-in RESUME: downstream handler resumed after drop session=%s",
-                    self._session_id
-                )
-
+            await self._resume_all_playout_streams()
+            logger.info(
+                "RESUME(%s): downstream handler and playout resumed session=%s",
+                self._gate_mode.value,
+                self._session_id
+            )
         except KeyError as e:
             logger.error(
                 "Failed to resume handler session=%s: %s",
@@ -173,20 +169,28 @@ class ProviderAudioGateHandler(Handler):
             self._session_id
         )
 
-    async def _drop_all_playout_streams(self) -> None:
+    async def _clear_all_playout_streams(self) -> None:
         """Drop all active playout streams and clear their buffers."""
         streams = list(self._playout_store.keys())
         for stream_key in streams:
             stream = self._playout_store.get(stream_key)
             if stream:
-                await self._playout_engine.stop(stream)  # cancels, marks done, etc.
-                self._playout_store.remove(stream_key)
+                await self._playout_engine.pause(stream)
+                await self._playout_engine.clear(stream)
 
         logger.info(
             "Dropped %d playout streams session=%s",
             len(streams),
             self._session_id
         )
+
+    async def _resume_all_playout_streams(self) -> None:
+        """Resume all paused playout streams."""
+        streams = list(self._playout_store.keys())
+        for stream_key in streams:
+            stream = self._playout_store.get(stream_key)
+            if stream:
+                await self._playout_engine.resume(stream)
 
     async def shutdown(self) -> None:
         """Cleanup on session teardown."""

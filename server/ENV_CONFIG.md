@@ -32,6 +32,18 @@ Where:
 | `system.port` | `VT_SYSTEM_PORT` | `9000` |
 | `system.log_level` | `VT_SYSTEM_LOG_LEVEL` | `DEBUG` |
 | `system.log_wire` | `VT_SYSTEM_LOG_WIRE` | `true` |
+| `system.gate_queue_max` | `VT_SYSTEM_GATE_QUEUE_MAX` | `10000` |
+| `system.gate_overflow_policy` | `VT_SYSTEM_GATE_OVERFLOW_POLICY` | `DROP_OLDEST` |
+| `system.silence_rms_threshold` | `VT_SYSTEM_SILENCE_RMS_THRESHOLD` | `100.0` |
+| `system.voice_hysteresis_ms` | `VT_SYSTEM_VOICE_HYSTERESIS_MS` | `500` |
+| `system.silence_timeout_ms` | `VT_SYSTEM_SILENCE_TIMEOUT_MS` | `550` |
+| `system.frame_ms` | `VT_SYSTEM_FRAME_MS` | `20` |
+| `system.min_state_hold_ms` | `VT_SYSTEM_MIN_STATE_HOLD_MS` | `200` |
+| `system.voice_on_rms` | `VT_SYSTEM_VOICE_ON_RMS` | `250.0` |
+| `system.voice_off_rms` | `VT_SYSTEM_VOICE_OFF_RMS` | `180.0` |
+| `system.rms_ema_alpha` | `VT_SYSTEM_RMS_EMA_ALPHA` | `0.2` |
+| `system.vote_window_ms` | `VT_SYSTEM_VOTE_WINDOW_MS` | `300` |
+| `system.vote_required_ratio` | `VT_SYSTEM_VOTE_REQUIRED_RATIO` | `0.6` |
 | `system.default_provider` | `VT_SYSTEM_DEFAULT_PROVIDER` | `voicelive` |
 | `buffering.ingress_queue_max` | `VT_BUFFERING_INGRESS_QUEUE_MAX` | `5000` |
 | `dispatch.batching.enabled` | `VT_DISPATCH_BATCHING_ENABLED` | `false` |
@@ -187,6 +199,18 @@ Create a `.env` file for local development:
 VT_SYSTEM_LOG_LEVEL=DEBUG
 VT_SYSTEM_LOG_WIRE=true
 VT_SYSTEM_LOG_WIRE_DIR=logs/server
+VT_SYSTEM_GATE_QUEUE_MAX=10000
+VT_SYSTEM_GATE_OVERFLOW_POLICY=DROP_OLDEST
+VT_SYSTEM_SILENCE_RMS_THRESHOLD=100.0
+VT_SYSTEM_VOICE_HYSTERESIS_MS=500
+VT_SYSTEM_SILENCE_TIMEOUT_MS=550
+VT_SYSTEM_FRAME_MS=20
+VT_SYSTEM_MIN_STATE_HOLD_MS=200
+VT_SYSTEM_VOICE_ON_RMS=250.0
+VT_SYSTEM_VOICE_OFF_RMS=180.0
+VT_SYSTEM_RMS_EMA_ALPHA=0.2
+VT_SYSTEM_VOTE_WINDOW_MS=300
+VT_SYSTEM_VOTE_REQUIRED_RATIO=0.6
 
 # Buffering Configuration
 VT_BUFFERING_INGRESS_QUEUE_MAX=5000

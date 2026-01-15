@@ -8,8 +8,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from ...config import BatchingConfig, LOG_EVERY_N_ITEMS
-from ...audio import Base64AudioCodec, PcmConverter
+from ...config import Config, LOG_EVERY_N_ITEMS
+from ...audio import Base64AudioCodec, AudioFormat, PcmUtils
 from ...models.gateway_input_event import GatewayInputEvent
 from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderInputEvent
@@ -35,24 +35,23 @@ class ParticipantState:
 class AudioMessageHandler:
     """Consumes audio envelopes, buffers audio, and dispatches to provider."""
 
-    SILENCE_RMS_THRESHOLD = 50.0
-
     def __init__(
         self,
         provider_outbound_bus: EventBus,
-        batching_config: BatchingConfig,
-        session_metadata: Optional[Dict[str, Any]] = None,
-        pcm_converter: Optional[PcmConverter] = None,
+        config: Config,
+        session_metadata: Optional[Dict[str, Any]],
+        pcm_utils: Optional[PcmUtils] = None,
         input_state: Optional[InputState] = None,
     ):
         self._provider_outbound_bus = provider_outbound_bus
-        self._batching_config = batching_config
-        self._session_metadata = session_metadata or {}
-        self._pcm_converter = pcm_converter or PcmConverter()
+        self._batching_config = config.dispatch.batching
+        self._session_metadata = session_metadata
+        self._pcm_utils = pcm_utils
         self._input_state = input_state
         self._buffers: Dict[AudioKey, List[bytes]] = defaultdict(list)
         self._participant_state: Dict[AudioKey, ParticipantState] = defaultdict(ParticipantState)
         self._lock = asyncio.Lock()
+        self._silence_rms_threshold = config.system.silence_rms_threshold
 
         # Commit tracking for periodic logging
         self._commit_count = 0
@@ -163,14 +162,12 @@ class AudioMessageHandler:
         # Create AudioRequest and publish to provider_outbound_bus
         payload = event.payload or {}
         audio_data = payload.get("audiodata") or {}
-        participant_id = None
         timestamp_utc = event.received_at_utc
-        if isinstance(audio_data, dict):
-            participant_id = audio_data.get("participantrawid")
-            timestamp_utc = audio_data.get("timestamp") or timestamp_utc
-        rms = self._pcm_converter.rms_pcm16(raw_audio, self._resolve_channels())
-        is_silence = rms < self.SILENCE_RMS_THRESHOLD
-        await self._update_input_state(is_silence, participant_id)
+        participant_id = audio_data.get("participantrawid")
+        timestamp_utc = audio_data.get("timestamp") or timestamp_utc
+
+        is_silence, rms = self._calculate_silence(raw_audio)
+        await self._update_input_state(rms, participant_id)
         audio_b64 = Base64AudioCodec.encode(raw_audio)
         request = ProviderInputEvent(
             commit_id=commit_id,
@@ -181,7 +178,6 @@ class AudioMessageHandler:
                 "timestamp_utc": timestamp_utc,
                 "message_id": event.event_id,
                 "rms_pcm16": rms,
-                "is_silence": is_silence,
             },
         )
 
@@ -207,15 +203,12 @@ class AudioMessageHandler:
 
         await self._provider_outbound_bus.publish(request)
 
-    async def _update_input_state(self, is_silence: bool, participant_id: Optional[str]) -> None:
+    async def _update_input_state(self, rms: float, participant_id: Optional[str]) -> None:
         if not self._input_state:
             return
         now_ms = MonotonicClock.now_ms()
         old_status = self._input_state.status
-        if is_silence:
-            transitioned = await self._input_state.on_silence_detected(now_ms)
-        else:
-            transitioned = await self._input_state.on_voice_detected(now_ms)
+        transitioned = await self._input_state.update(now_ms, rms)
         if transitioned:
             logger.info(
                 "input_state_changed from=%s to=%s participant_id=%s",
@@ -223,6 +216,23 @@ class AudioMessageHandler:
                 self._input_state.status,
                 participant_id,
             )
+
+    def _calculate_silence(self, pcm_bytes: bytes) -> tuple[bool, float]:
+        if not pcm_bytes:
+            return True, 0.0
+
+        audio_state = self._session_metadata.get("acs_audio", {})
+        audio_format = audio_state.get("audio_format")
+
+        if not isinstance(audio_format, AudioFormat):
+            logger.warning("Missing ACS audio_format in session metadata; treating as silence %s", self._session_metadata)
+            return True, 0.0
+
+        if self._pcm_utils is None:
+            self._pcm_utils = PcmUtils(audio_format)
+
+        rms = self._pcm_utils.rms_pcm16(pcm_bytes)
+        return rms < self._silence_rms_threshold, rms
 
     async def shutdown(self) -> None:
         """Cancel all idle timers and cleanup state."""
