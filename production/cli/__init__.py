@@ -10,7 +10,7 @@ import typer
 from production.cli.calibrate import calibrate_async
 from production.cli.generate_report import generate_report_async
 from production.cli.replay import replay_async
-from production.cli.export_audio import export_audio_async
+from production.cli.export_audio import export_audio_async, export_audio_batch_async
 from production.cli.run_test import run_test_async
 from production.cli.run_suite import run_suite_async
 from production.cli.reset_db import reset_db_async
@@ -138,6 +138,12 @@ def export_audio(
         "-o",
         help="Output WAV file path (defaults to wire_log_path.wav)"
     ),
+    direction: str = typer.Option(
+        "all",
+        "--direction",
+        "-d",
+        help="Audio direction to export: inbound, outbound, or all",
+    ),
 ) -> None:
     """Export wire log audio to WAV file.
 
@@ -149,10 +155,22 @@ def export_audio(
         poetry run prod export-audio logs/server/acs_server_UUID.jsonl
         poetry run prod export-audio logs/server/acs_server_UUID.jsonl -o output.wav
     """
-    asyncio.run(export_audio_async(
-        wire_log_path=wire_log_path,
-        output_path=output
-    ))
+    direction = direction.lower()
+    if direction not in {"inbound", "outbound", "all"}:
+        raise typer.BadParameter("direction must be one of: inbound, outbound, all")
+
+    if wire_log_path.is_dir():
+        asyncio.run(export_audio_batch_async(
+            wire_log_dir=wire_log_path,
+            output_dir=output,
+            direction=direction,
+        ))
+    else:
+        asyncio.run(export_audio_async(
+            wire_log_path=wire_log_path,
+            output_path=output,
+            direction=direction,
+        ))
 
 
 @app.command("generate-report")
