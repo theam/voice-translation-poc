@@ -17,6 +17,7 @@ class OutboundAudioBytesEvent:
     # Optional metadata
     sample_rate_hz: Optional[int] = None
     channels: Optional[int] = None
+    sequence_number: Optional[int] = None
 
 
 @dataclass(slots=True)

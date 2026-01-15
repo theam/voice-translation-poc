@@ -7,8 +7,8 @@ from ...core.event_bus import EventBus
 from ...models.provider_events import ProviderOutputEvent
 from ..base import Handler, HandlerSettings
 from .audio import AcsAudioPublisher, PacedPlayoutEngine, PlayoutStore
-from .audio_delta_handler import AudioDeltaHandler
 from .audio_done_handler import AudioDoneHandler
+from .call_outbound_renderer import ProviderAudioBufferingHandler
 from .control_handler import ControlHandler
 from ...config import LOG_EVERY_N_ITEMS
 from .transcript_delta_handler import TranscriptDeltaHandler
@@ -27,6 +27,7 @@ class ProviderOutputHandler(Handler):
     def __init__(
         self,
         settings: HandlerSettings,
+        session_id: str,
         acs_outbound_bus: EventBus,
         provider_audio_bus: EventBus,
         translation_settings: Dict[str, Any],
@@ -38,6 +39,7 @@ class ProviderOutputHandler(Handler):
     ):
         super().__init__(settings)
         self.acs_outbound_bus = acs_outbound_bus
+        self.session_id = session_id
         self.provider_audio_bus = provider_audio_bus
         self.translation_settings = translation_settings
         self.session_metadata = session_metadata
@@ -46,18 +48,19 @@ class ProviderOutputHandler(Handler):
         self._received_count = 0
 
         # Create specialized handlers
-        self.audio_delta_handler = AudioDeltaHandler(
-            provider_audio_bus=provider_audio_bus,
+        self.audio_buffer_handler = ProviderAudioBufferingHandler(
+            call_id=session_id,
+            outbound_bus=provider_audio_bus,
             session_metadata=session_metadata,
             provider_capabilities=provider_capabilities,
         )
         self.audio_done_handler = AudioDoneHandler(
-            audio_delta_handler=self.audio_delta_handler,
+            audio_buffer_handler=self.audio_buffer_handler,
             provider_audio_bus=provider_audio_bus,
         )
         self.control_handler = ControlHandler(
             acs_outbound_bus=acs_outbound_bus,
-            audio_delta_handler=self.audio_delta_handler,
+            audio_buffer_handler=self.audio_buffer_handler,
             playout_store=playout_store,
             playout_engine=playout_engine,
         )
@@ -70,7 +73,7 @@ class ProviderOutputHandler(Handler):
 
         # List of handlers to check in order
         self._handlers = [
-            self.audio_delta_handler,
+            self.audio_buffer_handler,
             self.audio_done_handler,
             self.control_handler,
             self.transcript_delta_handler,

@@ -216,6 +216,7 @@ class SessionPipeline:
                 queue_max=self.config.buffering.egress_queue_max,
                 overflow_policy=str(self.config.buffering.overflow_policy)
             ),
+            session_id=self.session_id,
             acs_outbound_bus=self.acs_outbound_bus,
             provider_audio_bus=self.provider_audio_bus,
             translation_settings=self.translation_settings,
@@ -334,6 +335,9 @@ class SessionPipeline:
         # Shutdown translation handler
         if self._translation_handler:
             await self._translation_handler.shutdown()
+
+        if self._provider_output_handler:
+            await self._provider_output_handler.audio_buffer_handler.renderer.stop()
 
         # Shutdown provider
         if self.provider_adapter:
